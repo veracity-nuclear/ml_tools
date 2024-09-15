@@ -1,0 +1,79 @@
+[build-system]
+requires = ["setuptools >= 61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ml_tools"
+version = "0.0.1"
+authors = [
+  { name="Benjamin Collins", email="ben.collins@veracitynuclear.com" },
+  { name="Cole Gentry", email="cole.gentry@veracitynuclear.com" }
+]
+description = "A collection of Machine Learning tools for various Nuclear Reactor Applications"
+readme = "README.md"
+keywords = []
+requires-python = ">=3.9"
+license = {text = "TBD"}
+classifiers = [
+    'Development Status :: 3 - Alpha',
+    'Programming Language :: Python :: 3',
+    'Operating System :: OS Independent',
+]
+dependencies = [
+    'tensorflow',
+    'keras',
+    'numpy',
+    'h5py',
+    'scikit-learn',
+    'scipy',
+    'lightgbm',
+    'matplotlib',
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pylint",
+    "black",
+]
+test = [
+    "pytest",
+    "pylint",
+]
+
+[project.urls]
+Homepage = "https://github.com/veracity-nuclear/ml_tools"
+Issues = "https://github.com/veracity-nuclear/ml_tools/issues"
+
+[tool.pylint.'messages control']
+disable = [
+    "chained-comparison",
+    "broad-exception-raised",
+    "broad-exception-caught",
+    "dangerous-default-value",
+    "duplicate-code",
+    "eval-used",
+    "fixme",
+    "invalid-name",
+    "missing-module-docstring",
+    "missing-function-docstring",
+    "pointless-string-statement",
+    "redefined-outer-name",
+    "too-few-public-methods",
+    "too-many-lines",
+    "too-many-locals",
+    "too-many-branches",
+    "too-many-ancestors",
+    "too-many-arguments",
+    "too-many-statements",
+    "too-many-nested-blocks",
+    "too-many-instance-attributes",
+    "unspecified-encoding",
+    "unused-variable"
+]
+
+[tool.pylint.'format']
+max-line-length = 127
+
+[tool.black]
+line-length = 127
