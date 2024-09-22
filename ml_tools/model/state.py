@@ -66,7 +66,9 @@ class State(object):
 
             state_data = {}
             for feature in features:
-                state_data[feature] = h5_file[state][feature][()]
+                data                = h5_file[state][feature][()]
+                feature             = os.path.basename(feature)
+                state_data[feature] = data
                 if np.isscalar(state_data[feature]):
                     state_data[feature] = np.array([state_data[feature]])
                 else:
