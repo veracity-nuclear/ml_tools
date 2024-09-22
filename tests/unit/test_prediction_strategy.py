@@ -9,8 +9,8 @@ from ml_tools.model.nn_strategy import NNStrategy
 from ml_tools.model.feature_processor import MinMaxNormalize, NoProcessing
 
 input_features = {'average_exposure' : MinMaxNormalize(0., 45.),
-                  'num_gad_rods'         : MinMaxNormalize(0., 12.),
-                  'is_refl'              : NoProcessing()}
+                  'num_gad_rods'     : MinMaxNormalize(0., 12.),
+                  'is_refl'          : NoProcessing()}
 output_feature = "cips_index"
 
 data_file                          = os.path.dirname(__file__)+"/test_data.h5"
