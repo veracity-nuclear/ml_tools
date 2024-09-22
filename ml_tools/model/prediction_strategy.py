@@ -61,7 +61,7 @@ class PredictionStrategy(ABC):
 
     @abstractmethod
     def train(self, states: List[State], num_procs: int = 1) -> None:
-        """ The method that trains the CIPS Index prediction strategy given a set of training data (i.e. List of States)
+        """ The method that trains the prediction strategy given a set of training data (i.e. List of States)
 
         Parameters
         ----------
@@ -81,32 +81,32 @@ class PredictionStrategy(ABC):
 
     @abstractmethod
     def _predict_one(self, state: State) -> float:
-        """ The method that predicts biased CIPS index
+        """ The method that predicts biased output
 
         Parameters
         ----------
         state : State
-            The input state at which to predict the biased CIPS index
+            The input state at which to predict the biased output
 
         Returns
         -------
         float
-            The biased CIPS index
+            The biased output
         """
         pass
 
     def _predict_all(self, states: List[State]) -> List[float]:
-        """ The method that approximates the biased CIPS Index corresponding to a list of states
+        """ The method that approximates the biased output corresponding to a list of states
 
         Parameters
         ----------
         states : List[State]
-            The input states at which to predict the biased CIPS index
+            The input states at which to predict the biased output
 
         Returns
         -------
         List[float]
-            The biased CIPS index for each state
+            The biased output for each state
         """
         return [self._predict_one(state) for state in states]
 
