@@ -293,7 +293,7 @@ class GBMStrategy(PredictionStrategy):
         file_name : str
             The name of the file to export the model to
         """
-        lgbm_name = file_name + ".lgbm"
+        lgbm_name = file_name.removesuffix(".h5") + ".lgbm" if file_name.endswith(".h5") else file_name + ".lgbm"
         file_name = file_name if file_name.endswith(".h5") else file_name + ".h5"
 
         self._gbm.save_model(lgbm_name)
@@ -313,7 +313,7 @@ class GBMStrategy(PredictionStrategy):
         file_name : str
             The name of the file to load the model from
         """
-        lgbm_name = file_name + ".lgbm"
+        lgbm_name = file_name.removesuffix(".h5") + ".lgbm" if file_name.endswith(".h5") else file_name + ".lgbm"
         file_name = file_name if file_name.endswith(".h5") else file_name + ".h5"
 
         assert(os.path.exists(file_name))

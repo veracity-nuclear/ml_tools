@@ -68,9 +68,9 @@ def test_gbm_strategy():
 
     assert(isclose(state.feature("cips_index"), cips_calculator.predict([state])[0], abs_tol=1E-5))
 
-    cips_calculator.save_model('test_nn_model.h5')
+    cips_calculator.save_model('test_gbm_model.h5')
 
-    new_cips_calculator = GBMStrategy.read_from_hdf5('test_nn_model.h5')
+    new_cips_calculator = GBMStrategy.read_from_hdf5('test_gbm_model.h5')
 
     assert new_cips_calculator.boosting_type          == cips_calculator.boosting_type
     assert new_cips_calculator.objective              == cips_calculator.objective
@@ -90,4 +90,5 @@ def test_gbm_strategy():
 
     assert(isclose(state.feature("cips_index"), new_cips_calculator.predict([state])[0], abs_tol=1E-5))
 
-    os.remove('test_nn_model.h5')
+    os.remove('test_gbm_model.h5')
+    os.remove('test_gbm_model.lgbm')
