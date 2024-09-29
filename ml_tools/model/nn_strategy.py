@@ -145,10 +145,10 @@ class NNStrategy(PredictionStrategy):
         self._nn = None
 
 
-    def train(self, states: List[State], num_procs: int = 1) -> None:
+    def train(self, train_states: List[State], test_states: List[State] = [], num_procs: int = 1) -> None:
 
-        X = self.preprocess_inputs(states, num_procs)
-        y = self._get_targets(states)
+        X = self.preprocess_inputs(train_states, num_procs)
+        y = self._get_targets(train_states)
 
         number_of_input_features = len(X[0])
 

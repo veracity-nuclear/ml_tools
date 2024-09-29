@@ -32,24 +32,23 @@ class PODStrategy(PredictionStrategy):
         super().__init__()
         self.input_feature      = {input_feature: NoProcessing()}
         self.predicted_feature  = predicted_feature
-        self._learning_fraction = learning_fraction
         self._map               = input_to_pred_map
         self._pod_mat           = None
 
 
-    def train(self, states: List[State], num_procs: int = 1) -> None:
+    def train(self, train_states: List[State], test_states: List[State] = [], num_procs: int = 1) -> None:
 
         input_feature  = self.input_feature.keys()[0]
         output_feature = self.predicted_feature
 
-        state = states[0]
+        state = train_states[0]
 
         assert self._map.shape[0] == len(state.feature(input_feature))
         assert all(len(row) == len(state.feature(output_feature)) for row in self._map)
         assert all(isclose(row.sum(), 1.) for row in self._map)
 
-        A = np.zeros((len(states[0].feature(output_feature)), len(states)))
-        for i, state in enumerate(states):
+        A = np.zeros((len(train_states[0].feature(output_feature)), len(train_states)))
+        for i, state in enumerate(train_states):
             A[:,i] = state.feature(self._predicted_feature)
 
         u, S, v = np.linalg.svd(A)

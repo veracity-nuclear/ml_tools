@@ -6,6 +6,7 @@ import numpy as np
 
 from ml_tools.model.state import State
 from ml_tools.model.nn_strategy import NNStrategy
+from ml_tools.model.gbm_strategy import GBMStrategy
 from ml_tools.model.feature_processor import MinMaxNormalize, NoProcessing
 
 input_features = {'average_exposure' : MinMaxNormalize(0., 45.),
@@ -46,14 +47,46 @@ def test_nn_strategy():
 
     new_cips_calculator = NNStrategy.read_from_hdf5('test_nn_model.h5')
 
-    assert(all(old_layer == new_layer for old_layer, new_layer in zip(cips_calculator.hidden_layers, new_cips_calculator.hidden_layers)))
-    assert(cips_calculator.input_features.keys() == new_cips_calculator.input_features.keys())
-    assert(all(new_cips_calculator.input_features[feature] == cips_calculator.input_features[feature] for feature in cips_calculator.input_features.keys()))
-    assert(new_cips_calculator.epoch_limit == cips_calculator.epoch_limit)
-    assert(new_cips_calculator.batch_size  == cips_calculator.batch_size)
-    assert(isclose(new_cips_calculator.initial_learning_rate, cips_calculator.initial_learning_rate))
-    assert(isclose(new_cips_calculator.learning_decay_rate,   cips_calculator.learning_decay_rate))
-    assert(isclose(new_cips_calculator.convergence_criteria,  cips_calculator.convergence_criteria))
+    assert all(old_layer == new_layer for old_layer, new_layer in zip(cips_calculator.hidden_layers, new_cips_calculator.hidden_layers))
+    assert cips_calculator.input_features.keys() == new_cips_calculator.input_features.keys()
+    assert all(new_cips_calculator.input_features[feature] == cips_calculator.input_features[feature] for feature in cips_calculator.input_features.keys())
+    assert new_cips_calculator.epoch_limit == cips_calculator.epoch_limit
+    assert new_cips_calculator.batch_size  == cips_calculator.batch_size
+    assert isclose(new_cips_calculator.initial_learning_rate, cips_calculator.initial_learning_rate)
+    assert isclose(new_cips_calculator.learning_decay_rate,   cips_calculator.learning_decay_rate)
+    assert isclose(new_cips_calculator.convergence_criteria,  cips_calculator.convergence_criteria)
+
+    assert isclose(state.feature("cips_index"), new_cips_calculator.predict([state])[0], abs_tol=1E-5)
+
+    os.remove('test_nn_model.h5')
+
+
+def test_gbm_strategy():
+
+    cips_calculator = GBMStrategy(input_features, output_feature)
+    cips_calculator.train([state]*5, [state]*5)
+
+    assert(isclose(state.feature("cips_index"), cips_calculator.predict([state])[0], abs_tol=1E-5))
+
+    cips_calculator.save_model('test_nn_model.h5')
+
+    new_cips_calculator = GBMStrategy.read_from_hdf5('test_nn_model.h5')
+
+    assert new_cips_calculator.boosting_type          == cips_calculator.boosting_type
+    assert new_cips_calculator.objective              == cips_calculator.objective
+    assert new_cips_calculator.metric                 == cips_calculator.metric
+    assert new_cips_calculator.num_leaves             == cips_calculator.num_leaves
+    assert new_cips_calculator.n_estimators           == cips_calculator.n_estimators
+    assert new_cips_calculator.max_depth              == cips_calculator.max_depth
+    assert new_cips_calculator.min_child_samples      == cips_calculator.min_child_samples
+    assert new_cips_calculator.verbose                == cips_calculator.verbose
+    assert new_cips_calculator.num_boost_round        == cips_calculator.num_boost_round
+    assert new_cips_calculator.stopping_rounds        == cips_calculator.stopping_rounds
+    assert isclose(new_cips_calculator.learning_rate,    cips_calculator.learning_rate)
+    assert isclose(new_cips_calculator.subsample,        cips_calculator.subsample)
+    assert isclose(new_cips_calculator.colsample_bytree, cips_calculator.colsample_bytree)
+    assert isclose(new_cips_calculator.reg_alpha,        cips_calculator.reg_alpha)
+    assert isclose(new_cips_calculator.reg_lambda,       cips_calculator.reg_lambda)
 
     assert(isclose(state.feature("cips_index"), new_cips_calculator.predict([state])[0], abs_tol=1E-5))
 

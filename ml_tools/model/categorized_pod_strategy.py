@@ -45,25 +45,25 @@ class CategorizedPODStrategy(PredictionStrategy):
             self._kmeans = KMeans(n_clusters=ncluster)
 
 
-    def train(self, states: List[State]) -> None:
+    def train(self, train_states: List[State], test_states: List[State] = []) -> None:
 
         input_feature  = self.input_feature.keys()[0]
         output_feature = self.predicted_feature
 
-        state = states[0]
+        state = train_states[0]
 
         assert self._map.shape[0] == len(state.feature(input_feature))
         assert all(len(row) == len(state.feature(output_feature)) for row in self._map)
         assert all(isclose(row.sum(), 1.) for row in self._map)
 
         if self._ncluster > 1:
-            X      = self.preprocess_inputs(states)
+            X      = self.preprocess_inputs(train_states)
             X_pca  = self._pca.fit_transform(X)
             labels = self._kmeans.fit_predict(X_pca)
             nlabel = np.bincount(labels)
         else:
-            labels = np.zeros(len(states), dtype=int)
-            nlabel = np.asarray([len(states)])
+            labels = np.zeros(len(train_states), dtype=int)
+            nlabel = np.asarray([len(train_states)])
 
         C = self._map
         nvec = self._map.shape[0]
@@ -74,9 +74,9 @@ class CategorizedPODStrategy(PredictionStrategy):
             if self._max_svd_size is not None and nlabel[k] > self._max_svd_size:
                 klabels = np.random.choice(klabels, size=self._max_svd_size, replace=False)
 
-            A = np.zeros((len(states[0].feature(output_feature)), len(klabels)))
+            A = np.zeros((len(train_states[0].feature(output_feature)), len(klabels)))
             for i, id in enumerate(klabels):
-                A[:,i] = states[id].feature(output_feature)
+                A[:,i] = train_states[id].feature(output_feature)
 
             u, S, v = np.linalg.svd(A)
 

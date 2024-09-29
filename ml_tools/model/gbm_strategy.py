@@ -47,8 +47,6 @@ class GBMStrategy(PredictionStrategy):
         Number of boosting iterations (see: https://lightgbm.readthedocs.io/en/stable/pythonapi/lightgbm.train.html)
     stopping_rounds : int
         The number of rounds the validation score must improve in for training to continue (see: https://lightgbm.readthedocs.io/en/stable/Python-Intro.html#early-stopping)
-    validation_sets : List[State]
-        The list of states to use as a validation set during training
     """
 
     @property
@@ -172,14 +170,6 @@ class GBMStrategy(PredictionStrategy):
         self._stopping_rounds = stopping_rounds
 
     @property
-    def validation_sets(self) -> List[State]:
-        return self._validation_sets
-
-    @validation_sets.setter
-    def validation_sets(self, validation_sets: List[State]) -> None:
-        self._validation_sets = validation_sets
-
-    @property
     def isTrained(self) -> bool:
         return self._gbm is not None
 
@@ -199,7 +189,9 @@ class GBMStrategy(PredictionStrategy):
                  colsample_bytree  : float = 0.8,
                  reg_alpha         : float = 0.0,
                  reg_lambda        : float = 0.0,
-                 verbose           : int = -1) -> None:
+                 verbose           : int = -1,
+                 num_boost_round   : int = 20,
+                 stopping_rounds   : int = 5) -> None:
 
         super().__init__()
 
@@ -221,20 +213,24 @@ class GBMStrategy(PredictionStrategy):
         self.reg_alpha          = reg_alpha
         self.reg_lambda         = reg_lambda
         self.verbose            = verbose
+        self.num_boost_round    = num_boost_round
+        self.stopping_rounds    = stopping_rounds
 
         self._gbm               = None
 
 
-    def train(self, states: List[State], num_procs: int = 1) -> None:
+    def train(self, train_states: List[State], test_states: List[State] = [], num_procs: int = 1) -> None:
 
-        X_train   = self.preprocess_inputs(states, num_procs)
-        y_train   = self._get_targets(states)
-
-        X_test    = self.preprocess_inputs(self.validation_sets, num_procs)
-        y_test    = self._get_targets(self.validation_sets)
-
+        X_train   = self.preprocess_inputs(train_states, num_procs)
+        y_train   = self._get_targets(train_states)
+        print(X_train, y_train)
         lgb_train = lgb.Dataset(X_train, y_train)
-        lgb_eval  = lgb.Dataset(X_test, y_test, reference=lgb_train)
+
+        lgb_eval  = None
+        if len(test_states) > 0:
+            X_test    = self.preprocess_inputs(test_states, num_procs)
+            y_test    = self._get_targets(test_states)
+            lgb_eval  = lgb.Dataset(X_test, y_test, reference=lgb_train)
 
         params = {"boosting_type"    : self.boosting_type,
                   "objective"        : self.objective,
@@ -252,9 +248,9 @@ class GBMStrategy(PredictionStrategy):
 
         self._gbm = lgb.train(params          = params,
                               train_set       = lgb_train,
-                              num_boost_round = 20,
+                              num_boost_round = self.num_boost_round,
                               valid_sets      = lgb_eval,
-                              callbacks       = [lgb.early_stopping(stopping_rounds=5)])
+                              callbacks       = [lgb.early_stopping(stopping_rounds=self.stopping_rounds)])
 
 
     def plot_importances(self, state: State) -> None:
