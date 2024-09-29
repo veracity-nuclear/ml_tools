@@ -1,119 +1,293 @@
-from typing import List, Type, TypeVar
+from __future__ import annotations
+from typing import List, Dict
 import os
 import numpy as np
+import pylab as plt
 import h5py
 from sklearn.model_selection import train_test_split
 import lightgbm as lgb
 
 from ml_tools.model.state import State
 from ml_tools.model.prediction_strategy import PredictionStrategy
-from ml_tools.model.feature_processor import NoProcessing
+from ml_tools.model.feature_processor import FeatureProcessor
 
-T = TypeVar('T', bound='GBMStrategy')
+
 class GBMStrategy(PredictionStrategy):
+    """ A concrete class for a Gradient-Boosting-based prediction strategy
+
+    Attributes
+    ----------
+    boosting_type : str
+        The boosting method to be used (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#boosting)
+    objective : str
+        The loss function to be used (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#objective)
+    metric : str
+        The metric to use when calculating the loss (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#metric)
+    num_leaves : int
+        The maximum number of leaves in one tree (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#num_leaves)
+    learning_rate: float
+        The learning / shrinkage rate (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#learning_rate)
+    n_estimators : int
+        Number of boosting iterations (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#num_iterations)
+    max_depth : int
+        The limit on the max depth for the tree model (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#max_depth)
+    min_child_samples : int
+        Minimum number of data in one leaf required to create a new leaf (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#min_data_in_leaf)
+    subsample : float
+        The fraction of the training data that is randomly sampled for each iteration / boosting round (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#bagging_fraction)
+    colsample_bytree : float
+        The fraction of features (columns) that are randomly selected and used for training each tree in the model (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#feature_fraction)
+    reg_alpha : float
+        The L1 regularization (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#lambda_l1)
+    reg_lambda : float
+        The L2 regularization (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#lambda_l2)
+    verbose : int
+        The level of LightGBM’s verbosity (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#verbosity)
+    num_boost_round : int
+        Number of boosting iterations (see: https://lightgbm.readthedocs.io/en/stable/pythonapi/lightgbm.train.html)
+    stopping_rounds : int
+        The number of rounds the validation score must improve in for training to continue (see: https://lightgbm.readthedocs.io/en/stable/Python-Intro.html#early-stopping)
+    validation_sets : List[State]
+        The list of states to use as a validation set during training
+    """
+
+    @property
+    def boosting_type(self) -> str:
+        return self._boosting_type
+
+    @boosting_type.setter
+    def boosting_type(self, boosting_type: str) -> None:
+        self._boosting_type = boosting_type
+
+    @property
+    def objective(self) -> str:
+        return self._objective
+
+    @objective.setter
+    def objective(self, objective: str) -> None:
+        self._objective = objective
+
+    @property
+    def metric(self) -> str:
+        return self._objective
+
+    @metric.setter
+    def metric(self, metric: str) -> None:
+        self._metric = metric
+
+    @property
+    def num_leaves(self) -> int:
+        return self._num_leaves
+
+    @num_leaves.setter
+    def num_leaves(self, num_leaves: int) -> None:
+        self._num_leaves = num_leaves
+
+    @property
+    def learning_rate(self) -> float:
+        return self._learning_rate
+
+    @learning_rate.setter
+    def learning_rate(self, learning_rate: float) -> None:
+        self._learning_rate = learning_rate
+
+    @property
+    def n_estimators(self) -> int:
+        return self._n_estimators
+
+    @n_estimators.setter
+    def n_estimators(self, n_estimators: int) -> None:
+        self._n_estimators = n_estimators
+
+    @property
+    def max_depth(self) -> int:
+        return self._max_depth
+
+    @max_depth.setter
+    def max_depth(self, max_depth: int) -> None:
+        self._max_depth = max_depth
+
+    @property
+    def min_child_samples(self) -> int:
+        return self._min_child_samples
+
+    @min_child_samples.setter
+    def min_child_samples(self, min_child_samples: int) -> None:
+        self._min_child_samples = min_child_samples
+
+    @property
+    def subsample(self) -> float:
+        return self._subsample
+
+    @subsample.setter
+    def subsample(self, subsample: float) -> None:
+        self._subsample = subsample
+
+    @property
+    def colsample_bytree(self) -> float:
+        return self._colsample_bytree
+
+    @colsample_bytree.setter
+    def colsample_bytree(self, colsample_bytree: float) -> None:
+        self._colsample_bytree = colsample_bytree
+
+    @property
+    def reg_alpha(self) -> float:
+        return self._reg_alpha
+
+    @reg_alpha.setter
+    def reg_alpha(self, reg_alpha: float) -> None:
+        self._reg_alpha = reg_alpha
+
+    @property
+    def reg_lambda(self) -> float:
+        return self._reg_lambda
+
+    @reg_lambda.setter
+    def reg_lambda(self, reg_lambda: float) -> None:
+        self._reg_lambda = reg_lambda
+
+    @property
+    def verbose(self) -> int:
+        return self._verbose
+
+    @verbose.setter
+    def verbose(self, verbose: int) -> None:
+        self._verbose = verbose
+
+    @property
+    def num_boost_round(self) -> int:
+        return self._num_boost_round
+
+    @num_boost_round.setter
+    def num_boost_round(self, num_boost_round: int) -> None:
+        self._num_boost_round = num_boost_round
+
+    @property
+    def stopping_rounds(self) -> int:
+        return self._stopping_rounds
+
+    @stopping_rounds.setter
+    def stopping_rounds(self, stopping_rounds: int) -> None:
+        self._stopping_rounds = stopping_rounds
+
+    @property
+    def validation_sets(self) -> List[State]:
+        return self._validation_sets
+
+    @validation_sets.setter
+    def validation_sets(self, validation_sets: List[State]) -> None:
+        self._validation_sets = validation_sets
+
     @property
     def isTrained(self) -> bool:
         return self._gbm is not None
 
-    """ A concrete class for a Gradient Boosing prediction strategy
 
-    Attributes
-    ----------
-    params : dict
-        Configuration parameters for LightGBM
-    test_fraction : float
-        Fraction of the training data that will be used for training: default = 0.2
-    """
-    def __init__(self, input_features, predicted_feature, params: dict = {}, test_fraction: float=0.2) -> None:
+    def __init__(self,
+                 input_features    : Dict[str, FeatureProcessor],
+                 predicted_feature : str,
+                 boosting_type     : str = "gbdt",
+                 objective         : str = "regression",
+                 metric            : str = "rmse",
+                 num_leaves        : int = 64,
+                 learning_rate     : float = 0.07,
+                 n_estimators      : int = 1000,
+                 max_depth         : int = 4,
+                 min_child_samples : int = 20,
+                 subsample         : float = 0.8,
+                 colsample_bytree  : float = 0.8,
+                 reg_alpha         : float = 0.0,
+                 reg_lambda        : float = 0.0,
+                 verbose           : int = -1) -> None:
 
         super().__init__()
+
         self._predicted_feature = predicted_feature
-        self._test_fraction = test_fraction
+        self._input_features    = input_features
 
-        self._params = {
-            "boosting_type": "gbdt",
-            "objective": "regression",
-            'metric': 'rmse',           # Use Root Mean Squared Error (RMSE) as the evaluation metric
-            'num_leaves': 64,           # Control the complexity of the tree model
-            'learning_rate': 0.07,      # Set the learning rate
-            'n_estimators': 1000,       # Number of boosting rounds or trees
-            'max_depth': 4,             # No limit on the depth of the trees
-            'min_child_samples': 20,    # Minimum number of samples required to create a new leaf node
-            'subsample': 0.8,           # Fraction of samples to be used for training each tree
-            'colsample_bytree': 0.8,    # Fraction of features to be used for training each tree
-            'reg_alpha': 0.0,           # L1 regularization term
-            'reg_lambda': 0.0,          # L2 regularization term
-            "verbose": -1,
-        }
-        #any changes in params will override the default
-        self._params.update(params)
+        self.input_features     = input_features
+        self.predicted_feature  = predicted_feature
+        self.boosting_type      = boosting_type
+        self.objective          = objective
+        self.metric             = metric
+        self.num_leaves         = num_leaves
+        self.learning_rate      = learning_rate
+        self.n_estimators       = n_estimators
+        self.max_depth          = max_depth
+        self.min_child_samples  = min_child_samples
+        self.subsample          = subsample
+        self.colsample_bytree   = colsample_bytree
+        self.reg_alpha          = reg_alpha
+        self.reg_lambda         = reg_lambda
+        self.verbose            = verbose
 
-        self._input_features = input_features
+        self._gbm               = None
 
-        self._gbm = None
 
     def train(self, states: List[State], num_procs: int = 1) -> None:
-        """ The method that approximates the output corresponding to a given input state
+
+        X_train   = self.preprocess_inputs(states, num_procs)
+        y_train   = self._get_targets(states)
+
+        X_test    = self.preprocess_inputs(self.validation_sets, num_procs)
+        y_test    = self._get_targets(self.validation_sets)
+
+        lgb_train = lgb.Dataset(X_train, y_train)
+        lgb_eval  = lgb.Dataset(X_test, y_test, reference=lgb_train)
+
+        params = {"boosting_type"    : self.boosting_type,
+                  "objective"        : self.objective,
+                  "metric"           : self.metric,
+                  "learning_rate"    : self.learning_rate,
+                  "n_estimators"     : self.n_estimators,
+                  "num_leaves"       : self.num_leaves,
+                  "max_depth"        : self.max_depth,
+                  "min_child_samples": self.min_child_samples,
+                  "subsample"        : self.subsample,
+                  "colsample_bytree" : self.colsample_bytree,
+                  "reg_alpha"        : self.reg_alpha,
+                  "reg_lambda"       : self.reg_lambda,
+                  "verbose"          : self.verbose}
+
+        self._gbm = lgb.train(params          = params,
+                              train_set       = lgb_train,
+                              num_boost_round = 20,
+                              valid_sets      = lgb_eval,
+                              callbacks       = [lgb.early_stopping(stopping_rounds=5)])
+
+
+    def plot_importances(self, state: State) -> None:
+        """ A method for plotting the importance of each input feature for a given state
 
         Parameters
         ----------
-        states : List[State]
-            A list of input states at which to train
+        state: State
+            The state to plot the input feature importance graph for
         """
-        X = self.preprocess_inputs(states, num_procs)
-        y = self._get_targets(states)
 
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=(self._test_fraction))
-
-        lgb_train = lgb.Dataset(X_train, y_train)
-        lgb_eval = lgb.Dataset(X_test, y_test, reference=lgb_train)
-
-        self._gbm  = lgb.train(
-                        self._params, lgb_train, num_boost_round=20, valid_sets=lgb_eval, callbacks=[lgb.early_stopping(stopping_rounds=5)]
-                     )
-
-    def plot_importances(self, state: State):
-        import pylab as plt
-        names = [feature for feature in self.input_features]
+        names               = [feature for feature in self.input_features]
         feature_importances = self._gbm.feature_importance().astype(float)
         feature_importances *= 100. / np.max(feature_importances)
+
         idx = np.argsort(feature_importances)[::-1]
         plt.barh([names[i] for i in idx[:20]][::-1], feature_importances[idx[:20]][::-1])
         plt.xlabel('Relative Feature Importance [%]')
         plt.show()
 
+
     def _predict_one(self, state: State) -> float:
-        """ The method that approximates the output corresponding to a given input state
 
-        Parameters
-        ----------
-        state : State
-            The input state at which to predict the output
-
-        Returns
-        -------
-        float
-            The output
-        """
         return self._predict_all([state])[0]
 
+
     def _predict_all(self, states: List[State]) -> List[float]:
-        """ The method that approximates the output corresponding to a given input state
 
-        Parameters
-        ----------
-        states : List[State]
-            The input states at which to predict the output
-
-        Returns
-        -------
-        List[float]
-            The output for each state
-        """
         assert(self.isTrained)
 
         X = self.preprocess_inputs(states)
         return self._gbm.predict(X, num_iteration=self._gbm.best_iteration)
+
 
     def save_model(self, file_name: str) -> None:
         """ A method for saving a trained model
@@ -133,6 +307,7 @@ class GBMStrategy(PredictionStrategy):
         with h5py.File(file_name, 'a') as h5_file:
             self.base_save_model(h5_file)
             h5_file.create_dataset('serialized_lgbm_file', data=file_data)
+
 
     def load_model(self, file_name: str) -> None:
         """ A method for loading a trained model
@@ -156,9 +331,10 @@ class GBMStrategy(PredictionStrategy):
 
         self._gbm = lgb.Booster(model_file=lgbm_name)
 
+
     @classmethod
-    def read_from_hdf5(cls: Type[T], file_name: str) -> Type[T]:
-        """ A basic factory method for building States from an HDF5 file
+    def read_from_hdf5(cls: GBMStrategy, file_name: str) -> GBMStrategy:
+        """ A basic factory method for building a GBM Strategy from an HDF5 file
 
         Parameters
         ----------
@@ -172,7 +348,7 @@ class GBMStrategy(PredictionStrategy):
         """
         assert(os.path.exists(file_name))
 
-        new_gbm = cls(None)
+        new_gbm = cls({}, None)
         new_gbm.load_model(file_name)
 
         return new_gbm
