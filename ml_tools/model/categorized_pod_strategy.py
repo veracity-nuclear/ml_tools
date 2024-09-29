@@ -30,6 +30,7 @@ class CategorizedPODStrategy(PredictionStrategy):
     """
     def __init__(self, input_feature: str, predicted_feature: str, input_to_pred_map: np.ndarray, ndim: int, ncluster: int, max_svd_size: int = None) -> None:
 
+        super().__init__()
         self.input_feature      = {input_feature: NoProcessing()}
         self.predicted_feature  = predicted_feature
         self._map               = input_to_pred_map

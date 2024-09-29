@@ -29,6 +29,7 @@ class PODStrategy(PredictionStrategy):
 
         assert len(input_feature) == 1
 
+        super().__init__()
         self.input_feature      = {input_feature: NoProcessing()}
         self.predicted_feature  = predicted_feature
         self._learning_fraction = learning_fraction

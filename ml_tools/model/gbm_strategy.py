@@ -25,6 +25,8 @@ class GBMStrategy(PredictionStrategy):
         Fraction of the training data that will be used for training: default = 0.2
     """
     def __init__(self, input_features, predicted_feature, params: dict = {}, test_fraction: float=0.2) -> None:
+
+        super().__init__()
         self._predicted_feature = predicted_feature
         self._test_fraction = test_fraction
 
@@ -59,7 +61,7 @@ class GBMStrategy(PredictionStrategy):
             A list of input states at which to train
         """
         X = self.preprocess_inputs(states, num_procs)
-        y = self._biased_prediction(states)
+        y = self._get_targets(states)
 
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=(self._test_fraction))
 
