@@ -7,13 +7,16 @@ import h5py
 from sklearn.model_selection import train_test_split
 import lightgbm as lgb
 
-from ml_tools.model.state import State
+from ml_tools.model.state import State, StateSeries
 from ml_tools.model.prediction_strategy import PredictionStrategy
 from ml_tools.model.feature_processor import FeatureProcessor
 
 
 class GBMStrategy(PredictionStrategy):
     """ A concrete class for a Gradient-Boosting-based prediction strategy
+
+    This prediction strategy is only intended for use with static State-Points, meaning
+    non-temporal series, or said another way, State Series with series lengths of one.
 
     Attributes
     ----------
@@ -219,18 +222,21 @@ class GBMStrategy(PredictionStrategy):
         self._gbm               = None
 
 
-    def train(self, train_states: List[State], test_states: List[State] = [], num_procs: int = 1) -> None:
+    def train(self, train_data: List[StateSeries], test_data: List[StateSeries] = [], num_procs: int = 1) -> None:
 
-        X_train   = self.preprocess_inputs(train_states, num_procs)
-        y_train   = self._get_targets(train_states)
-        print(X_train, y_train)
+        assert all(len(series) == 1 for series in train_data) # All State Series must be static statepoints (i.e. len(series) == 1)
+
+        X_train = self.preprocess_inputs(train_data, num_procs)[:,0,:]
+        y_train = self._get_targets(train_data)[:,0]
         lgb_train = lgb.Dataset(X_train, y_train)
 
         lgb_eval  = None
-        if len(test_states) > 0:
-            X_test    = self.preprocess_inputs(test_states, num_procs)
-            y_test    = self._get_targets(test_states)
-            lgb_eval  = lgb.Dataset(X_test, y_test, reference=lgb_train)
+        if len(test_data) > 0:
+            assert all(len(series) == 1 for series in test_data) # All State Series must be static statepoints (i.e. len(series) == 1)
+
+            X_test   = self.preprocess_inputs(test_data, num_procs)[:,0,:]
+            y_test   = self._get_targets(test_data)[:,0]
+            lgb_eval = lgb.Dataset(X_test, y_test, reference=lgb_train)
 
         params = {"boosting_type"    : self.boosting_type,
                   "objective"        : self.objective,
@@ -272,16 +278,17 @@ class GBMStrategy(PredictionStrategy):
         plt.show()
 
 
-    def _predict_one(self, state: State) -> float:
+    def _predict_one(self, state_series: StateSeries) -> float:
 
-        return self._predict_all([state])[0]
+        return self._predict_all([state_series])[0]
 
 
-    def _predict_all(self, states: List[State]) -> List[float]:
+    def _predict_all(self, state_series: List[StateSeries]) -> List[float]:
 
         assert(self.isTrained)
+        assert all(len(series) == 1 for series in state_series) # All State Series must be static statepoints (i.e. len(series) == 1)
 
-        X = self.preprocess_inputs(states)
+        X = self.preprocess_inputs(state_series)[:,0,:]
         return self._gbm.predict(X, num_iteration=self._gbm.best_iteration)
 
 

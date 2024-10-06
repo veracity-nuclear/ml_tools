@@ -4,7 +4,7 @@ from typing import List, Dict, Tuple, Type, TypeVar
 import numpy as np
 import h5py
 from concurrent.futures import ProcessPoolExecutor
-from ml_tools.model.state import State
+from ml_tools.model.state import State, StateSeries
 from ml_tools.model.feature_processor import FeatureProcessor, write_feature_processor, read_feature_processor
 
 
@@ -72,15 +72,15 @@ class PredictionStrategy(ABC):
 
 
     @abstractmethod
-    def train(self, train_states: List[State], test_states: List[State] = [], num_procs: int = 1) -> None:
-        """ The method that trains the prediction strategy given a set of training data (i.e. List of States)
+    def train(self, train_data: List[StateSeries], test_data: List[StateSeries] = [], num_procs: int = 1) -> None:
+        """ The method that trains the prediction strategy given a set of training data and testing data
 
         Parameters
         ----------
-        train_states : List[State]
-            The states to use for training
-        test_states : List[State]
-            The states to use for testing the trained model
+        train_data : List[StateSeries]
+            The state series to use for training
+        test_data : List[StateSeries]
+            The state series to use for testing the trained model
             (NOTE: not all prediction strategies will require providing training / testing data as part of training)
         num_procs : int
             The number of parallel processors to use when training
@@ -88,32 +88,35 @@ class PredictionStrategy(ABC):
         pass
 
 
-    def preprocess_inputs(self, states: List[State], num_procs: int = 1) -> np.ndarray:
-        """ Preprocesses all the input states into the processed input features of the model
+    def preprocess_inputs(self, state_series: List[StateSeries], num_procs: int = 1) -> np.ndarray:
+        """ Preprocesses all the input state series into the series of processed input features of the model
 
         Parameters
         ----------
-        states : List[State]
-            The list of states to be pre-processed into a collection of model inputs
+        state_series : List[StateSeries]
+            The list of state series to be pre-processed into a collection of model input series
         num_procs : int
             The number of parallel processors to use when processing the data
 
         Returns
         -------
         np.ndarray
-            The preprocessed collection of input features
+            The preprocessed collection of state series input features
         """
 
-        inputs = []
+        processed_inputs = []
 
-        for feature, processor in self.input_features.items():
-            feature_data = [state.feature(feature) for state in states]
-            feature_data = np.array_split(feature_data, num_procs)
-            with ProcessPoolExecutor(max_workers=num_procs) as executor:
-                processed_data = list(executor.map(processor.preprocess, feature_data))
-            inputs.append(np.vstack(processed_data))
+        for series in state_series:
+            series_inputs = []
+            for feature, processor in self.input_features.items():
+                feature_data = [state.feature(feature) for state in series]
+                feature_data = np.array_split(feature_data, num_procs)
+                with ProcessPoolExecutor(max_workers=num_procs) as executor:
+                    processed_data = list(executor.map(processor.preprocess, feature_data))
+                series_inputs.append(np.vstack(processed_data))
+            processed_inputs.append(np.hstack(series_inputs).tolist())
 
-        return np.hstack(inputs)
+        return np.asarray(processed_inputs)
 
 
     def base_save_model(self, h5_file: h5py.File) -> None:
@@ -149,29 +152,29 @@ class PredictionStrategy(ABC):
         self.input_features = input_features
 
 
-    def predict(self, states: List[State]) -> List[float]:
-        """ The method that approximates the predicted feature corresponding to a list of states
+    def predict(self, state_series: List[StateSeries]) -> List[List[float]]:
+        """ The method that approximates the predicted features corresponding to a list of state series
 
         Parameters
         ----------
-        states : List[State]
-            The input states at which to predict
+        state_series : List[StateSeries]
+            The input state series which to predict outputs for
 
         Returns
         -------
-        List[float]
-            The predicted feature for each state
+        List[List[float]]
+            The predicted features for each state in each series
         """
         assert self.isTrained
 
-        y = np.asarray(self._predict_all(states))
+        y = np.asarray(self._predict_all(state_series))
         if self.hasBiasingModel:
-            y += np.asarray(self.biasing_model.predict(states))
+            y += np.asarray(self.biasing_model.predict(state_series))
         return y.tolist()
 
 
-    def _predict_all(self, states: List[State]) -> List[float]:
-        """ The method that predicts the target values corresponding to the given states
+    def _predict_all(self, state_series: List[StateSeries]) -> np.ndarray:
+        """ The method that predicts the target values corresponding to the given state series
 
         Target value in this case refers either directly to the predicted feature if
         no bias model is present, or the error of the bias model, in the case that a
@@ -179,18 +182,18 @@ class PredictionStrategy(ABC):
 
         Parameters
         ----------
-        states : List[State]
-            The input states at which to predict the target value
+        state_series : List[StateSeries]
+            The input state series at which to predict the target value
 
         Returns
         -------
-        List[float]
-            The predicted target values for each state
+        np.ndarray
+            The predicted target values for each state in each series
         """
-        return [self._predict_one(state) for state in states]
+        return [self._predict_one(series) for series in state_series]
 
 
-    def _get_targets(self, states: List[State]) -> np.ndarray:
+    def _get_targets(self, state_series: List[StateSeries]) -> np.ndarray:
         """ The method that extracts the target values for each state for training
 
         Target value in this case refers either directly to the predicted feature if
@@ -199,24 +202,25 @@ class PredictionStrategy(ABC):
 
         Parameters
         ----------
-        states : List[State]
-            The states to extract / derive the target values from
+        state_series : List[StateSeries]
+            The state series to extract / derive the target values from
 
         Returns
         -------
         np.ndarray
-            The target values of each state to use in training
+            The target values of each state of each series to use in training
         """
-        y = np.array([state.feature(self.predicted_feature) for state in states])
+
+        targets = np.array([[state.feature(self.predicted_feature) for state in series] for series in state_series])
         if self.hasBiasingModel:
-            x = np.asarray(self.biasing_model.predict(states)).reshape(-1, 1)
-            y -= x
-        return y
+            bias = np.asarray(self.biasing_model.predict(state_series))
+            targets -= bias
+        return targets
 
 
     @abstractmethod
-    def _predict_one(self, state: State) -> float:
-        """ The method that predicts the target value corresponding to the given state
+    def _predict_one(self, state_series: StateSeries) -> np.ndarray:
+        """ The method that predicts the target values corresponding to the given state series
 
         Target value in this case refers either directly to the predicted feature if
         no bias model is present, or the error of the bias model, in the case that a
@@ -224,12 +228,12 @@ class PredictionStrategy(ABC):
 
         Parameters
         ----------
-        state : State
-            The input state at which to predict the target value
+        state_series : StateSeries
+            The input state series for which to predict the target values
 
         Returns
         -------
-        float
-            The predicted target value for the state
+        np.ndarray
+            The predicted target values for each state of the series
         """
         pass

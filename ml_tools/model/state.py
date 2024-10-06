@@ -7,7 +7,6 @@ import random
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from ml_tools.utils.status_bar import StatusBar
 
-
 class State(object):
     """ A class for storing and accessing generic state data
 
@@ -157,3 +156,6 @@ class State(object):
         if not silent: statusbar.finalize()
 
         return state_data
+
+# Defining a series of States as an order list
+StateSeries = List[State]
