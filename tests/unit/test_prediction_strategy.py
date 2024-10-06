@@ -7,6 +7,7 @@ import numpy as np
 from ml_tools.model.state import State
 from ml_tools.model.nn_strategy import NNStrategy
 from ml_tools.model.gbm_strategy import GBMStrategy
+from ml_tools.model.pod_strategy import PODStrategy
 from ml_tools.model.feature_processor import MinMaxNormalize, NoProcessing
 
 input_features = {'average_exposure' : MinMaxNormalize(0., 45.),
@@ -15,10 +16,26 @@ input_features = {'average_exposure' : MinMaxNormalize(0., 45.),
 output_feature = "cips_index"
 
 data_file                          = os.path.dirname(__file__)+"/test_data.h5"
-state                              = State.read_state_from_hdf5(data_file, 'set_000001', ["2d_assembly_exposure", "num_gad_rods", "outputs/cips_index"])
+state                              = State.read_state_from_hdf5(data_file, 'set_000001', ["2d_assembly_exposure", "num_gad_rods", "measured_rh_detector", "outputs/cips_index", "outputs/fine_detector"])
 state.features["average_exposure"] = np.nan_to_num(state.feature("2d_assembly_exposure"), nan=0.)
 state.features["num_gad_rods"]     = np.where(state.feature("num_gad_rods") == -1, 0., state.feature("num_gad_rods"))
 state.features["is_refl"]          = np.where(np.isnan(state.feature("2d_assembly_exposure")), 1., 0.)
+
+with h5py.File(data_file, 'r') as h5_file:
+    fine_mesh   = h5_file["mesh"]["fine_mesh"][()]
+    coarse_mesh = h5_file["mesh"]["rhodium_mesh"][()]
+
+fine_to_coarse_map = []
+for cm_min, cm_max in coarse_mesh:
+    row = np.zeros(len(fine_mesh) - 1)
+    for i in range(len(fine_mesh) - 1):
+        dx = fine_mesh[i+1] - fine_mesh[i]
+        if fine_mesh[i] >= cm_min and fine_mesh[i + 1] <= cm_max:
+            row[i] = dx
+    assert(np.sum(row) > 0.0)
+    row /= (cm_max - cm_min)
+    fine_to_coarse_map.append(row)
+
 
 
 def test_preprocess_inputs():
@@ -88,7 +105,15 @@ def test_gbm_strategy():
     assert isclose(new_cips_calculator.reg_alpha,        cips_calculator.reg_alpha)
     assert isclose(new_cips_calculator.reg_lambda,       cips_calculator.reg_lambda)
 
-    assert(isclose(state.feature("cips_index"), new_cips_calculator.predict([state])[0], abs_tol=1E-5))
+    assert isclose(state.feature("cips_index"), new_cips_calculator.predict([state])[0], abs_tol=1E-5)
 
     os.remove('test_gbm_model.h5')
     os.remove('test_gbm_model.lgbm')
+
+
+def test_pod_strategy():
+
+    cips_calculator = PODStrategy("measured_rh_detector", "fine_detector", np.asarray(fine_to_coarse_map))
+    cips_calculator.train([state]*100)
+
+    assert np.allclose(state.feature("fine_detector"), cips_calculator.predict([state])[0])

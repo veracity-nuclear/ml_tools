@@ -3,7 +3,6 @@ import numpy as np
 from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans
 from math import isclose
-from pyvera.utils.logger import log
 
 from ml_tools.model.state import State
 from ml_tools.model.feature_processor import NoProcessing
@@ -76,7 +75,7 @@ class PODStrategy(PredictionStrategy):
     def train(self, train_states: List[State], test_states: List[State] = [], num_procs: int = 1) -> None:
 
         self._pod_mat  = [None]*self.nclusters
-        input_feature  = self.input_feature.keys()[0]
+        input_feature  = self.input_feature
         output_feature = self.predicted_feature
         state          = train_states[0]
 
@@ -86,13 +85,16 @@ class PODStrategy(PredictionStrategy):
 
         # Setup of the PCA project and K-means clustering of the input feature based on the training samples
         if self.nclusters > 1:
-            ndims        = len(state.feature(input_feature)) if self.ndims is None else self.ndims
             self._kmeans = KMeans(n_clusters=self.nclusters)
-            self._pca    = PCA(n_components=ndims)
             X            = self.preprocess_inputs(train_states)
-            X_pca        = self._pca.fit_transform(X)
-            labels       = self._kmeans.fit_predict(X_pca)
-            nlabel       = np.bincount(labels)
+
+            if not(self.ndims is None):
+                self._pca = PCA(n_components=self.ndims)
+                X         = self._pca.fit_transform(X)
+
+            labels = self._kmeans.fit_predict(X)
+            nlabel = np.bincount(labels)
+
         else:
             labels = np.zeros(len(train_states), dtype=int)
             nlabel = np.asarray([len(train_states)])
@@ -124,10 +126,10 @@ class PODStrategy(PredictionStrategy):
 
         assert(self.isTrained)
         assert(not self.hasBiasingModel)
+
         if self.nclusters > 1:
-            X      = self.preprocess_inputs(states)
-            X_pca  = self._pca.transform(X)
-            labels = self._kmeans.predict(X_pca)
+            X      = self.preprocess_inputs(states) if self.ndims is None else self._pca.transform(self.preprocess_inputs(states))
+            labels = self._kmeans.predict(X)
         else:
             labels = [0]*len(states)
 
