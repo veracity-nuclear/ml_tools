@@ -9,70 +9,102 @@ from ml_tools.model.state import State
 from ml_tools.model.feature_processor import NoProcessing
 from ml_tools.model.prediction_strategy import PredictionStrategy
 
-#TODO: should this inherit from POD?
-class CategorizedPODStrategy(PredictionStrategy):
-    @property
-    def isTrained(self) -> bool:
-        return all(mat is not None for mat in self._pod_mat)
-
+class PODStrategy(PredictionStrategy):
     """ A concrete class for a categorized POD-based prediction strategy
+
+    This prediction strategy is a POD-based strategy that may use K-means clustering to
+    improve prediction accuracy by creating separate POD prediction models for the different
+    clusters of inputs.  The K-means clustering may further be enhanced with PCA, which will
+    project input feature vectors to a reduced dimensionality prior to clustering.  Simple
+    POD may be achieved by simply not providing either k-means clustering / PCA specifications.
 
     Attributes
     ----------
     input_feature : str
-        The state feature to use as the input feature
-    predicted_feature : str
-        The state feature to be predicted
-    input_to_pred_map : np.ndarray
+        The feature to use as input for this model.  Note: This strategy only allows one input feature and
+        this feature is expected to be a vector of floats
+    fine_to_coarse_map : np.ndarray
         The mapping that specifies the weights of the predicted feature "fine-mesh" signals to the
         input feature "coarse-mesh".  This should be an M-by-N matrix where M is the number of input feature
         values and N is the number of predicted feature values.  Each row of this matrix should sum to 1.0.
+    nclusters : int
+        The number of K-means clusters to create separate POD models for
+    max_svd_size : int
+        The maximum allowed number of training samples to use for the SVD of a cluster POD model
+    ndim : int
+        The number of dimensions to use for the input feature PCA projection
     """
-    def __init__(self, input_feature: str, predicted_feature: str, input_to_pred_map: np.ndarray, ndim: int, ncluster: int, max_svd_size: int = None) -> None:
+
+    @property
+    def input_feature(self) -> str:
+        return self._input_feature
+
+    @property
+    def fine_to_coarse_map(self) -> np.ndarray:
+        return self._fine_to_coarse_map
+
+    @property
+    def ndims(self) -> int:
+        return self._ndims
+
+    @property
+    def nclusters(self) -> int:
+        return self._nclusters
+
+    @property
+    def max_svd_size(self) -> int:
+        return self._max_svd_size
+
+    @property
+    def isTrained(self) -> bool:
+        return all(mat is not None for mat in self._pod_mat)
+
+    def __init__(self, input_feature: str, predicted_feature: str, fine_to_coarse_map: np.ndarray, nclusters: int = 1, max_svd_size: int = None, ndims: int = None) -> None:
 
         super().__init__()
-        self.input_feature      = {input_feature: NoProcessing()}
-        self.predicted_feature  = predicted_feature
-        self._map               = input_to_pred_map
-        self._ndim              = ndim
-        self._ncluster          = ncluster
-        self._max_svd_size      = max_svd_size
+        self.input_features      = {input_feature: NoProcessing()}
+        self.predicted_feature   = predicted_feature
+        self._input_feature      = input_feature
+        self._fine_to_coarse_map = fine_to_coarse_map
+        self._ndims              = ndims
+        self._nclusters          = nclusters
+        self._max_svd_size       = max_svd_size
 
-        self._pod_mat = [None]*ncluster
-
-        if ncluster > 1:
-            self._pca    = PCA(n_components=ndim)
-            self._kmeans = KMeans(n_clusters=ncluster)
+        self._pod_mat = None
 
 
-    def train(self, train_states: List[State], test_states: List[State] = []) -> None:
+    def train(self, train_states: List[State], test_states: List[State] = [], num_procs: int = 1) -> None:
 
+        self._pod_mat  = [None]*self.nclusters
         input_feature  = self.input_feature.keys()[0]
         output_feature = self.predicted_feature
+        state          = train_states[0]
 
-        state = train_states[0]
+        assert self.fine_to_coarse_map.shape[0] == len(state.feature(input_feature))
+        assert all(len(row) == len(state.feature(output_feature)) for row in self.fine_to_coarse_map)
+        assert all(isclose(row.sum(), 1.) for row in self.fine_to_coarse_map)
 
-        assert self._map.shape[0] == len(state.feature(input_feature))
-        assert all(len(row) == len(state.feature(output_feature)) for row in self._map)
-        assert all(isclose(row.sum(), 1.) for row in self._map)
-
-        if self._ncluster > 1:
-            X      = self.preprocess_inputs(train_states)
-            X_pca  = self._pca.fit_transform(X)
-            labels = self._kmeans.fit_predict(X_pca)
-            nlabel = np.bincount(labels)
+        # Setup of the PCA project and K-means clustering of the input feature based on the training samples
+        if self.nclusters > 1:
+            ndims        = len(state.feature(input_feature)) if self.ndims is None else self.ndims
+            self._kmeans = KMeans(n_clusters=self.nclusters)
+            self._pca    = PCA(n_components=ndims)
+            X            = self.preprocess_inputs(train_states)
+            X_pca        = self._pca.fit_transform(X)
+            labels       = self._kmeans.fit_predict(X_pca)
+            nlabel       = np.bincount(labels)
         else:
             labels = np.zeros(len(train_states), dtype=int)
             nlabel = np.asarray([len(train_states)])
 
-        C = self._map
-        nvec = self._map.shape[0]
+        C = self.fine_to_coarse_map
+        nvec = self.fine_to_coarse_map.shape[0]
 
-        #loop over clusters and
-        for k in range(self._ncluster):
+        # Create separate POD models for each cluster
+        for k in range(self.nclusters):
             klabels = np.where(labels == k)[0]
-            if self._max_svd_size is not None and nlabel[k] > self._max_svd_size:
-                klabels = np.random.choice(klabels, size=self._max_svd_size, replace=False)
+            if self.max_svd_size is not None and nlabel[k] > self.max_svd_size:
+                klabels = np.random.choice(klabels, size=self.max_svd_size, replace=False)
 
             A = np.zeros((len(train_states[0].feature(output_feature)), len(klabels)))
             for i, id in enumerate(klabels):
@@ -92,7 +124,7 @@ class CategorizedPODStrategy(PredictionStrategy):
 
         assert(self.isTrained)
         assert(not self.hasBiasingModel)
-        if self._ncluster > 1:
+        if self.nclusters > 1:
             X      = self.preprocess_inputs(states)
             X_pca  = self._pca.transform(X)
             labels = self._kmeans.predict(X_pca)
