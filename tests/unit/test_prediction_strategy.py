@@ -64,7 +64,7 @@ def test_nn_strategy():
 
     new_cips_calculator = NNStrategy.read_from_hdf5('test_nn_model.h5')
 
-    assert all(old_layer == new_layer for old_layer, new_layer in zip(cips_calculator.hidden_layers, new_cips_calculator.hidden_layers))
+    assert all(old_layer == new_layer for old_layer, new_layer in zip(cips_calculator.layers, new_cips_calculator.layers))
     assert cips_calculator.input_features.keys() == new_cips_calculator.input_features.keys()
     assert all(new_cips_calculator.input_features[feature] == cips_calculator.input_features[feature] for feature in cips_calculator.input_features.keys())
     assert new_cips_calculator.epoch_limit == cips_calculator.epoch_limit
