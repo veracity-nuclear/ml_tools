@@ -8,8 +8,10 @@ import h5py
 import numpy as np
 
 import tensorflow as tf
+from tensorflow.keras import KerasTensor
+import tensorflow.keras.layers
+from tensorflow.keras.saving import register_keras_serializable
 from tensorflow.keras.models import Model, load_model
-from tensorflow.keras.layers import Dense, Dropout
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.optimizers.schedules import ExponentialDecay
 from tensorflow.keras.losses import MeanSquaredError
@@ -51,13 +53,21 @@ class Layer(ABC):
 
 
     @abstractmethod
-    def build(self, input_shape: tf.Tensor) -> tf.Tensor:
+    def __eq__(self, other: Any) -> bool:
+        pass
+
+    @abstractmethod
+    def __hash__(self) -> int:
+        pass
+
+    @abstractmethod
+    def build(self, input_tensor: KerasTensor) -> KerasTensor:
         """ Method for constructing the layer
 
         Parameters
         ----------
-        input_shape : tf.Tensor
-            The input shape tensor for the layer
+        input_tensor : KerasTensor
+            The input tensor for the layer
         """
         pass
 
@@ -88,6 +98,173 @@ class Layer(ABC):
             The layer constructed from the HDF5 group
         """
         pass
+
+
+
+class LayerSequence(Layer):
+    """ A class for a sequence of layers
+
+    A layer sequence does not require a dropout rate specification because
+    this will be dictated by the final layer's dropout rate specification.
+    If a dropout rate is provided, it will be ignored in favor of the final
+    layer's dropout rate
+
+    Attributes
+    ----------
+    layers : List[Layer]
+        The list of layers that comprise the sequence
+    """
+
+    @property
+    def layers(self) -> List[Layer]:
+        return self._layers
+
+    @layers.setter
+    def layers(self, value: List[Layer]) -> None:
+        assert len(value) > 0
+        self._layers = value
+
+    def __init__(self, layers: List[Layer]) -> None:
+        super().__init__(0.0)
+        self.layers = layers
+
+    def __eq__(self, other: Any) -> bool:
+        if self is other:                                                                       return True
+        if not isinstance(other, LayerSequence):                                                return False
+        if not(len(self.layers) == len(other.layers)):                                          return False
+        if not(all(s_layer == o_layer for s_layer, o_layer in zip(self.layers, other.layers))): return False
+        return True
+
+    def __hash__(self) -> int:
+        return hash(tuple(self.layers))
+
+    def build(self, input_tensor: KerasTensor) -> KerasTensor:
+        x = input_tensor
+        for layer in self.layers:
+            x = layer.build(x)
+        return x
+
+    def save(self, group: h5py.Group) -> None:
+        group.create_dataset('type', data='LayerSequence', dtype=h5py.string_dtype())
+        for i, layer in enumerate(self.layers):
+            layer_group = group.create_group('layer_' + str(i))
+            layer.save(layer_group)
+
+    @classmethod
+    def from_h5(cls, group: h5py.Group) -> LayerSequence:
+        layers = []
+        layer_names = [key for key in group.keys() if key.startswith("layer_")]
+        layer_names = sorted(layer_names, key=lambda x: int(x.split('_')[1]))
+        for layer_name in layer_names:
+            layer_group = group[layer_name]
+            layer_type = layer_group['type'][()].decode('utf-8')
+            if   layer_type == 'Dense':         layers.append(Dense.from_h5(layer_group))
+            elif layer_type == 'LayerSequence': layers.append(LayerSequence.from_h5(layer_group))
+            elif layer_type == 'CompoundLayer': layers.append(CompoundLayer.from_h5(layer_group))
+        return cls(layers=layers)
+
+
+class CompoundLayer(Layer):
+    """ A class for compound / composite layers consisting layers that are executed in parallel
+
+    This class effectively splits the input into the layer across multiple layers which will
+    each execute in parallel and then merge their output at the end.
+
+    A compound layer does require a dropout rate on account of the merged outputs.  If any
+    of the composite layers are provided a drop out rate, said rate will be ignored in favor
+    of the compound layer's dropout rate.
+
+    Also, input features need not be "exclusive" to a given layer, but rather may be used by multiple
+    constituent layers.
+
+    Attributes
+    ----------
+    layers : List[Layer]
+        The list of constituent layers that will be executed in parallel
+    input_specifications : List[List[int]]
+        The list of input indices each layer should use to pull from the incoming input
+    """
+
+    @property
+    def layers(self) -> List[Layer]:
+        return self._layers
+
+    @property
+    def input_specifications(self) -> List[List[int]]:
+        return self._input_specifications
+
+    def __init__(self, layers: List[Layer], input_specifications: List[Union[slice, List[int]]], dropout_rate: float = 0.0) -> None:
+        super().__init__(dropout_rate)
+        assert len(layers) > 0
+        assert len(layers) == len(input_specifications)
+        assert all(not(spec.stop is None) for spec in input_specifications if isinstance(spec, slice)) # Input layer length is not known until at build
+        self._layers = layers
+
+        self._input_specifications = []
+        for specification in input_specifications:
+            if isinstance(specification, slice):
+                specification = list(range(specification.start if specification.start is not None else 0,
+                                           specification.stop,
+                                           specification.step  if specification.step is not None else 1))
+                self._input_specifications.append(specification)
+            else:
+                self._input_specifications.append(specification)
+
+    def __eq__(self, other: Any) -> bool:
+        if self is other:                                                                       return True
+        if not isinstance(other, CompoundLayer):                                                return False
+        if not(isclose(self.dropout_rate, other.dropout_rate)):                                 return False
+        if not(len(self.layers) == len(other.layers)):                                          return False
+        if not(all(s_layer == o_layer for s_layer, o_layer in zip(self.layers, other.layers))): return False
+        return True
+
+    def __hash__(self) -> int:
+        return hash((tuple(self.layers),
+                     tuple([tuple(specification) for specification in self.input_specifications]),
+                     self.dropout_rate))
+
+    def build(self, input_tensor: KerasTensor) -> KerasTensor:
+        @register_keras_serializable()
+        def gather_indices(x, indices):
+            return tf.gather(x, indices, axis=-1)
+
+        assert all(index < input_tensor.shape[1] for spec in self.input_specifications for index in spec)
+        split_inputs = [tensorflow.keras.layers.Lambda(gather_indices, arguments={'indices': indices})(input_tensor) for indices in self.input_specifications]
+
+        outputs = [layer.build(split) for layer, split in zip(self._layers, split_inputs)]
+
+        x = tensorflow.keras.layers.Concatenate(axis=-1)(outputs)
+
+        if self._dropout_rate > 0.0:
+            x = tf.keras.layers.Dropout(self._dropout_rate)(x)
+
+        return x
+
+
+    def save(self, group: h5py.Group) -> None:
+        group.create_dataset('type', data='CompoundLayer', dtype=h5py.string_dtype())
+        specs_array = np.array([np.array(inner, dtype=np.int32) for inner in self.input_specifications], dtype=object)
+        group.create_dataset('input_specifications', data=specs_array, dtype=h5py.vlen_dtype(np.int32))
+        for i, layer in enumerate(self.layers):
+            layer_group = group.create_group('layer_' + str(i))
+            layer.save(layer_group)
+        group.attrs['dropout_rate'] = self._dropout_rate
+
+
+    @classmethod
+    def from_h5(cls, group: h5py.Group) -> CompoundLayer:
+        input_specifications = [list(item) for item in group['input_specifications'][:]]
+        layers = []
+        layer_names = [key for key in group.keys() if key.startswith("layer_")]
+        layer_names = sorted(layer_names, key=lambda x: int(x.split('_')[1]))
+        for layer_name in layer_names:
+            layer_group = group[layer_name]
+            layer_type = layer_group['type'][()].decode('utf-8')
+            if   layer_type == 'Dense':         layers.append(Dense.from_h5(layer_group))
+            elif layer_type == 'LayerSequence': layers.append(LayerSequence.from_h5(layer_group))
+            elif layer_type == 'CompoundLayer': layers.append(CompoundLayer.from_h5(layer_group))
+        dropout_rate = group.attrs.get('dropout_rate', 0.0)
+        return cls(layers=layers, input_specifications=input_specifications, dropout_rate=dropout_rate)
 
 
 class Dense(Layer):
@@ -136,15 +313,15 @@ class Dense(Layer):
     def __hash__(self) -> int:
         return hash(tuple(sorted(self.__dict__.items())))
 
-    def build(self, input_shape: tf.Tensor) -> tf.Tensor:
-        x = tf.keras.layers.Dense(units=self._units, activation=self._activation)(input_shape)
+    def build(self, input_tensor: KerasTensor) -> KerasTensor:
+        x = tf.keras.layers.Dense(units=self._units, activation=self._activation)(input_tensor)
         if self._dropout_rate > 0.0:
             x = tf.keras.layers.Dropout(self._dropout_rate)(x)
         return x
 
     def save(self, group: h5py.Group) -> None:
-        group.create_dataset('dropout_rate'        , data=self.dropout_rate)
         group.create_dataset('type'                , data='Dense', dtype=h5py.string_dtype())
+        group.create_dataset('dropout_rate'        , data=self.dropout_rate)
         group.create_dataset('number_of_units'     , data=self.units)
         group.create_dataset('activation_function' , data=self.activation, dtype=h5py.string_dtype())
 
@@ -178,7 +355,7 @@ class NNStrategy(PredictionStrategy):
 
     Attributes
     ----------
-    layers : List[Layer]
+    layers : LayerSequence
         The hidden layers of the neural network
     initial_learning_rate : float
         The initial learning rate of the training
@@ -194,12 +371,11 @@ class NNStrategy(PredictionStrategy):
 
     @property
     def layers(self) -> List[Layer]:
-        return self._layers
+        return self._layer_sequence.layers
 
     @layers.setter
     def layers(self, layers: List[Layer]):
-        assert len(layers) > 0
-        self._layers = layers
+        self._layer_sequence = LayerSequence(layers)
 
     @property
     def initial_learning_rate(self) -> float:
@@ -257,8 +433,8 @@ class NNStrategy(PredictionStrategy):
                  layers                : List[Layer]=[Dense(units=5, activation='relu')],
                  initial_learning_rate : float=0.01,
                  learning_decay_rate   : float=1.,
-                 epoch_limit           : int=20,
-                 convergence_criteria  : float=1E-4,
+                 epoch_limit           : int=400,
+                 convergence_criteria  : float=1E-14,
                  batch_size            : int=32) -> None:
 
         super().__init__()
@@ -282,19 +458,17 @@ class NNStrategy(PredictionStrategy):
         X = self.preprocess_inputs(train_data, num_procs)[:,0,:]
         y = self._get_targets(train_data)[:,0]
 
-        input_shape = tf.keras.Input(shape=(len(X[0]),))
+        input_tensor = tf.keras.Input(shape=(len(X[0]),))
 
-        x = input_shape
-        for layer in self.layers:
-            x = layer.build(x)
+        x = self._layer_sequence.build(input_tensor)
         output = tf.keras.layers.Dense(1)(x)
 
-        self._model = tf.keras.Model(inputs=input_shape, outputs=output)
+        self._model = tf.keras.Model(inputs=input_tensor, outputs=output)
 
         learning_rate_schedule = ExponentialDecay(self.initial_learning_rate, decay_steps=self.epoch_limit, decay_rate=self.learning_decay_rate, staircase=True)
         self._model.compile(optimizer=Adam(learning_rate=learning_rate_schedule), loss=MeanSquaredError(), metrics=[MeanAbsoluteError()])
 
-        early_stop = EarlyStopping(monitor='val_loss', min_delta=self.convergence_criteria, patience=5, verbose=1, mode='auto', restore_best_weights=True)
+        early_stop = EarlyStopping(monitor='loss', min_delta=self.convergence_criteria, patience=5, verbose=1, mode='auto', restore_best_weights=True)
         self._model.fit(X, y, epochs=self.epoch_limit, batch_size=self.batch_size, callbacks=[early_stop])
 
 
@@ -335,11 +509,8 @@ class NNStrategy(PredictionStrategy):
             h5_file.create_dataset('epoch_limit',           data=self.epoch_limit)
             h5_file.create_dataset('convergence_criteria',  data=self.convergence_criteria)
             h5_file.create_dataset('batch_size',            data=self.batch_size)
+            self._layer_sequence.save(h5_file.create_group('neural_network'))
 
-            layers_group = h5_file.create_group('layers')
-            for i, layer in enumerate(self.layers):
-                layer_group = layers_group.create_group('layer_' + str(i))
-                layer.save(layer_group)
 
 
     def load_model(self, file_name: str) -> None:
@@ -365,14 +536,7 @@ class NNStrategy(PredictionStrategy):
             self.epoch_limit           = int(   h5_file['epoch_limit'][()]           )
             self.convergence_criteria  = float( h5_file['convergence_criteria'][()]  )
             self.batch_size            = int(   h5_file['batch_size'][()]            )
-
-            layers = []
-            for i in range(len(h5_file['layers'])):
-                layer_group = h5_file['layers']['layer_'+str(i)]
-                layer_type  = layer_group['type'][()].decode('utf-8')
-                assert layer_type in valid_layer_types
-                if layer_type == "Dense": layers.append(Dense.from_h5(layer_group))
-            self.layers = layers
+            self._layer_sequence       = LayerSequence.from_h5(h5_file['neural_network'])
 
         self._model = load_model(file_name)
 
