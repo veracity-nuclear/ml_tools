@@ -1,6 +1,6 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import List, Dict
+from typing import List, Dict, Literal
 from dataclasses import dataclass, field
 import os
 from math import isclose
@@ -23,10 +23,9 @@ from ml_tools.model.prediction_strategy import PredictionStrategy
 from ml_tools.model.feature_processor import FeatureProcessor
 
 
-valid_layer_types = ['Dense']
-
-valid_activation_functions = ['elu', 'exponential', 'gelu', 'hard_sigmoid', 'linear', 'mish',
-                              'relu', 'selu', 'sigmoid', 'softmax', 'softplus', 'softsign', 'swish', 'tanh']
+LayerType  = Literal['Dense', 'LSTM', 'LayerSequence', 'CompoundLayer']
+Activation = Literal['elu', 'exponential', 'gelu', 'hard_sigmoid', 'linear', 'mish',
+                     'relu', 'selu', 'sigmoid', 'softmax', 'softplus', 'softsign', 'swish', 'tanh']
 
 
 class Layer(ABC):
@@ -157,7 +156,7 @@ class LayerSequence(Layer):
         layer_names = sorted(layer_names, key=lambda x: int(x.split('_')[1]))
         for layer_name in layer_names:
             layer_group = group[layer_name]
-            layer_type = layer_group['type'][()].decode('utf-8')
+            layer_type: LayerType = layer_group['type'][()].decode('utf-8')
             if   layer_type == 'Dense':         layers.append(Dense.from_h5(layer_group))
             elif layer_type == 'LayerSequence': layers.append(LayerSequence.from_h5(layer_group))
             elif layer_type == 'CompoundLayer': layers.append(CompoundLayer.from_h5(layer_group))
@@ -228,15 +227,15 @@ class CompoundLayer(Layer):
         def gather_indices(x, indices):
             return tf.gather(x, indices, axis=-1)
 
-        assert all(index < input_tensor.shape[1] for spec in self.input_specifications for index in spec)
-        split_inputs = [tensorflow.keras.layers.Lambda(gather_indices, arguments={'indices': indices})(input_tensor) for indices in self.input_specifications]
+        assert all(index < input_tensor.shape[2] for spec in self.input_specifications for index in spec)
+        split_inputs = [tensorflow.keras.layers.TimeDistributed(tensorflow.keras.layers.Lambda(gather_indices, arguments={'indices': indices}))(input_tensor) for indices in self.input_specifications]
 
         outputs = [layer.build(split) for layer, split in zip(self._layers, split_inputs)]
 
         x = tensorflow.keras.layers.Concatenate(axis=-1)(outputs)
 
-        if self._dropout_rate > 0.0:
-            x = tf.keras.layers.Dropout(self._dropout_rate)(x)
+        if self.dropout_rate > 0.0:
+            x = tf.keras.layers.Dropout(self.dropout_rate)(x)
 
         return x
 
@@ -259,7 +258,7 @@ class CompoundLayer(Layer):
         layer_names = sorted(layer_names, key=lambda x: int(x.split('_')[1]))
         for layer_name in layer_names:
             layer_group = group[layer_name]
-            layer_type = layer_group['type'][()].decode('utf-8')
+            layer_type: LayerType = layer_group['type'][()].decode('utf-8')
             if   layer_type == 'Dense':         layers.append(Dense.from_h5(layer_group))
             elif layer_type == 'LayerSequence': layers.append(LayerSequence.from_h5(layer_group))
             elif layer_type == 'CompoundLayer': layers.append(CompoundLayer.from_h5(layer_group))
@@ -272,9 +271,9 @@ class Dense(Layer):
 
     Attributes
     ----------
-    units : init
+    units : int
         Number of nodes (i.e. neurons) to use in the dense layer
-    activation : str
+    activation : Activation
         Activation function to use
     """
 
@@ -288,16 +287,15 @@ class Dense(Layer):
         self._units = units
 
     @property
-    def activation(self) -> str:
+    def activation(self) -> Activation:
         return self._activation
 
     @activation.setter
-    def activation(self, activation: str) -> None:
-        assert activation in valid_activation_functions
+    def activation(self, activation: Activation) -> None:
         self._activation = activation
 
 
-    def __init__(self, units: int, activation: str, dropout_rate: float = 0.):
+    def __init__(self, units: int, activation: Activation, dropout_rate: float = 0.):
         super().__init__(dropout_rate)
         self.units      = units
         self.activation = activation
@@ -314,9 +312,9 @@ class Dense(Layer):
         return hash(tuple(sorted(self.__dict__.items())))
 
     def build(self, input_tensor: KerasTensor) -> KerasTensor:
-        x = tf.keras.layers.Dense(units=self._units, activation=self._activation)(input_tensor)
-        if self._dropout_rate > 0.0:
-            x = tf.keras.layers.Dropout(self._dropout_rate)(x)
+        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(units=self.units, activation=self.activation))(input_tensor)
+        if self.dropout_rate > 0.0:
+            x = tf.keras.layers.Dropout(self.dropout_rate)(x)
         return x
 
     def save(self, group: h5py.Group) -> None:
@@ -331,20 +329,117 @@ class Dense(Layer):
                      activation   =       group["activation_function"][()].decode('utf-8'),
                      dropout_rate = float(group["dropout_rate"       ][()]))
 
+class LSTM(Layer):
+    """ A Long Short-Term Memory (LSTM) neural network layer
+
+    Attributes
+    ----------
+    units : int
+        Dimensionality of the output space
+    activation : Activation
+        Activation function to use
+    recurrent_activation : Activation
+        Activation function to use for the recurrent step
+    recurrent_dropout : float
+        Fraction of the units to drop for the linear transformation of the recurrent state
+    """
+
+    @property
+    def units(self) -> int:
+        return self._units
+
+    @units.setter
+    def units(self, units: int) -> None:
+        assert units > 0
+        self._units = units
+
+    @property
+    def activation(self) -> Activation:
+        return self._activation
+
+    @activation.setter
+    def activation(self, activation: Activation) -> None:
+        self._activation = activation
+
+    @property
+    def recurrent_activation(self) -> Activation:
+        return self._recurrent_activation
+
+    @recurrent_activation.setter
+    def recurrent_activation(self, activation: Activation) -> None:
+        self._recurrent_activation = activation
+
+    @property
+    def recurrent_dropout_rate(self) -> float:
+        return self._recurrent_dropout_rate
+
+    @recurrent_dropout_rate.setter
+    def recurrent_dropout_rate(self, dropout_rate: float) -> None:
+        assert 0.0 <= dropout_rate <= 1.0
+        self._recurrent_dropout_rate = dropout_rate
+
+
+    def __init__(self, units: int, activation: Activation, dropout_rate: float = 0., recurrent_activation: Activation = 'sigmoid', recurrent_dropout_rate: float = 0.):
+        super().__init__(dropout_rate)
+        self.units                  = units
+        self.activation             = activation
+        self.recurrent_activation   = recurrent_activation
+        self.recurrent_dropout_rate = recurrent_dropout_rate
+
+    def __eq__(self, other: Any) -> bool:
+        if self is other:                                                           return True
+        if not isinstance(other, LSTM):                                             return False
+        if not(self.units == other.units):                                          return False
+        if not(self.activation == other.activation):                                return False
+        if not(self.recurrent_activation == other.recurrent_activation):            return False
+        if not(isclose(self.recurrent_dropout_rate, other.recurrent_dropout_rate)): return False
+        if not(isclose(self.dropout_rate, other.dropout_rate)):                     return False
+        return True
+
+    def __hash__(self) -> int:
+        return hash(tuple(sorted(self.__dict__.items())))
+
+    def build(self, input_tensor: KerasTensor) -> KerasTensor:
+        x = tf.keras.layers.LSTM(units=self.units, activation=self.activation, recurrent_activation=self.recurrent_activation, recurrent_dropout=self.recurrent_dropout_rate)(input_tensor)
+        if self.dropout_rate > 0.0:
+            x = tf.keras.layers.Dropout(self.dropout_rate)(x)
+        return x
+
+    def save(self, group: h5py.Group) -> None:
+        group.create_dataset('type'                          , data='Dense', dtype=h5py.string_dtype())
+        group.create_dataset('dropout_rate'                  , data=self.dropout_rate)
+        group.create_dataset('number_of_units'               , data=self.units)
+        group.create_dataset('activation_function'           , data=self.activation,           dtype=h5py.string_dtype())
+        group.create_dataset('recurrent_activation_function' , data=self.recurrent_activation, dtype=h5py.string_dtype())
+        group.create_dataset('recurrent_dropout_rate'        , data=self.recurrent_dropout_rate)
+
+    @classmethod
+    def from_h5(cls, group: h5py.Group) -> Dense:
+        return Dense(units                  =   int(group["number_of_units"              ][()]),
+                     activation             =       group["activation_function"          ][()].decode('utf-8'),
+                     dropout_rate           = float(group["dropout_rate"                 ][()]),
+                     recurrent_activation   =       group["recurrent_activation_function"][()].decode('utf-8'),
+                     recurrent_dropout_rate = float(group["recurrent_dropout_rate"       ][()]))
+
 
 #class Conv2D(Layer):
 #    """
 #    """
 #
 #
-#class LSTM(Layer):
+#class MaxPool(Layer)
 #    """
 #    """
-#
 #
 #class Transformer(Layer):
 #    """
 #    """
+#
+#class Input(Layer)
+#    """
+#    """
+#
+
 
 
 class NNStrategy(PredictionStrategy):
@@ -451,14 +546,12 @@ class NNStrategy(PredictionStrategy):
 
 
     def train(self, train_data: List[StateSeries], test_data: List[StateSeries] = [], num_procs: int = 1) -> None:
-
-        assert all(len(series) == 1 for series in train_data) # All State Series must be static statepoints (i.e. len(series) == 1)
         assert len(test_data) == 0  # This model does not use Test Data as part of training
 
-        X = self.preprocess_inputs(train_data, num_procs)[:,0,:]
-        y = self._get_targets(train_data)[:,0]
+        X = self.preprocess_inputs(train_data, num_procs)
+        y = self._get_targets(train_data)
 
-        input_tensor = tf.keras.Input(shape=(len(X[0]),))
+        input_tensor = tf.keras.layers.Input(shape=(len(X[0]),len(X[0][0])))
 
         x = self._layer_sequence.build(input_tensor)
         output = tf.keras.layers.Dense(1)(x)
@@ -478,9 +571,8 @@ class NNStrategy(PredictionStrategy):
 
     def _predict_all(self, state_series: List[StateSeries]) -> np.ndarray:
         assert(self.isTrained)
-        assert all(len(series) == 1 for series in state_series) # All State Series must be static statepoints (i.e. len(series) == 1)
 
-        X = self.preprocess_inputs(state_series)[:,0,:]
+        X = self.preprocess_inputs(state_series)
         tf.convert_to_tensor(X, dtype=tf.float32)
         y = self._model.predict(X).flatten()
         return y

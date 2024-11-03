@@ -111,6 +111,18 @@ def test_nn_strategy_Dense():
     assert isclose(state.feature("cips_index")[0], new_cips_calculator.predict([[state]])[0], abs_tol=1E-5)
 
 
+def test_nn_strategy_LSTM():
+
+    cips_calculator = NNStrategy(input_features, output_feature)
+    cips_calculator.train([[state]]*1000)
+    assert(isclose(state.feature("cips_index")[0], cips_calculator.predict([[state]])[0], abs_tol=1E-5))
+
+    cips_calculator.save_model('test_nn_model.h5')
+    new_cips_calculator = NNStrategy.read_from_hdf5('test_nn_model.h5')
+    assert all(old_layer == new_layer for old_layer, new_layer in zip(cips_calculator.layers, new_cips_calculator.layers))
+    assert isclose(state.feature("cips_index")[0], new_cips_calculator.predict([[state]])[0], abs_tol=1E-5)
+
+
 def test_nn_strategy_LayerSequence():
 
     layers          = [Dense(units=10, activation='relu'), LayerSequence(layers=[Dense(units=5, activation='relu'), Dense(units=10, activation='relu')])]
