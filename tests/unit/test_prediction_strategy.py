@@ -5,7 +5,7 @@ from math import isclose
 import numpy as np
 
 from ml_tools.model.state import State
-from ml_tools.model.nn_strategy import NNStrategy, Dense, LayerSequence, CompoundLayer
+from ml_tools.model.nn_strategy import NNStrategy, Dense, PassThrough, LayerSequence, CompoundLayer
 from ml_tools.model.gbm_strategy import GBMStrategy
 from ml_tools.model.pod_strategy import PODStrategy
 from ml_tools.model.feature_processor import MinMaxNormalize, NoProcessing
@@ -125,7 +125,7 @@ def test_nn_strategy_LSTM():
 
 def test_nn_strategy_LayerSequence():
 
-    layers          = [Dense(units=10, activation='relu'), LayerSequence(layers=[Dense(units=5, activation='relu'), Dense(units=10, activation='relu')])]
+    layers          = [PassThrough(), Dense(units=10, activation='relu'), LayerSequence(layers=[Dense(units=5, activation='relu'), Dense(units=10, activation='relu')])]
     cips_calculator = NNStrategy(input_features, output_feature, layers)
     cips_calculator.train([[state]]*1000)
     assert(isclose(state.feature("cips_index")[0], cips_calculator.predict([[state]])[0], abs_tol=1E-5))

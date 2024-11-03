@@ -23,7 +23,7 @@ from ml_tools.model.prediction_strategy import PredictionStrategy
 from ml_tools.model.feature_processor import FeatureProcessor
 
 
-LayerType  = Literal['Dense', 'LSTM', 'LayerSequence', 'CompoundLayer']
+LayerType  = Literal['Dense', 'PassThrough', 'LSTM', 'LayerSequence', 'CompoundLayer']
 Activation = Literal['elu', 'exponential', 'gelu', 'hard_sigmoid', 'linear', 'mish',
                      'relu', 'selu', 'sigmoid', 'softmax', 'softplus', 'softsign', 'swish', 'tanh']
 
@@ -158,6 +158,7 @@ class LayerSequence(Layer):
             layer_group = group[layer_name]
             layer_type: LayerType = layer_group['type'][()].decode('utf-8')
             if   layer_type == 'Dense':         layers.append(Dense.from_h5(layer_group))
+            elif layer_type == 'PassThrough':   layers.append(PassThrough.from_h5(layer_group))
             elif layer_type == 'LayerSequence': layers.append(LayerSequence.from_h5(layer_group))
             elif layer_type == 'CompoundLayer': layers.append(CompoundLayer.from_h5(layer_group))
         return cls(layers=layers)
@@ -260,10 +261,45 @@ class CompoundLayer(Layer):
             layer_group = group[layer_name]
             layer_type: LayerType = layer_group['type'][()].decode('utf-8')
             if   layer_type == 'Dense':         layers.append(Dense.from_h5(layer_group))
+            elif layer_type == 'PassThrough':   layers.append(PassThrough.from_h5(layer_group))
             elif layer_type == 'LayerSequence': layers.append(LayerSequence.from_h5(layer_group))
             elif layer_type == 'CompoundLayer': layers.append(CompoundLayer.from_h5(layer_group))
         dropout_rate = group.attrs.get('dropout_rate', 0.0)
         return cls(layers=layers, input_specifications=input_specifications, dropout_rate=dropout_rate)
+
+
+class PassThrough(Layer):
+    """ An layer for passing through input features
+
+    This layer type is useful when constructing composite layers that require passing some features
+    straight through to the next layer while other features pass through an actual processing layer.
+    """
+
+    def __init__(self, dropout_rate: float = 0.):
+        super().__init__(dropout_rate)
+
+    def __eq__(self, other: Any) -> bool:
+        if self is other:                                       return True
+        if not isinstance(other, PassThrough):                  return False
+        if not(isclose(self.dropout_rate, other.dropout_rate)): return False
+        return True
+
+    def __hash__(self) -> int:
+        return hash(tuple(sorted(self.__dict__.items())))
+
+    def build(self, input_tensor: KerasTensor) -> KerasTensor:
+        x = input_tensor
+        if self.dropout_rate > 0.0:
+            x = tf.keras.layers.Dropout(self.dropout_rate)(x)
+        return x
+
+    def save(self, group: h5py.Group) -> None:
+        group.create_dataset('type'         , data='PassThrough', dtype=h5py.string_dtype())
+        group.create_dataset('dropout_rate' , data=self.dropout_rate)
+
+    @classmethod
+    def from_h5(cls, group: h5py.Group) -> PassThrough:
+        return PassThrough(dropout_rate = float(group["dropout_rate"][()]))
 
 
 class Dense(Layer):
@@ -406,7 +442,7 @@ class LSTM(Layer):
         return x
 
     def save(self, group: h5py.Group) -> None:
-        group.create_dataset('type'                          , data='Dense', dtype=h5py.string_dtype())
+        group.create_dataset('type'                          , data='LSTM', dtype=h5py.string_dtype())
         group.create_dataset('dropout_rate'                  , data=self.dropout_rate)
         group.create_dataset('number_of_units'               , data=self.units)
         group.create_dataset('activation_function'           , data=self.activation,           dtype=h5py.string_dtype())
@@ -415,11 +451,11 @@ class LSTM(Layer):
 
     @classmethod
     def from_h5(cls, group: h5py.Group) -> Dense:
-        return Dense(units                  =   int(group["number_of_units"              ][()]),
-                     activation             =       group["activation_function"          ][()].decode('utf-8'),
-                     dropout_rate           = float(group["dropout_rate"                 ][()]),
-                     recurrent_activation   =       group["recurrent_activation_function"][()].decode('utf-8'),
-                     recurrent_dropout_rate = float(group["recurrent_dropout_rate"       ][()]))
+        return LSTM(units                  =   int(group["number_of_units"              ][()]),
+                    activation             =       group["activation_function"          ][()].decode('utf-8'),
+                    dropout_rate           = float(group["dropout_rate"                 ][()]),
+                    recurrent_activation   =       group["recurrent_activation_function"][()].decode('utf-8'),
+                    recurrent_dropout_rate = float(group["recurrent_dropout_rate"       ][()]))
 
 
 #class Conv2D(Layer):
@@ -432,10 +468,6 @@ class LSTM(Layer):
 #    """
 #
 #class Transformer(Layer):
-#    """
-#    """
-#
-#class Input(Layer)
 #    """
 #    """
 #
