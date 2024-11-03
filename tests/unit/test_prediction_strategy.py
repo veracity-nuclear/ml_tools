@@ -5,7 +5,7 @@ from math import isclose
 import numpy as np
 
 from ml_tools.model.state import State
-from ml_tools.model.nn_strategy import NNStrategy, Dense, PassThrough, LayerSequence, CompoundLayer
+from ml_tools.model.nn_strategy import NNStrategy, Dense, LSTM, PassThrough, LayerSequence, CompoundLayer
 from ml_tools.model.gbm_strategy import GBMStrategy
 from ml_tools.model.pod_strategy import PODStrategy
 from ml_tools.model.feature_processor import MinMaxNormalize, NoProcessing
@@ -113,14 +113,28 @@ def test_nn_strategy_Dense():
 
 def test_nn_strategy_LSTM():
 
-    cips_calculator = NNStrategy(input_features, output_feature)
-    cips_calculator.train([[state]]*1000)
-    assert(isclose(state.feature("cips_index")[0], cips_calculator.predict([[state]])[0], abs_tol=1E-5))
+    layers = [LSTM(units=5, activation='relu')]
+    cips_calculator = NNStrategy(input_features, output_feature, layers)
+    cips_calculator.train([[state]*100]*1000)
+    assert(isclose(state.feature("cips_index")[0], cips_calculator.predict([[state]*100])[-1], abs_tol=1E-5))
 
     cips_calculator.save_model('test_nn_model.h5')
     new_cips_calculator = NNStrategy.read_from_hdf5('test_nn_model.h5')
     assert all(old_layer == new_layer for old_layer, new_layer in zip(cips_calculator.layers, new_cips_calculator.layers))
-    assert isclose(state.feature("cips_index")[0], new_cips_calculator.predict([[state]])[0], abs_tol=1E-5)
+    assert isclose(state.feature("cips_index")[0], new_cips_calculator.predict([[state]*100])[-1], abs_tol=1E-5)
+
+
+#def test_nn_strategy_CNN():
+#
+#    layers = [Conv2D(), MaxPool()]
+#    cips_calculator = NNStrategy(input_features, output_feature, layers)
+#    cips_calculator.train([[state]]*1000)
+#    assert(isclose(state.feature("cips_index")[0], cips_calculator.predict([[state]])[0], abs_tol=1E-5))
+#
+#    cips_calculator.save_model('test_nn_model.h5')
+#    new_cips_calculator = NNStrategy.read_from_hdf5('test_nn_model.h5')
+#    assert all(old_layer == new_layer for old_layer, new_layer in zip(cips_calculator.layers, new_cips_calculator.layers))
+#    assert isclose(state.feature("cips_index")[0], new_cips_calculator.predict([[state]])[0], abs_tol=1E-5)
 
 
 def test_nn_strategy_LayerSequence():

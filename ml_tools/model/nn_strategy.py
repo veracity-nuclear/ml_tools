@@ -158,6 +158,7 @@ class LayerSequence(Layer):
             layer_group = group[layer_name]
             layer_type: LayerType = layer_group['type'][()].decode('utf-8')
             if   layer_type == 'Dense':         layers.append(Dense.from_h5(layer_group))
+            elif layer_type == 'LSTM':          layers.append(LSTM.from_h5(layer_group))
             elif layer_type == 'PassThrough':   layers.append(PassThrough.from_h5(layer_group))
             elif layer_type == 'LayerSequence': layers.append(LayerSequence.from_h5(layer_group))
             elif layer_type == 'CompoundLayer': layers.append(CompoundLayer.from_h5(layer_group))
@@ -261,6 +262,7 @@ class CompoundLayer(Layer):
             layer_group = group[layer_name]
             layer_type: LayerType = layer_group['type'][()].decode('utf-8')
             if   layer_type == 'Dense':         layers.append(Dense.from_h5(layer_group))
+            elif layer_type == 'LSTM':          layers.append(LSTM.from_h5(layer_group))
             elif layer_type == 'PassThrough':   layers.append(PassThrough.from_h5(layer_group))
             elif layer_type == 'LayerSequence': layers.append(LayerSequence.from_h5(layer_group))
             elif layer_type == 'CompoundLayer': layers.append(CompoundLayer.from_h5(layer_group))
@@ -462,11 +464,11 @@ class LSTM(Layer):
                     recurrent_dropout_rate = float(group["recurrent_dropout_rate"       ][()]))
 
 
-class Conv2D(Layer):
-    """
-    """
-
-
+#class Conv2D(Layer):
+#    """
+#    """
+#
+#
 #class MaxPool(Layer)
 #    """
 #    """
@@ -578,16 +580,17 @@ class NNStrategy(PredictionStrategy):
         self.convergence_criteria   = convergence_criteria
         self.batch_size             = batch_size
 
-        self._model       = None
+        self._model = None
 
 
     def train(self, train_data: List[StateSeries], test_data: List[StateSeries] = [], num_procs: int = 1) -> None:
         assert len(test_data) == 0  # This model does not use Test Data as part of training
+        assert all(len(series) == len(train_data[0]) for series in train_data)
 
         X = self.preprocess_inputs(train_data, num_procs)
         y = self._get_targets(train_data)
 
-        input_tensor = tf.keras.layers.Input(shape=(len(X[0]),len(X[0][0])))
+        input_tensor = tf.keras.layers.Input(batch_shape=(self.batch_size, len(X[0]),len(X[0][0])))
 
         x = self._layer_sequence.build(input_tensor)
         output = tf.keras.layers.Dense(1)(x)
@@ -597,8 +600,10 @@ class NNStrategy(PredictionStrategy):
         learning_rate_schedule = ExponentialDecay(self.initial_learning_rate, decay_steps=self.epoch_limit, decay_rate=self.learning_decay_rate, staircase=True)
         self._model.compile(optimizer=Adam(learning_rate=learning_rate_schedule), loss=MeanSquaredError(), metrics=[MeanAbsoluteError()])
 
-        early_stop = EarlyStopping(monitor='loss', min_delta=self.convergence_criteria, patience=5, verbose=1, mode='auto', restore_best_weights=True)
-        self._model.fit(X, y, epochs=self.epoch_limit, batch_size=self.batch_size, callbacks=[early_stop])
+        early_stop = EarlyStopping(monitor='mean_absolute_error', min_delta=self.convergence_criteria, patience=5, verbose=1, mode='auto', restore_best_weights=True)
+        dataset    = tf.data.Dataset.from_tensor_slices((X, y))
+        dataset    = dataset.batch(self.batch_size, drop_remainder=True)
+        self._model.fit(dataset, epochs=self.epoch_limit, batch_size=self.batch_size, callbacks=[early_stop])
 
 
     def _predict_one(self, state_series: StateSeries) -> np.ndarray:
@@ -612,22 +617,41 @@ class NNStrategy(PredictionStrategy):
         X = self.preprocess_inputs(state_series)
         tf.convert_to_tensor(X, dtype=tf.float32)
 
-        for layer in self._model.layers:
-            if isinstance(layer, tf.keras.layers.LSTM): layer.reset_states()
+        sequence_length = X.shape[1]
+        num_features    = X.shape[2]
+        batch_size      = self._model.input_shape[0]
+        window_size     = self._model.input_shape[1]
+        num_batches     = int(np.ceil(len(state_series) / batch_size))
+        predictions     = []
 
-        batch_size, sequence_length, num_features = X.shape
-        window_size = self._model.input_shape[1]
-        for i in range(0, sequence_length, window_size):
-            end = min(i + window_size, sequence_length)
-            current_window = X[:, i:end, :]
+        for b in range(num_batches):
+            for layer in self._model.layers:
+                if isinstance(layer, tf.keras.layers.LSTM): layer.reset_states()
 
-            if current_window.shape[1] < window_size:
-                padding = np.zeros((batch_size, window_size - current_window.shape[1], num_features))
-                current_window = np.concatenate([current_window, padding], axis=1)
+            start         = b * batch_size
+            stop          = min(start + batch_size, len(state_series))
+            current_batch = X[start:stop]
 
-            y = self._model.predict(current_window)
+            if len(current_batch) < batch_size:
+                padding = np.zeros((batch_size - len(current_batch), sequence_length, num_features))
+                current_batch = np.concatenate([current_batch, padding], axis=0)
 
-        return y.flatten()
+            batch_predictions = []
+            for window_start in range(0, sequence_length, window_size):
+                window_end = min(window_start + window_size, sequence_length)
+                current_window = current_batch[:, window_start:window_end , :]
+
+                if current_window.shape[1] < window_size:
+                    padding = np.zeros((batch_size, window_size - current_window.shape[1], num_features))
+                    current_window = np.concatenate([current_window, padding], axis=1)
+
+                y = self._model.predict(current_window, batch_size=batch_size)
+                batch_predictions.append(y)
+
+            batch_predictions = np.concatenate(batch_predictions, axis=1)
+            predictions.append(batch_predictions[:stop - start])  # Only take the valid part of the batch
+
+        return np.concatenate(predictions, axis=0).flatten()
 
 
     def save_model(self, file_name: str) -> None:
