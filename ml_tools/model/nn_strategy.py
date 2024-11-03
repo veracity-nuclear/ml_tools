@@ -436,7 +436,11 @@ class LSTM(Layer):
         return hash(tuple(sorted(self.__dict__.items())))
 
     def build(self, input_tensor: KerasTensor) -> KerasTensor:
-        x = tf.keras.layers.LSTM(units=self.units, activation=self.activation, recurrent_activation=self.recurrent_activation, recurrent_dropout=self.recurrent_dropout_rate)(input_tensor)
+        x = tf.keras.layers.LSTM(units                = self.units,
+                                 activation           = self.activation,
+                                 recurrent_activation = self.recurrent_activation,
+                                 recurrent_dropout    = self.recurrent_dropout_rate,
+                                 stateful             = True)(input_tensor)
         if self.dropout_rate > 0.0:
             x = tf.keras.layers.Dropout(self.dropout_rate)(x)
         return x
@@ -458,11 +462,11 @@ class LSTM(Layer):
                     recurrent_dropout_rate = float(group["recurrent_dropout_rate"       ][()]))
 
 
-#class Conv2D(Layer):
-#    """
-#    """
-#
-#
+class Conv2D(Layer):
+    """
+    """
+
+
 #class MaxPool(Layer)
 #    """
 #    """
@@ -574,7 +578,7 @@ class NNStrategy(PredictionStrategy):
         self.convergence_criteria   = convergence_criteria
         self.batch_size             = batch_size
 
-        self._model = None
+        self._model       = None
 
 
     def train(self, train_data: List[StateSeries], test_data: List[StateSeries] = [], num_procs: int = 1) -> None:
@@ -603,11 +607,27 @@ class NNStrategy(PredictionStrategy):
 
     def _predict_all(self, state_series: List[StateSeries]) -> np.ndarray:
         assert(self.isTrained)
+        assert all(len(series) == len(state_series[0]) for series in state_series)
 
         X = self.preprocess_inputs(state_series)
         tf.convert_to_tensor(X, dtype=tf.float32)
-        y = self._model.predict(X).flatten()
-        return y
+
+        for layer in self._model.layers:
+            if isinstance(layer, tf.keras.layers.LSTM): layer.reset_states()
+
+        batch_size, sequence_length, num_features = X.shape
+        window_size = self._model.input_shape[1]
+        for i in range(0, sequence_length, window_size):
+            end = min(i + window_size, sequence_length)
+            current_window = X[:, i:end, :]
+
+            if current_window.shape[1] < window_size:
+                padding = np.zeros((batch_size, window_size - current_window.shape[1], num_features))
+                current_window = np.concatenate([current_window, padding], axis=1)
+
+            y = self._model.predict(current_window)
+
+        return y.flatten()
 
 
     def save_model(self, file_name: str) -> None:
