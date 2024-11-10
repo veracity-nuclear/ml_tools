@@ -1,6 +1,6 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import List, Dict, Literal
+from typing import List, Dict, Literal, Tuple
 from dataclasses import dataclass, field
 import os
 from math import isclose
@@ -159,6 +159,8 @@ class LayerSequence(Layer):
             layer_type: LayerType = layer_group['type'][()].decode('utf-8')
             if   layer_type == 'Dense':         layers.append(Dense.from_h5(layer_group))
             elif layer_type == 'LSTM':          layers.append(LSTM.from_h5(layer_group))
+            elif layer_type == 'Conv2D':        layers.append(Conv2D.from_h5(layer_group))
+            elif layer_type == 'MaxPool2D':     layers.append(MaxPool2D.from_h5(layer_group))
             elif layer_type == 'PassThrough':   layers.append(PassThrough.from_h5(layer_group))
             elif layer_type == 'LayerSequence': layers.append(LayerSequence.from_h5(layer_group))
             elif layer_type == 'CompoundLayer': layers.append(CompoundLayer.from_h5(layer_group))
@@ -237,7 +239,7 @@ class CompoundLayer(Layer):
         x = tensorflow.keras.layers.Concatenate(axis=-1)(outputs)
 
         if self.dropout_rate > 0.0:
-            x = tf.keras.layers.Dropout(self.dropout_rate)(x)
+            x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x)
 
         return x
 
@@ -263,6 +265,8 @@ class CompoundLayer(Layer):
             layer_type: LayerType = layer_group['type'][()].decode('utf-8')
             if   layer_type == 'Dense':         layers.append(Dense.from_h5(layer_group))
             elif layer_type == 'LSTM':          layers.append(LSTM.from_h5(layer_group))
+            elif layer_type == 'Conv2D':        layers.append(Conv2D.from_h5(layer_group))
+            elif layer_type == 'MaxPool2D':     layers.append(MaxPool2D.from_h5(layer_group))
             elif layer_type == 'PassThrough':   layers.append(PassThrough.from_h5(layer_group))
             elif layer_type == 'LayerSequence': layers.append(LayerSequence.from_h5(layer_group))
             elif layer_type == 'CompoundLayer': layers.append(CompoundLayer.from_h5(layer_group))
@@ -292,7 +296,7 @@ class PassThrough(Layer):
     def build(self, input_tensor: KerasTensor) -> KerasTensor:
         x = input_tensor
         if self.dropout_rate > 0.0:
-            x = tf.keras.layers.Dropout(self.dropout_rate)(x)
+            x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x)
         return x
 
     def save(self, group: h5py.Group) -> None:
@@ -352,7 +356,7 @@ class Dense(Layer):
     def build(self, input_tensor: KerasTensor) -> KerasTensor:
         x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(units=self.units, activation=self.activation))(input_tensor)
         if self.dropout_rate > 0.0:
-            x = tf.keras.layers.Dropout(self.dropout_rate)(x)
+            x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x)
         return x
 
     def save(self, group: h5py.Group) -> None:
@@ -443,7 +447,7 @@ class LSTM(Layer):
                                  recurrent_activation = self.recurrent_activation,
                                  recurrent_dropout    = self.recurrent_dropout_rate)(input_tensor)
         if self.dropout_rate > 0.0:
-            x = tf.keras.layers.Dropout(self.dropout_rate)(x)
+            x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x)
         return x
 
     def save(self, group: h5py.Group) -> None:
@@ -463,15 +467,250 @@ class LSTM(Layer):
                     recurrent_dropout_rate = float(group["recurrent_dropout_rate"       ][()]))
 
 
-#class Conv2D(Layer):
-#    """
-#    """
-#
-#
-#class MaxPool(Layer)
-#    """
-#    """
-#
+class Conv2D(Layer):
+    """ A 2D Convolutional Neural Network (CNN) layer
+
+    Attributes
+    ----------
+    input_shape : Tuple[int, int]
+        The height and width of the input data before convolution (i.e. its 2D shape)
+    activation : Activation
+        Activation function to use
+    filters : int
+        Number of convolution filters
+    kernel_size : Tuple[int, int]
+        Size of the convolution kernel
+    strides : Tuple[int, int]
+        Strides of the convolution
+    padding : bool
+        Whether or not padding should be applied to the convolution
+    """
+
+    @property
+    def input_shape(self) -> Tuple[int, int]:
+        return self._input_shape
+
+    @input_shape.setter
+    def input_shape(self, input_shape: Tuple[int, int]) -> None:
+        assert input_shape[0] > 0
+        assert input_shape[1] > 0
+        self._input_shape = input_shape
+
+    @property
+    def activation(self) -> Activation:
+        return self._activation
+
+    @activation.setter
+    def activation(self, activation: Activation) -> None:
+        self._activation = activation
+
+    @property
+    def filters(self) -> int:
+        return self._filters
+
+    @filters.setter
+    def filters(self, filters: int) -> None:
+        assert filters > 0
+        self._filters = filters
+
+    @property
+    def kernel_size(self) -> Tuple[int, int]:
+        return self._kernel_size
+
+    @kernel_size.setter
+    def kernel_size(self, kernel_size: Tuple[int, int]) -> None:
+        assert kernel_size[0] > 0
+        assert kernel_size[1] > 0
+        self._kernel_size = kernel_size
+
+    @property
+    def strides(self) -> Tuple[int, int]:
+        return self._strides
+
+    @strides.setter
+    def strides(self, strides: Tuple[int, int]) -> None:
+        assert strides[0] > 0
+        assert strides[1] > 0
+        self._strides = strides
+
+    @property
+    def padding(self) -> bool:
+        return self._padding
+
+    @padding.setter
+    def padding(self, padding: bool) -> None:
+        self._padding = padding
+
+
+    def __init__(self, input_shape: Tuple[int, int], activation = 'relu', filters: int = 1, kernel_size : Tuple[int, int] = (1, 1), strides : Tuple[int, int] = (1, 1), padding: bool = True, dropout_rate: float = 0.):
+        super().__init__(dropout_rate)
+        self.input_shape  = input_shape
+        self.activation   = activation
+        self.filters      = filters
+        self.kernel_size  = kernel_size
+        self.strides      = strides
+        self.padding      = padding
+
+    def __eq__(self, other: Any) -> bool:
+        if self is other:                                       return True
+        if not isinstance(other, Conv2D):                       return False
+        if not(self.input_shape == other.input_shape):          return False
+        if not(self.activation == other.activation):            return False
+        if not(self.filters == other.filters):                  return False
+        if not(self.kernel_size == other.kernel_size):          return False
+        if not(self.strides == other.strides):                  return False
+        if not(self.padding == other.padding):                  return False
+        if not(isclose(self.dropout_rate, other.dropout_rate)): return False
+        return True
+
+    def __hash__(self) -> int:
+        return hash(tuple(sorted(self.__dict__.items())))
+
+
+    def build(self, input_tensor: KerasTensor) -> KerasTensor:
+        assert input_tensor.shape[-1] % (self.input_shape[0] * self.input_shape[1]) == 0, "Input tensor shape is not divisible by the expected input 2D shape"
+
+        number_of_channels = input_tensor.shape[-1] // (self.input_shape[0] * self.input_shape[1])
+        input_shape = (-1, self.input_shape[0], self.input_shape[1], number_of_channels)
+        x = tf.keras.layers.Reshape(target_shape=input_shape)(input_tensor)
+
+        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Conv2D(filters     = self.filters,
+                                                                   kernel_size = self.kernel_size,
+                                                                   strides     = self.strides,
+                                                                   padding     = 'same' if self.padding else 'valid',
+                                                                   activation  = self.activation))(x)
+        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Flatten())(x)
+        if self.dropout_rate > 0.0:
+            x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x)
+        return x
+
+    def save(self, group: h5py.Group) -> None:
+        group.create_dataset('type'               , data='Conv2D', dtype=h5py.string_dtype())
+        group.create_dataset('dropout_rate'       , data=self.dropout_rate)
+        group.create_dataset('input_shape'        , data=self.input_shape)
+        group.create_dataset('activation_function', data=self.activation, dtype=h5py.string_dtype())
+        group.create_dataset('number_of_filters'  , data=self.filters)
+        group.create_dataset('kernel_size'        , data=self.kernel_size)
+        group.create_dataset('strides'            , data=self.strides)
+        group.create_dataset('padding'            , data=self.padding)
+
+    @classmethod
+    def from_h5(cls, group: h5py.Group) -> Dense:
+        return Conv2D(input_shape            = tuple(int(x) for x in group['input_shape'  ][()]),
+                      activation             =       group["activation_function"          ][()].decode('utf-8'),
+                      dropout_rate           = float(group["dropout_rate"                 ][()]),
+                      filters                =   int(group["number_of_filters"            ][()]),
+                      kernel_size            = tuple(int(x) for x in group['kernel_size'  ][()]),
+                      strides                = tuple(int(x) for x in group['strides'      ][()]),
+                      padding                =  bool(group["padding"                      ][()]))
+
+
+class MaxPool2D(Layer):
+    """ A 2D Max Pool layer
+
+    Attributes
+    ----------
+    input_shape : Tuple[int, int]
+        The height and width of the input data before convolution (i.e. its 2D shape)
+    pool_size : Tuple[int, int]
+        Size of the pooling window
+    strides : Tuple[int, int]
+        Strides of the convolution
+    padding : bool
+        Whether or not padding should be applied to the convolution
+    """
+
+    @property
+    def input_shape(self) -> Tuple[int, int]:
+        return self._input_shape
+
+    @input_shape.setter
+    def input_shape(self, input_shape: Tuple[int, int]) -> None:
+        assert input_shape[0] > 0
+        assert input_shape[1] > 0
+        self._input_shape = input_shape
+
+    @property
+    def pool_size(self) -> Tuple[int, int]:
+        return self._pool_size
+
+    @pool_size.setter
+    def pool_size(self, pool_size: Tuple[int, int]) -> None:
+        assert pool_size[0] > 0
+        assert pool_size[1] > 0
+        self._pool_size = pool_size
+
+    @property
+    def strides(self) -> Tuple[int, int]:
+        return self._strides
+
+    @strides.setter
+    def strides(self, strides: Tuple[int, int]) -> None:
+        assert strides[0] > 0
+        assert strides[1] > 0
+        self._strides = strides
+
+    @property
+    def padding(self) -> bool:
+        return self._padding
+
+    @padding.setter
+    def padding(self, padding: bool) -> None:
+        self._padding = padding
+
+
+    def __init__(self, input_shape: Tuple[int, int], pool_size : Tuple[int, int] = (1, 1), strides : Tuple[int, int] = (1, 1), padding: bool = True, dropout_rate: float = 0.):
+        super().__init__(dropout_rate)
+        self.input_shape = input_shape
+        self.pool_size   = pool_size
+        self.strides     = strides
+        self.padding     = padding
+
+    def __eq__(self, other: Any) -> bool:
+        if self is other:                                       return True
+        if not isinstance(other, MaxPool2D):                    return False
+        if not(self.input_shape == other.input_shape):          return False
+        if not(self.pool_size == other.pool_size):              return False
+        if not(self.strides == other.strides):                  return False
+        if not(self.padding == other.padding):                  return False
+        if not(isclose(self.dropout_rate, other.dropout_rate)): return False
+        return True
+
+    def __hash__(self) -> int:
+        return hash(tuple(sorted(self.__dict__.items())))
+
+
+    def build(self, input_tensor: KerasTensor) -> KerasTensor:
+        assert input_tensor.shape[-1] % (self.input_shape[0] * self.input_shape[1]) == 0, "Input tensor shape is not divisible by the expected input 2D shape"
+
+        number_of_channels = input_tensor.shape[-1] // (self.input_shape[0] * self.input_shape[1])
+        input_shape = (-1, self.input_shape[0], self.input_shape[1], number_of_channels)
+        x = tf.keras.layers.Reshape(target_shape=input_shape)(input_tensor)
+
+        x = tf.keras.layers.TimeDistributed(tf.keras.layers.MaxPooling2D(pool_size   = self.pool_size,
+                                                                         strides     = self.strides,
+                                                                         padding     = 'same' if self.padding else 'valid'))(x)
+        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Flatten())(x)
+        if self.dropout_rate > 0.0:
+            x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x)
+        return x
+
+    def save(self, group: h5py.Group) -> None:
+        group.create_dataset('type'        , data='MaxPool2D', dtype=h5py.string_dtype())
+        group.create_dataset('dropout_rate', data=self.dropout_rate)
+        group.create_dataset('input_shape' , data=self.input_shape)
+        group.create_dataset('pool_size'   , data=self.pool_size)
+        group.create_dataset('strides'     , data=self.strides)
+        group.create_dataset('padding'     , data=self.padding)
+
+    @classmethod
+    def from_h5(cls, group: h5py.Group) -> Dense:
+        return MaxPool2D(input_shape  = tuple(int(x) for x in group['input_shape'][()]),
+                         dropout_rate = float(group["dropout_rate"               ][()]),
+                         pool_size    = tuple(int(x) for x in group['pool_size'  ][()]),
+                         strides      = tuple(int(x) for x in group['strides'    ][()]),
+                         padding      =  bool(group["padding"                    ][()]))
+
 #class Transformer(Layer):
 #    """
 #    """
