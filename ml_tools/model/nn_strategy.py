@@ -305,7 +305,7 @@ class PassThrough(Layer):
 
     @classmethod
     def from_h5(cls, group: h5py.Group) -> PassThrough:
-        return PassThrough(dropout_rate = float(group["dropout_rate"][()]))
+        return cls(dropout_rate = float(group["dropout_rate"][()]))
 
 
 class Dense(Layer):
@@ -367,9 +367,9 @@ class Dense(Layer):
 
     @classmethod
     def from_h5(cls, group: h5py.Group) -> Dense:
-        return Dense(units        =   int(group["number_of_units"    ][()]),
-                     activation   =       group["activation_function"][()].decode('utf-8'),
-                     dropout_rate = float(group["dropout_rate"       ][()]))
+        return cls(units        =   int(group["number_of_units"    ][()]),
+                   activation   =       group["activation_function"][()].decode('utf-8'),
+                   dropout_rate = float(group["dropout_rate"       ][()]))
 
 class LSTM(Layer):
     """ A Long Short-Term Memory (LSTM) neural network layer
@@ -459,12 +459,12 @@ class LSTM(Layer):
         group.create_dataset('recurrent_dropout_rate'        , data=self.recurrent_dropout_rate)
 
     @classmethod
-    def from_h5(cls, group: h5py.Group) -> Dense:
-        return LSTM(units                  =   int(group["number_of_units"              ][()]),
-                    activation             =       group["activation_function"          ][()].decode('utf-8'),
-                    dropout_rate           = float(group["dropout_rate"                 ][()]),
-                    recurrent_activation   =       group["recurrent_activation_function"][()].decode('utf-8'),
-                    recurrent_dropout_rate = float(group["recurrent_dropout_rate"       ][()]))
+    def from_h5(cls, group: h5py.Group) -> LSTM:
+        return cls(units                  =   int(group["number_of_units"              ][()]),
+                   activation             =       group["activation_function"          ][()].decode('utf-8'),
+                   dropout_rate           = float(group["dropout_rate"                 ][()]),
+                   recurrent_activation   =       group["recurrent_activation_function"][()].decode('utf-8'),
+                   recurrent_dropout_rate = float(group["recurrent_dropout_rate"       ][()]))
 
 
 class Conv2D(Layer):
@@ -595,14 +595,14 @@ class Conv2D(Layer):
         group.create_dataset('padding'            , data=self.padding)
 
     @classmethod
-    def from_h5(cls, group: h5py.Group) -> Dense:
-        return Conv2D(input_shape            = tuple(int(x) for x in group['input_shape'  ][()]),
-                      activation             =       group["activation_function"          ][()].decode('utf-8'),
-                      dropout_rate           = float(group["dropout_rate"                 ][()]),
-                      filters                =   int(group["number_of_filters"            ][()]),
-                      kernel_size            = tuple(int(x) for x in group['kernel_size'  ][()]),
-                      strides                = tuple(int(x) for x in group['strides'      ][()]),
-                      padding                =  bool(group["padding"                      ][()]))
+    def from_h5(cls, group: h5py.Group) -> Conv2D:
+        return cls(input_shape            = tuple(int(x) for x in group['input_shape'  ][()]),
+                   activation             =       group["activation_function"          ][()].decode('utf-8'),
+                   dropout_rate           = float(group["dropout_rate"                 ][()]),
+                   filters                =   int(group["number_of_filters"            ][()]),
+                   kernel_size            = tuple(int(x) for x in group['kernel_size'  ][()]),
+                   strides                = tuple(int(x) for x in group['strides'      ][()]),
+                   padding                =  bool(group["padding"                      ][()]))
 
 
 class MaxPool2D(Layer):
@@ -704,12 +704,12 @@ class MaxPool2D(Layer):
         group.create_dataset('padding'     , data=self.padding)
 
     @classmethod
-    def from_h5(cls, group: h5py.Group) -> Dense:
-        return MaxPool2D(input_shape  = tuple(int(x) for x in group['input_shape'][()]),
-                         dropout_rate = float(group["dropout_rate"               ][()]),
-                         pool_size    = tuple(int(x) for x in group['pool_size'  ][()]),
-                         strides      = tuple(int(x) for x in group['strides'    ][()]),
-                         padding      =  bool(group["padding"                    ][()]))
+    def from_h5(cls, group: h5py.Group) -> MaxPool2D:
+        return cls(input_shape  = tuple(int(x) for x in group['input_shape'][()]),
+                   dropout_rate = float(group["dropout_rate"               ][()]),
+                   pool_size    = tuple(int(x) for x in group['pool_size'  ][()]),
+                   strides      = tuple(int(x) for x in group['strides'    ][()]),
+                   padding      =  bool(group["padding"                    ][()]))
 
 #class Transformer(Layer):
 #    """
