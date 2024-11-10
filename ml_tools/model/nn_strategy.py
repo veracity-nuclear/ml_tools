@@ -159,6 +159,7 @@ class LayerSequence(Layer):
             layer_type: LayerType = layer_group['type'][()].decode('utf-8')
             if   layer_type == 'Dense':         layers.append(Dense.from_h5(layer_group))
             elif layer_type == 'LSTM':          layers.append(LSTM.from_h5(layer_group))
+            elif layer_type == 'Transformer':   layers.append(Transformer.from_h5(layer_group))
             elif layer_type == 'Conv2D':        layers.append(Conv2D.from_h5(layer_group))
             elif layer_type == 'MaxPool2D':     layers.append(MaxPool2D.from_h5(layer_group))
             elif layer_type == 'PassThrough':   layers.append(PassThrough.from_h5(layer_group))
@@ -237,9 +238,7 @@ class CompoundLayer(Layer):
         outputs = [layer.build(split) for layer, split in zip(self._layers, split_inputs)]
 
         x = tensorflow.keras.layers.Concatenate(axis=-1)(outputs)
-
-        if self.dropout_rate > 0.0:
-            x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x)
+        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x) if self.dropout_rate > 0. else x
 
         return x
 
@@ -265,6 +264,7 @@ class CompoundLayer(Layer):
             layer_type: LayerType = layer_group['type'][()].decode('utf-8')
             if   layer_type == 'Dense':         layers.append(Dense.from_h5(layer_group))
             elif layer_type == 'LSTM':          layers.append(LSTM.from_h5(layer_group))
+            elif layer_type == 'Transformer':   layers.append(Transformer.from_h5(layer_group))
             elif layer_type == 'Conv2D':        layers.append(Conv2D.from_h5(layer_group))
             elif layer_type == 'MaxPool2D':     layers.append(MaxPool2D.from_h5(layer_group))
             elif layer_type == 'PassThrough':   layers.append(PassThrough.from_h5(layer_group))
@@ -295,8 +295,7 @@ class PassThrough(Layer):
 
     def build(self, input_tensor: KerasTensor) -> KerasTensor:
         x = input_tensor
-        if self.dropout_rate > 0.0:
-            x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x)
+        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x) if self.dropout_rate > 0. else x
         return x
 
     def save(self, group: h5py.Group) -> None:
@@ -355,8 +354,7 @@ class Dense(Layer):
 
     def build(self, input_tensor: KerasTensor) -> KerasTensor:
         x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(units=self.units, activation=self.activation))(input_tensor)
-        if self.dropout_rate > 0.0:
-            x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x)
+        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x) if self.dropout_rate > 0. else x
         return x
 
     def save(self, group: h5py.Group) -> None:
@@ -446,8 +444,7 @@ class LSTM(Layer):
                                  activation           = self.activation,
                                  recurrent_activation = self.recurrent_activation,
                                  recurrent_dropout    = self.recurrent_dropout_rate)(input_tensor)
-        if self.dropout_rate > 0.0:
-            x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x)
+        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x) if self.dropout_rate > 0. else x
         return x
 
     def save(self, group: h5py.Group) -> None:
@@ -580,8 +577,7 @@ class Conv2D(Layer):
                                                                    padding     = 'same' if self.padding else 'valid',
                                                                    activation  = self.activation))(x)
         x = tf.keras.layers.TimeDistributed(tf.keras.layers.Flatten())(x)
-        if self.dropout_rate > 0.0:
-            x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x)
+        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x) if self.dropout_rate > 0. else x
         return x
 
     def save(self, group: h5py.Group) -> None:
@@ -691,8 +687,7 @@ class MaxPool2D(Layer):
                                                                          strides     = self.strides,
                                                                          padding     = 'same' if self.padding else 'valid'))(x)
         x = tf.keras.layers.TimeDistributed(tf.keras.layers.Flatten())(x)
-        if self.dropout_rate > 0.0:
-            x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x)
+        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x) if self.dropout_rate > 0. else x
         return x
 
     def save(self, group: h5py.Group) -> None:
@@ -711,11 +706,109 @@ class MaxPool2D(Layer):
                    strides      = tuple(int(x) for x in group['strides'    ][()]),
                    padding      =  bool(group["padding"                    ][()]))
 
-#class Transformer(Layer):
-#    """
-#    """
-#
+class Transformer(Layer):
+    """ A transformer layer
 
+    Attributes
+    ----------
+    num_heads : int
+        The number of attention heads
+    model_dim : int
+        The model dimensionality
+    ff_dim : int
+        The feed-forward network dimensionality
+    activation : Activation
+        Activation function to use for the Feed Forward Network of the Transformer
+    """
+
+    @property
+    def num_heads(self) -> int:
+        return self._num_heads
+
+    @num_heads.setter
+    def num_heads(self, num_heads: int) -> None:
+        assert num_heads > 0
+        self._num_heads = num_heads
+
+    @property
+    def model_dim(self) -> int:
+        return self._model_dim
+
+    @model_dim.setter
+    def model_dim(self, model_dim: int) -> None:
+        assert model_dim > 0
+        self._model_dim = model_dim
+
+    @property
+    def ff_dim(self) -> int:
+        return self._ff_dim
+
+    @ff_dim.setter
+    def ff_dim(self, ff_dim: int) -> None:
+        assert ff_dim > 0
+        self._ff_dim = ff_dim
+
+    @property
+    def activation(self) -> Activation:
+        return self._activation
+
+    @activation.setter
+    def activation(self, activation: Activation) -> None:
+        self._activation = activation
+
+    def __init__(self, num_heads: int, model_dim: int, ff_dim: int, activation: Activation = 'relu', dropout_rate: float = 0.):
+        super().__init__(dropout_rate)
+        self.num_heads  = num_heads
+        self.model_dim  = model_dim
+        self.ff_dim     = ff_dim
+        self.activation = activation
+
+    def __eq__(self, other: Any) -> bool:
+        if self is other:                                       return True
+        if not isinstance(other, Transformer):                  return False
+        if not(self.num_heads  == other.num_heads):             return False
+        if not(self.model_dim  == other.model_dim):             return False
+        if not(self.ff_dim     == other.ff_dim):                return False
+        if not(self.activation == other.activation):            return False
+        if not(isclose(self.dropout_rate, other.dropout_rate)): return False
+        return True
+
+    def __hash__(self) -> int:
+        return hash(tuple(sorted(self.__dict__.items())))
+
+
+    def build(self, input_tensor: KerasTensor) -> KerasTensor:
+        # Project input_tensor to model dimensions if they are not the same
+        input_tensor = tf.keras.layers.Dense(self.model_dim)(input_tensor) if input_tensor.shape[-1] != self.model_dim else input_tensor
+
+        attention = tf.keras.layers.MultiHeadAttention(num_heads = self.num_heads,
+                                                       key_dim   = self.model_dim)(input_tensor, input_tensor)
+        attention = tf.keras.layers.Dropout(rate=self.dropout_rate)(attention) if self.dropout_rate > 0. else attention
+        attention = tf.keras.layers.LayerNormalization(epsilon=1e-6)(attention + input_tensor)
+
+        feedfoward = tf.keras.layers.Dense(self.ff_dim, activation=self.activation)(attention)
+        feedfoward = tf.keras.layers.Dense(self.model_dim)(feedfoward)
+        feedfoward = tf.keras.layers.Dropout(rate=self.dropout_rate)(feedfoward) if self.dropout_rate > 0. else feedfoward
+        x = tf.keras.layers.LayerNormalization(epsilon=1e-6)(feedfoward + attention)
+        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x) if self.dropout_rate > 0. else x
+        return x
+
+    def save(self, group: h5py.Group) -> None:
+        group.create_dataset('type'        ,             data='Transformer', dtype=h5py.string_dtype())
+        group.create_dataset('dropout_rate',             data=self.dropout_rate)
+        group.create_dataset('number_of_heads' ,         data=self.num_heads)
+        group.create_dataset('model_dimensions' ,        data=self.model_dim)
+        group.create_dataset('feed_forward_dimensions' , data=self.ff_dim)
+        group.create_dataset('activation_function' ,     data=self.activation, dtype=h5py.string_dtype())
+
+
+    @classmethod
+    def from_h5(cls, group: h5py.Group) -> Transformer:
+        return cls(num_heads    =   int(group["number_of_heads"        ][()]),
+                   model_dim    =   int(group["model_dimensions"       ][()]),
+                   ff_dim       =   int(group["feed_forward_dimensions"][()]),
+                   activation   =       group["activation_function"    ][()].decode('utf-8'),
+                   dropout_rate = float(group["dropout_rate"           ][()]))
 
 
 class NNStrategy(PredictionStrategy):
@@ -860,20 +953,15 @@ class NNStrategy(PredictionStrategy):
     def save_model(self, file_name: str) -> None:
         """ A method for saving a trained model
 
-        This method handles everything via the HDF5 file format, so any file name specified
-        that doesn't end with '.h5' will be assumed to end with '.h5'
-
         Parameters
         ----------
         file_name : str
             The name of the file to export the model to
         """
 
-        file_name = file_name if file_name.endswith(".h5") else file_name + ".h5"
+        self._model.save(file_name + ".keras")
 
-        self._model.save(file_name)
-
-        with h5py.File(file_name, 'a') as h5_file:
+        with h5py.File(file_name + ".h5", 'w') as h5_file:
             self.base_save_model(h5_file)
             h5_file.create_dataset('initial_learning_rate', data=self.initial_learning_rate)
             h5_file.create_dataset('learning_decay_rate',   data=self.learning_decay_rate)
@@ -883,37 +971,8 @@ class NNStrategy(PredictionStrategy):
             self._layer_sequence.save(h5_file.create_group('neural_network'))
 
 
-
-    def load_model(self, file_name: str) -> None:
-        """ A method for loading a trained model
-
-        This method handles everything via the HDF5 file format, so any file name specified
-        that doesn't end with '.h5' will be assumed to end with '.h5'
-
-        Parameters
-        ----------
-        file_name : str
-            The name of the file to load the model from
-        """
-
-        file_name = file_name if file_name.endswith(".h5") else file_name + ".h5"
-
-        assert(os.path.exists(file_name))
-
-        with h5py.File(file_name, 'r') as h5_file:
-            self.base_load_model(h5_file)
-            self.initial_learning_rate = float( h5_file['initial_learning_rate'][()] )
-            self.learning_decay_rate   = float( h5_file['learning_decay_rate'][()]   )
-            self.epoch_limit           = int(   h5_file['epoch_limit'][()]           )
-            self.convergence_criteria  = float( h5_file['convergence_criteria'][()]  )
-            self.batch_size            = int(   h5_file['batch_size'][()]            )
-            self._layer_sequence       = LayerSequence.from_h5(h5_file['neural_network'])
-
-        self._model = load_model(file_name)
-
-
     @classmethod
-    def read_from_hdf5(cls: NNStrategy, file_name: str) -> NNStrategy:
+    def read_from_file(cls: NNStrategy, file_name: str) -> NNStrategy:
         """ A basic factory method for building NN Strategy from an HDF5 file
 
         Parameters
@@ -926,9 +985,21 @@ class NNStrategy(PredictionStrategy):
         NNStrategy:
             The model from the hdf5 file
         """
-        assert(os.path.exists(file_name))
 
         new_model = cls({}, None)
-        new_model.load_model(file_name)
+
+        assert(os.path.exists(file_name + ".keras"))
+        assert(os.path.exists(file_name + ".h5"))
+
+        with h5py.File(file_name + ".h5", 'r') as h5_file:
+            new_model.base_load_model(h5_file)
+            new_model.initial_learning_rate = float( h5_file['initial_learning_rate'][()] )
+            new_model.learning_decay_rate   = float( h5_file['learning_decay_rate'][()]   )
+            new_model.epoch_limit           = int(   h5_file['epoch_limit'][()]           )
+            new_model.convergence_criteria  = float( h5_file['convergence_criteria'][()]  )
+            new_model.batch_size            = int(   h5_file['batch_size'][()]            )
+            new_model._layer_sequence       = LayerSequence.from_h5(h5_file['neural_network'])
+
+        new_model._model = load_model(file_name + ".keras")
 
         return new_model
