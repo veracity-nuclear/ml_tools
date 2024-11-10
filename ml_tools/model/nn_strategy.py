@@ -441,8 +441,7 @@ class LSTM(Layer):
         x = tf.keras.layers.LSTM(units                = self.units,
                                  activation           = self.activation,
                                  recurrent_activation = self.recurrent_activation,
-                                 recurrent_dropout    = self.recurrent_dropout_rate,
-                                 stateful             = True)(input_tensor)
+                                 recurrent_dropout    = self.recurrent_dropout_rate)(input_tensor)
         if self.dropout_rate > 0.0:
             x = tf.keras.layers.Dropout(self.dropout_rate)(x)
         return x
@@ -590,10 +589,10 @@ class NNStrategy(PredictionStrategy):
         X = self.preprocess_inputs(train_data, num_procs)
         y = self._get_targets(train_data)
 
-        input_tensor = tf.keras.layers.Input(batch_shape=(self.batch_size, len(X[0]),len(X[0][0])))
+        input_tensor = tf.keras.layers.Input(shape=(None, len(X[0][0])))
 
         x = self._layer_sequence.build(input_tensor)
-        output = tf.keras.layers.Dense(1)(x)
+        output = tf.keras.layers.Dense(y.shape[2])(x)
 
         self._model = tf.keras.Model(inputs=input_tensor, outputs=output)
 
@@ -612,46 +611,11 @@ class NNStrategy(PredictionStrategy):
 
     def _predict_all(self, state_series: List[StateSeries]) -> np.ndarray:
         assert(self.isTrained)
-        assert all(len(series) == len(state_series[0]) for series in state_series)
 
         X = self.preprocess_inputs(state_series)
         tf.convert_to_tensor(X, dtype=tf.float32)
-
-        sequence_length = X.shape[1]
-        num_features    = X.shape[2]
-        batch_size      = self._model.input_shape[0]
-        window_size     = self._model.input_shape[1]
-        num_batches     = int(np.ceil(len(state_series) / batch_size))
-        predictions     = []
-
-        for b in range(num_batches):
-            for layer in self._model.layers:
-                if isinstance(layer, tf.keras.layers.LSTM): layer.reset_states()
-
-            start         = b * batch_size
-            stop          = min(start + batch_size, len(state_series))
-            current_batch = X[start:stop]
-
-            if len(current_batch) < batch_size:
-                padding = np.zeros((batch_size - len(current_batch), sequence_length, num_features))
-                current_batch = np.concatenate([current_batch, padding], axis=0)
-
-            batch_predictions = []
-            for window_start in range(0, sequence_length, window_size):
-                window_end = min(window_start + window_size, sequence_length)
-                current_window = current_batch[:, window_start:window_end , :]
-
-                if current_window.shape[1] < window_size:
-                    padding = np.zeros((batch_size, window_size - current_window.shape[1], num_features))
-                    current_window = np.concatenate([current_window, padding], axis=1)
-
-                y = self._model.predict(current_window, batch_size=batch_size)
-                batch_predictions.append(y)
-
-            batch_predictions = np.concatenate(batch_predictions, axis=1)
-            predictions.append(batch_predictions[:stop - start])  # Only take the valid part of the batch
-
-        return np.concatenate(predictions, axis=0).flatten()
+        y = self._model.predict(X).flatten()
+        return y
 
 
     def save_model(self, file_name: str) -> None:
