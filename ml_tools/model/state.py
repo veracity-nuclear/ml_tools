@@ -60,9 +60,6 @@ class State(object):
         assert(len(features) > 0)
 
         with h5py.File(file_name, 'r') as h5_file:
-            assert state in h5_file.keys()
-            assert all(feature in h5_file[state].keys() for feature in features)
-
             state_data = {}
             for feature in features:
                 data                = h5_file[state][feature][()]
@@ -118,21 +115,25 @@ class State(object):
 
         if states is None:
             with h5py.File(file_name, 'r') as h5_file:
-                states = list(h5_file.keys())
+                states = h5_groups
         elif isinstance(states, str):
             states = [states]
-
 
         if random_sample_size:
             assert random_sample_size > 0
             assert random_sample_size < len(states)
             states = random.sample(states, random_sample_size)
 
-        statusbar = StatusBar(len(states))
+        if not silent: statusbar = StatusBar(len(states))
         state_data = []
         i = 0
-        if num_procs > 1:
 
+        if num_procs == 1:
+            for state in states:
+                state_data.append(State.read_state_from_hdf5(file_name, state, features))
+                if not silent: statusbar.update(i); i+=1
+
+        else:
             def chunkify(states: List[str], chunk_size: int):
                 for i in range(0, len(states), chunk_size):
                     yield states[i:i + chunk_size]
@@ -141,17 +142,12 @@ class State(object):
             chunks     = list(chunkify(states, chunk_size))
 
             with ProcessPoolExecutor(max_workers=num_procs) as executor:
-                jobs = {executor.submit(State.read_states_from_hdf5, file_name, features, chunks, silent=True): chunk for chunk in chunks}
+                jobs = {executor.submit(State.read_states_from_hdf5, file_name, features, chunk, silent=True): chunk for chunk in chunks}
 
                 for job in as_completed(jobs):
                     for state in job.result():
                         state_data.append(state)
                         if not silent: statusbar.update(i); i+=1
-
-        else:
-            for state in states:
-                state_data.append(State.read_state_from_hdf5(file_name, state, features))
-                if not silent: statusbar.update(i); i+=1
 
         if not silent: statusbar.finalize()
 
