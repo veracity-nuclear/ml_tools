@@ -72,7 +72,7 @@ class PredictionStrategy(ABC):
 
 
     @abstractmethod
-    def train(self, train_states: List[State], test_states: List[State] = [], num_procs: int = 1) -> None:
+    def train(self, train_states: List[State], test_states: List[State] = None, num_procs: int = 1) -> None:
         """ The method that trains the prediction strategy given a set of training data (i.e. List of States)
 
         Parameters
@@ -107,7 +107,7 @@ class PredictionStrategy(ABC):
         inputs = []
 
         for feature, processor in self.input_features.items():
-            feature_data = [state.feature(feature) for state in states]
+            feature_data = [state[feature] for state in states]
             feature_data = np.array_split(feature_data, num_procs)
             with ProcessPoolExecutor(max_workers=num_procs) as executor:
                 processed_data = list(executor.map(processor.preprocess, feature_data))
@@ -128,7 +128,7 @@ class PredictionStrategy(ABC):
         if self._biasing_model is not None:
             raise AttributeError('Cannot save model with bias model attached')
 
-        h5_file.create_dataset('predicted_feature',     data=self.predicted_feature)
+        h5_file.create_dataset('predicted_feature', data=self.predicted_feature)
         input_features_group = h5_file.create_group('input_features')
         for name, feature in self.input_features.items():
             write_feature_processor(input_features_group.create_group(name), feature)
@@ -207,7 +207,7 @@ class PredictionStrategy(ABC):
         np.ndarray
             The target values of each state to use in training
         """
-        y = np.array([state.feature(self.predicted_feature) for state in states])
+        y = np.array([state[self.predicted_feature] for state in states])
         if self.hasBiasingModel:
             x = np.asarray(self.biasing_model.predict(states)).reshape(-1, 1)
             y -= x

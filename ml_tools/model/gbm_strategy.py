@@ -219,14 +219,14 @@ class GBMStrategy(PredictionStrategy):
         self._gbm               = None
 
 
-    def train(self, train_states: List[State], test_states: List[State] = [], num_procs: int = 1) -> None:
+    def train(self, train_states: List[State], test_states: List[State] = None, num_procs: int = 1) -> None:
 
         X_train   = self.preprocess_inputs(train_states, num_procs)
         y_train   = self._get_targets(train_states)
-        print(X_train, y_train)
         lgb_train = lgb.Dataset(X_train, y_train)
 
         lgb_eval  = None
+        test_states = [] if test_states is None else test_states
         if len(test_states) > 0:
             X_test    = self.preprocess_inputs(test_states, num_procs)
             y_test    = self._get_targets(test_states)

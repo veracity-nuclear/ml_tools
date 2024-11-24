@@ -72,15 +72,15 @@ class PODStrategy(PredictionStrategy):
         self._pod_mat = None
 
 
-    def train(self, train_states: List[State], test_states: List[State] = [], num_procs: int = 1) -> None:
+    def train(self, train_states: List[State], test_states: List[State] = None, num_procs: int = 1) -> None:
 
         self._pod_mat  = [None]*self.nclusters
         input_feature  = self.input_feature
         output_feature = self.predicted_feature
         state          = train_states[0]
 
-        assert self.fine_to_coarse_map.shape[0] == len(state.feature(input_feature))
-        assert all(len(row) == len(state.feature(output_feature)) for row in self.fine_to_coarse_map)
+        assert self.fine_to_coarse_map.shape[0] == len(state[input_feature])
+        assert all(len(row) == len(state[output_feature]) for row in self.fine_to_coarse_map)
         assert all(isclose(row.sum(), 1.) for row in self.fine_to_coarse_map)
 
         # Setup of the PCA project and K-means clustering of the input feature based on the training samples
@@ -108,9 +108,9 @@ class PODStrategy(PredictionStrategy):
             if self.max_svd_size is not None and nlabel[k] > self.max_svd_size:
                 klabels = np.random.choice(klabels, size=self.max_svd_size, replace=False)
 
-            A = np.zeros((len(train_states[0].feature(output_feature)), len(klabels)))
+            A = np.zeros((len(train_states[0][output_feature]), len(klabels)))
             for i, id in enumerate(klabels):
-                A[:,i] = train_states[id].feature(output_feature)
+                A[:,i] = train_states[id][output_feature]
 
             u, S, v = np.linalg.svd(A)
 
@@ -133,7 +133,7 @@ class PODStrategy(PredictionStrategy):
         else:
             labels = [0]*len(states)
 
-        return [np.matmul(self._pod_mat[labels[i]], states[i].feature(self.input_feature)) for i in range(len(states))]
+        return [np.matmul(self._pod_mat[labels[i]], states[i][self.input_feature]) for i in range(len(states))]
 
 
     def save_model(self, file_name: str) -> None:

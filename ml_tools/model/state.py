@@ -24,12 +24,8 @@ class State(object):
     def __init__(self, features: Dict[str, np.ndarray]):
         self._features = features
 
-
-    def feature(self, name: "str") -> np.ndarray:
+    def __getitem__(self, feature_name: str) -> np.ndarray:
         """ Method for retrieving the feature data from a state
-
-        This method might not be entirely necessary, but I think it's a cleaner
-        way of accessing the underlying data than using the "features" property directly.
 
         Parameters
         ----------
@@ -42,8 +38,8 @@ class State(object):
             The feature data that was retrieved
         """
 
-        assert name in self.features
-        return self._features[name]
+        assert feature_name in self.features
+        return self._features[feature_name]
 
 
     @staticmethod

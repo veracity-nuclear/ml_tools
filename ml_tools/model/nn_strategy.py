@@ -125,7 +125,7 @@ class NNStrategy(PredictionStrategy):
     def __init__(self,
                  input_features        : Dict[str, FeatureProcessor],
                  predicted_feature     : str,
-                 hidden_layers         : List[Layer]=[Layer(5)],
+                 hidden_layers         : List[Layer]=None,
                  initial_learning_rate : float=0.01,
                  learning_decay_rate   : float=1.,
                  epoch_limit           : int=20,
@@ -135,7 +135,7 @@ class NNStrategy(PredictionStrategy):
         super().__init__()
         self.input_features         = input_features
         self.predicted_feature      = predicted_feature
-        self.hidden_layers          = hidden_layers
+        self.hidden_layers          = [NNStrategy.Layer(5)] if hidden_layers is None else hidden_layers
         self.initial_learning_rate  = initial_learning_rate
         self.learning_decay_rate    = learning_decay_rate
         self.epoch_limit            = epoch_limit
@@ -145,7 +145,7 @@ class NNStrategy(PredictionStrategy):
         self._nn = None
 
 
-    def train(self, train_states: List[State], test_states: List[State] = [], num_procs: int = 1) -> None:
+    def train(self, train_states: List[State], test_states: List[State] = None, num_procs: int = 1) -> None:
 
         X = self.preprocess_inputs(train_states, num_procs)
         y = self._get_targets(train_states)

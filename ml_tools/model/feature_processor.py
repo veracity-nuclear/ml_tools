@@ -118,13 +118,11 @@ def write_feature_processor(group: h5py.Group, processor: FeatureProcessor) -> N
         The Feature Processor to write to the HDF5 Group
     """
 
-    def get_public_properties(obj):
-        public_properties = []
+    def get_public_properties(obj: FeatureProcessor):
         for attr_name in dir(obj):
             attr_value = getattr(obj, attr_name)
             if isinstance(attr_value, property) or (not attr_name.startswith('_') and isinstance(getattr(type(obj), attr_name, None), property)):
-                public_properties.append(attr_name)
-        return public_properties
+                yield attr_name
 
     group.create_dataset("type", data=type(processor).__name__, dtype=h5py.string_dtype())
     for var in get_public_properties(processor):
@@ -150,5 +148,4 @@ def read_feature_processor(group: h5py.Group) -> FeatureProcessor:
     if    processor_type == "MinMaxNormalize":  return MinMaxNormalize(group["min"][()], group["max"][()])
     elif  processor_type == "NoProcessing"   :  return NoProcessing()
     else:
-        found_valid_feature_processor = False
-        assert(found_valid_feature_processor)
+        assert False, f"Unsupported processor type: {processor_type}"
