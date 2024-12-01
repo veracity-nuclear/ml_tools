@@ -103,20 +103,27 @@ class PredictionStrategy(ABC):
         np.ndarray
             The preprocessed collection of state series input features
         """
+        input_features = [self.input_features] * len(state_series) # input_features for each worker
 
-        processed_inputs = []
-
-        for series in state_series:
-            series_inputs = []
-            for feature, processor in self.input_features.items():
-                feature_data = [state.feature(feature) for state in series]
-                feature_data = np.array_split(feature_data, num_procs)
-                with ProcessPoolExecutor(max_workers=num_procs) as executor:
-                    processed_data = list(executor.map(processor.preprocess, feature_data))
-                series_inputs.append(np.vstack(processed_data))
-            processed_inputs.append(np.hstack(series_inputs).tolist())
+        with ProcessPoolExecutor(max_workers=num_procs) as executor:
+            processed_inputs = list(executor.map(self._process_single_series, state_series, input_features))
 
         return np.asarray(processed_inputs)
+
+
+    @staticmethod
+    def _process_single_series(series: StateSeries, input_features: Dict[str, FeatureProcessor]) -> np.ndarray:
+        """ Helper method to support parallelizing preprocess_inputs
+
+        This is required to be a separate method so it can be pickled by ProcessPoolExecutor
+        """
+
+        processed_inputs = []
+        for feature, processor in input_features.items():
+            feature_data = np.array([state.feature(feature) for state in series])
+            processed_data = processor.preprocess(feature_data)
+            processed_inputs.append(processed_data)
+        return np.hstack(processed_inputs)
 
 
     def base_save_model(self, h5_file: h5py.File) -> None:
