@@ -828,7 +828,10 @@ class NNStrategy(PredictionStrategy):
     epoch_limit : int
         The limit on the number of training epochs conducted during training
     convergence_criteria : float
-        The convergence criteria for training
+        The convergence precision criteria for training
+    convergence_patience : int
+        Number of epochs with no improvement (i.e. error improves by greater than the convergence_criteria)
+        after which training will be stopped
     batch_size : int
         The training batch sizes
     """
@@ -878,6 +881,15 @@ class NNStrategy(PredictionStrategy):
         self._convergence_criteria = convergence_criteria
 
     @property
+    def convergence_patience(self) -> int:
+        return self._convergence_patience
+
+    @convergence_patience.setter
+    def convergence_patience(self, convergence_patience: int):
+        assert convergence_patience > 0, f"convergence_patience = {convergence_patience}"
+        self._convergence_patience = convergence_patience
+
+    @property
     def batch_size(self) -> int:
         return self._batch_size
 
@@ -899,6 +911,7 @@ class NNStrategy(PredictionStrategy):
                  learning_decay_rate   : float=1.,
                  epoch_limit           : int=400,
                  convergence_criteria  : float=1E-14,
+                 convergence_patience  : int=100,
                  batch_size            : int=32) -> None:
 
         super().__init__()
@@ -909,6 +922,7 @@ class NNStrategy(PredictionStrategy):
         self.learning_decay_rate    = learning_decay_rate
         self.epoch_limit            = epoch_limit
         self.convergence_criteria   = convergence_criteria
+        self.convergence_patience   = convergence_patience
         self.batch_size             = batch_size
 
         self._model = None
@@ -931,7 +945,7 @@ class NNStrategy(PredictionStrategy):
         learning_rate_schedule = ExponentialDecay(self.initial_learning_rate, decay_steps=self.epoch_limit, decay_rate=self.learning_decay_rate, staircase=True)
         self._model.compile(optimizer=Adam(learning_rate=learning_rate_schedule), loss=MeanSquaredError(), metrics=[MeanAbsoluteError()])
 
-        early_stop = EarlyStopping(monitor='mean_absolute_error', min_delta=self.convergence_criteria, patience=5, verbose=1, mode='auto', restore_best_weights=True)
+        early_stop = EarlyStopping(monitor='mean_absolute_error', min_delta=self.convergence_criteria, patience=self.convergence_patience, verbose=1, mode='auto', restore_best_weights=True)
         dataset    = tf.data.Dataset.from_tensor_slices((X, y))
         dataset    = dataset.batch(self.batch_size, drop_remainder=True)
         self._model.fit(dataset, epochs=self.epoch_limit, batch_size=self.batch_size, callbacks=[early_stop])
