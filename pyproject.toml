@@ -15,9 +15,12 @@ keywords = []
 requires-python = ">=3.12"
 license = {text = "TBD"}
 classifiers = [
-    'Development Status :: 3 - Alpha',
-    'Programming Language :: Python :: 3',
-    'Operating System :: OS Independent',
+    'Development Status :: 2 - Pre-Alpha',
+    'Intended Audience :: Science/Research',
+    'Programming Language :: Python :: 3.12',
+    'Operating System :: POSIX :: Linux',
+    'Natural Language :: English',
+    'Topic :: Scientific/Engineering :: Physics',
 ]
 dependencies = [
     'tensorflow',
