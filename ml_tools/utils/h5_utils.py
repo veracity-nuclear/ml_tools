@@ -3,7 +3,8 @@ from typing import List
 import os
 import h5py
 import numpy as np
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor
+from functools import partial
 
 def get_groups_with_prefix(file_name: str, prefix: str, num_procs: int = 1) -> List[str]:
     """ Helper function for getting the groups of an HDF5 file belonging to the set with a leading prefix
@@ -23,14 +24,18 @@ def get_groups_with_prefix(file_name: str, prefix: str, num_procs: int = 1) -> L
         The list of groups that belong to the set
     """
 
-    assert(os.path.exists(file_name))
+    assert os.path.exists(file_name), f"File does not exist: {file_name}"
 
     with h5py.File(file_name, 'r') as h5_file:
-        def check_group(group):
-            return group if group.startswith(prefix) else None
+        group_names = list(h5_file.keys())
 
-        with ThreadPoolExecutor(max_workers=num_procs) as executor:
-            results = list(executor.map(check_group, h5_file))
+        with ProcessPoolExecutor(max_workers=num_procs) as executor:
+            results = list(executor.map(partial(_check_group, prefix=prefix), group_names))
             groups = [group for group in results if group is not None]
 
     return groups
+
+def _check_group(group, prefix):
+    """ Private function for get_groups_with_prefix that is required to be a separate function by ProcessPoolExecutor
+    """
+    return group if group.startswith(prefix) else None

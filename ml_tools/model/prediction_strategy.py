@@ -33,7 +33,7 @@ class PredictionStrategy(ABC):
     def input_features(self, input_features: Dict[str, FeatureProcessor]) -> None:
         self._input_features = {}
         for feature, processor in input_features.items():
-            assert feature is not self.predicted_feature
+            assert feature is not self.predicted_feature, f"'{feature}' is also the predicted feature"
             self._input_features[feature] = processor
         self._input_features = dict(sorted(self._input_features.items()))  # Ensure input features are in alphabetical order
 
@@ -43,7 +43,7 @@ class PredictionStrategy(ABC):
 
     @predicted_feature.setter
     def predicted_feature(self, predicted_feature: str) -> None:
-        assert predicted_feature not in self.input_features.keys()
+        assert predicted_feature not in self.input_features.keys(), f"'{feature}' is also an input feature"
         self._predicted_feature = predicted_feature
 
     @property

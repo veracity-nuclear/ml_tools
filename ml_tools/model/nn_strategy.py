@@ -43,7 +43,7 @@ class Layer(ABC):
 
     @dropout_rate.setter
     def dropout_rate(self, dropout_rate: float) -> None:
-        assert 0.0 <= dropout_rate <= 1.0
+        assert 0.0 <= dropout_rate <= 1.0, f"dropout rate = {dropout_rate}"
         self._dropout_rate = dropout_rate
 
 
@@ -120,7 +120,7 @@ class LayerSequence(Layer):
 
     @layers.setter
     def layers(self, value: List[Layer]) -> None:
-        assert len(value) > 0
+        assert len(value) > 0, f"len(value) = {len(value)}"
         self._layers = value
 
     def __init__(self, layers: List[Layer]) -> None:
@@ -199,9 +199,9 @@ class CompoundLayer(Layer):
 
     def __init__(self, layers: List[Layer], input_specifications: List[Union[slice, List[int]]], dropout_rate: float = 0.0) -> None:
         super().__init__(dropout_rate)
-        assert len(layers) > 0
-        assert len(layers) == len(input_specifications)
-        assert all(not(spec.stop is None) for spec in input_specifications if isinstance(spec, slice)) # Input layer length is not known until at build
+        assert len(layers) > 0, f"len(layers) = {len(layers)}"
+        assert len(layers) == len(input_specifications), f"len(layers) = {len(layers)}, len(input_specifications) = {len(input_specifications)}"
+        assert all(not(spec.stop is None) for spec in input_specifications if isinstance(spec, slice)), f"Input layer length is not known until at build"
         self._layers = layers
 
         self._input_specifications = []
@@ -324,7 +324,7 @@ class Dense(Layer):
 
     @units.setter
     def units(self, units: int) -> None:
-        assert units > 0
+        assert units > 0, f"units = {units}"
         self._units = units
 
     @property
@@ -390,7 +390,7 @@ class LSTM(Layer):
 
     @units.setter
     def units(self, units: int) -> None:
-        assert units > 0
+        assert units > 0, f"units = {units}"
         self._units = units
 
     @property
@@ -415,7 +415,7 @@ class LSTM(Layer):
 
     @recurrent_dropout_rate.setter
     def recurrent_dropout_rate(self, dropout_rate: float) -> None:
-        assert 0.0 <= dropout_rate <= 1.0
+        assert 0.0 <= dropout_rate <= 1.0, f"dropout rate = {dropout_rate}"
         self._recurrent_dropout_rate = dropout_rate
 
 
@@ -489,8 +489,8 @@ class Conv2D(Layer):
 
     @input_shape.setter
     def input_shape(self, input_shape: Tuple[int, int]) -> None:
-        assert input_shape[0] > 0
-        assert input_shape[1] > 0
+        assert input_shape[0] > 0, f"input_shape[0] = {input_shape[0]}"
+        assert input_shape[1] > 0, f"input_shape[1] = {input_shape[1]}"
         self._input_shape = input_shape
 
     @property
@@ -507,7 +507,7 @@ class Conv2D(Layer):
 
     @filters.setter
     def filters(self, filters: int) -> None:
-        assert filters > 0
+        assert filters > 0, f"filters = {filters}"
         self._filters = filters
 
     @property
@@ -516,8 +516,8 @@ class Conv2D(Layer):
 
     @kernel_size.setter
     def kernel_size(self, kernel_size: Tuple[int, int]) -> None:
-        assert kernel_size[0] > 0
-        assert kernel_size[1] > 0
+        assert kernel_size[0] > 0, f"kernel_size[0] = {kernel_size[0]}"
+        assert kernel_size[1] > 0, f"kernel_size[1] = {kernel_size[1]}"
         self._kernel_size = kernel_size
 
     @property
@@ -526,8 +526,8 @@ class Conv2D(Layer):
 
     @strides.setter
     def strides(self, strides: Tuple[int, int]) -> None:
-        assert strides[0] > 0
-        assert strides[1] > 0
+        assert strides[0] > 0, f"strides[0] = {strides[0]}"
+        assert strides[1] > 0, f"strides[1] = {strides[1]}"
         self._strides = strides
 
     @property
@@ -622,8 +622,8 @@ class MaxPool2D(Layer):
 
     @input_shape.setter
     def input_shape(self, input_shape: Tuple[int, int]) -> None:
-        assert input_shape[0] > 0
-        assert input_shape[1] > 0
+        assert input_shape[0] > 0, f"input_shape[0] = {input_shape[0]}"
+        assert input_shape[1] > 0, f"input_shape[1] = {input_shape[1]}"
         self._input_shape = input_shape
 
     @property
@@ -632,8 +632,8 @@ class MaxPool2D(Layer):
 
     @pool_size.setter
     def pool_size(self, pool_size: Tuple[int, int]) -> None:
-        assert pool_size[0] > 0
-        assert pool_size[1] > 0
+        assert pool_size[0] > 0, f"pool_size[0] = {pool_size[0]}"
+        assert pool_size[1] > 0, f"pool_size[1] = {pool_size[1]}"
         self._pool_size = pool_size
 
     @property
@@ -642,8 +642,8 @@ class MaxPool2D(Layer):
 
     @strides.setter
     def strides(self, strides: Tuple[int, int]) -> None:
-        assert strides[0] > 0
-        assert strides[1] > 0
+        assert strides[0] > 0, f"strides[0] = {strides[0]}"
+        assert strides[1] > 0, f"strides[1] = {strides[1]}"
         self._strides = strides
 
     @property
@@ -727,7 +727,7 @@ class Transformer(Layer):
 
     @num_heads.setter
     def num_heads(self, num_heads: int) -> None:
-        assert num_heads > 0
+        assert num_heads > 0, f"num_heads = {num_heads}"
         self._num_heads = num_heads
 
     @property
@@ -736,7 +736,7 @@ class Transformer(Layer):
 
     @model_dim.setter
     def model_dim(self, model_dim: int) -> None:
-        assert model_dim > 0
+        assert model_dim > 0, f"model_dim = {model_dim}"
         self._model_dim = model_dim
 
     @property
@@ -745,7 +745,7 @@ class Transformer(Layer):
 
     @ff_dim.setter
     def ff_dim(self, ff_dim: int) -> None:
-        assert ff_dim > 0
+        assert ff_dim > 0, f"ff_dim = {ff_dim}"
         self._ff_dim = ff_dim
 
     @property
@@ -847,7 +847,7 @@ class NNStrategy(PredictionStrategy):
 
     @initial_learning_rate.setter
     def initial_learning_rate(self, initial_learning_rate: float):
-        assert initial_learning_rate >= 0.
+        assert initial_learning_rate >= 0., f"initial_learning_rate = {initial_learning_rate}"
         self._initial_learning_rate = initial_learning_rate
 
     @property
@@ -856,7 +856,7 @@ class NNStrategy(PredictionStrategy):
 
     @learning_decay_rate.setter
     def learning_decay_rate(self, learning_decay_rate: float):
-        assert 0. <= learning_decay_rate <= 1.
+        assert 0. <= learning_decay_rate <= 1., f"learning_decay_rate = {learning_decay_rate}"
         self._learning_decay_rate = learning_decay_rate
 
     @property
@@ -865,7 +865,7 @@ class NNStrategy(PredictionStrategy):
 
     @epoch_limit.setter
     def epoch_limit(self, epoch_limit: int):
-        assert epoch_limit > 0
+        assert epoch_limit > 0, f"epoch_limit = {epoch_limit}"
         self._epoch_limit = epoch_limit
 
     @property
@@ -874,7 +874,7 @@ class NNStrategy(PredictionStrategy):
 
     @convergence_criteria.setter
     def convergence_criteria(self, convergence_criteria: float):
-        assert convergence_criteria > 0.
+        assert convergence_criteria > 0., f"convergence_criteria = {convergence_criteria}"
         self._convergence_criteria = convergence_criteria
 
     @property
@@ -883,7 +883,7 @@ class NNStrategy(PredictionStrategy):
 
     @batch_size.setter
     def batch_size(self, batch_size: int):
-        assert batch_size > 0
+        assert batch_size > 0, f"batch_size = {batch_size}"
         self._batch_size = batch_size
 
     @property
@@ -915,7 +915,7 @@ class NNStrategy(PredictionStrategy):
 
 
     def train(self, train_data: List[StateSeries], test_data: List[StateSeries] = [], num_procs: int = 1) -> None:
-        assert len(test_data) == 0  # This model does not use Test Data as part of training
+        assert len(test_data) == 0, f"The Neural Network Prediction Strategy does not use test data"
         assert all(len(series) == len(train_data[0]) for series in train_data)
 
         X = self.preprocess_inputs(train_data, num_procs)
@@ -988,8 +988,8 @@ class NNStrategy(PredictionStrategy):
 
         new_model = cls({}, None)
 
-        assert(os.path.exists(file_name + ".keras"))
-        assert(os.path.exists(file_name + ".h5"))
+        assert os.path.exists(file_name + ".keras"), f"file name = {file_name + '.keras'}"
+        assert os.path.exists(file_name + ".h5"), f"file name = {file_name + '.h5'}"
 
         with h5py.File(file_name + ".h5", 'r') as h5_file:
             new_model.base_load_model(h5_file)
