@@ -1,11 +1,12 @@
 from __future__ import annotations
 from typing import List, Dict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import os
 from math import isclose
 import h5py
-import numpy as np
 
+# Pylint appears to not be handling the tensorflow imports correctly
+# pylint: disable=import-error, no-name-in-module
 import tensorflow as tf
 from tensorflow.keras.models import Sequential, load_model
 from tensorflow.keras.layers import Dense, Dropout
@@ -45,6 +46,8 @@ class NNStrategy(PredictionStrategy):
 
     @dataclass
     class Layer:
+        """ Basic data class for dense layers
+        """
         number_of_nodes: int
         dropout_rate: float = 0.
         activation_function: str = 'tanh' # This is good for regression
@@ -54,14 +57,15 @@ class NNStrategy(PredictionStrategy):
             assert isinstance(self.dropout_rate, float), "dropout rate must be a float"
             assert isinstance(self.activation_function, str), "activation function must be a string"
             assert self.number_of_nodes > 0, "number of nodes must be greater than 0"
-            assert True if self.dropout_rate is None else self.dropout_rate >= 0. and self.dropout_rate < 1., "dropout rate must >= 0. and < 1."
-            assert self.activation_function in valid_activation_functions, "activation function must be a valid activation function string"
+            assert True if self.dropout_rate is None else self.dropout_rate >= 0. and self.dropout_rate < 1., \
+                 "dropout rate must >= 0. and < 1."
+            assert self.activation_function in valid_activation_functions, \
+                 "activation function must be a valid activation function string"
 
         def __eq__(self, other: NNStrategy.Layer) -> bool:
-            if not(isclose(self.dropout_rate, other.dropout_rate)       ): return False
-            if not(self.number_of_nodes     == other.number_of_nodes    ): return False
-            if not(self.activation_function == other.activation_function): return False
-            return True
+            return (isclose(self.dropout_rate, other.dropout_rate) and
+                    self.number_of_nodes     == other.number_of_nodes and
+                    self.activation_function == other.activation_function)
 
     @property
     def hidden_layers(self) -> List[Layer]:
@@ -69,7 +73,7 @@ class NNStrategy(PredictionStrategy):
 
     @hidden_layers.setter
     def hidden_layers(self, hidden_layers: List[Layer]):
-        assert(len(hidden_layers) > 0)
+        assert len(hidden_layers) > 0
         self._hidden_layers = hidden_layers
 
     @property
@@ -78,7 +82,7 @@ class NNStrategy(PredictionStrategy):
 
     @initial_learning_rate.setter
     def initial_learning_rate(self, initial_learning_rate: float):
-        assert(initial_learning_rate >= 0.)
+        assert initial_learning_rate >= 0.
         self._initial_learning_rate = initial_learning_rate
 
     @property
@@ -87,7 +91,7 @@ class NNStrategy(PredictionStrategy):
 
     @learning_decay_rate.setter
     def learning_decay_rate(self, learning_decay_rate: float):
-        assert(learning_decay_rate >= 0. and learning_decay_rate <= 1.)
+        assert learning_decay_rate >= 0. and learning_decay_rate <= 1.
         self._learning_decay_rate = learning_decay_rate
 
     @property
@@ -96,7 +100,7 @@ class NNStrategy(PredictionStrategy):
 
     @epoch_limit.setter
     def epoch_limit(self, epoch_limit: int):
-        assert(epoch_limit > 0)
+        assert epoch_limit > 0
         self._epoch_limit = epoch_limit
 
     @property
@@ -105,7 +109,7 @@ class NNStrategy(PredictionStrategy):
 
     @convergence_criteria.setter
     def convergence_criteria(self, convergence_criteria: float):
-        assert(convergence_criteria > 0.)
+        assert convergence_criteria > 0.
         self._convergence_criteria = convergence_criteria
 
     @property
@@ -114,7 +118,7 @@ class NNStrategy(PredictionStrategy):
 
     @batch_size.setter
     def batch_size(self, batch_size: int):
-        assert(batch_size > 0)
+        assert batch_size > 0
         self._batch_size = batch_size
 
     @property
@@ -152,15 +156,30 @@ class NNStrategy(PredictionStrategy):
 
         number_of_input_features = len(X[0])
 
-        layers  = [Dense(layer.number_of_nodes, activation=layer.activation_function, input_shape=(number_of_input_features,) if i == 0 else ()) for i, layer in enumerate(self.hidden_layers)]
+        layers = [Dense(units       = layer.number_of_nodes,
+                        activation  = layer.activation_function,
+                        input_shape = (number_of_input_features,) if i == 0 else ())
+                  for i, layer in enumerate(self.hidden_layers)]
         layers += [Dropout(layer.dropout_rate) for layer in self.hidden_layers if layer.dropout_rate]
         layers.append(Dense(1))
 
-        learning_rate_schedule = ExponentialDecay(self.initial_learning_rate, decay_steps=self.epoch_limit, decay_rate=self.learning_decay_rate, staircase=True)
-        self._nn               = Sequential(layers)
-        self._nn.compile(optimizer=Adam(learning_rate=learning_rate_schedule), loss=MeanSquaredError(), metrics=[MeanAbsoluteError()])
+        learning_rate_schedule = ExponentialDecay(initial_learning_rate = self.initial_learning_rate,
+                                                  decay_steps           = self.epoch_limit,
+                                                  decay_rate            = self.learning_decay_rate, staircase=True)
 
-        early_stop = EarlyStopping(monitor='val_loss', min_delta=self.convergence_criteria, patience=5, verbose=1, mode='auto', restore_best_weights=True)
+        self._nn = Sequential(layers)
+
+        self._nn.compile(optimizer=Adam(learning_rate = learning_rate_schedule),
+                                        loss          = MeanSquaredError(),
+                                        metrics       = [MeanAbsoluteError()])
+
+        early_stop = EarlyStopping(monitor              = 'val_loss',
+                                   min_delta            = self.convergence_criteria,
+                                   patience             = 5,
+                                   verbose              = 1,
+                                   mode                 = 'auto',
+                                   restore_best_weights = True)
+
         self._nn.fit(X, y, epochs=self.epoch_limit, batch_size=self.batch_size, callbacks=[early_stop])
 
 
@@ -169,7 +188,7 @@ class NNStrategy(PredictionStrategy):
 
 
     def _predict_all(self, states: List[State]) -> List[float]:
-        assert(self.isTrained)
+        assert self.isTrained
 
         X = self.preprocess_inputs(states)
         tf.convert_to_tensor(X, dtype=tf.float32)
@@ -223,7 +242,7 @@ class NNStrategy(PredictionStrategy):
 
         file_name = file_name if file_name.endswith(".h5") else file_name + ".h5"
 
-        assert(os.path.exists(file_name))
+        assert os.path.exists(file_name)
 
         with h5py.File(file_name, 'r') as h5_file:
             self.base_load_model(h5_file)
@@ -236,9 +255,13 @@ class NNStrategy(PredictionStrategy):
             layers = []
             for i in range(len(h5_file['hidden_layers'])):
                 layer_group = h5_file['hidden_layers']['layer_'+str(i)]
-                layers.append(NNStrategy.Layer(number_of_nodes     = int(   layer_group["number_of_nodes"    ][()] ),
-                                               dropout_rate        = float( layer_group["dropout_rate"       ][()] ),
-                                               activation_function =        layer_group["activation_function"][()].decode('utf-8')))
+
+                # Pylint mistakenly interpretting layer_group["activation_function"][()] as an HDF5 Group
+                # and subsequently complaining that it has no "decode" member
+                # pylint: disable=no-member
+                layers.append(NNStrategy.Layer(number_of_nodes     = int(layer_group["number_of_nodes"    ][()]),
+                                               dropout_rate        = float(layer_group["dropout_rate"       ][()]),
+                                               activation_function = layer_group["activation_function"][()].decode('utf-8')))
             self.hidden_layers = layers
 
         self._nn = load_model(file_name)
@@ -258,7 +281,7 @@ class NNStrategy(PredictionStrategy):
         NNStrategy:
             The model from the hdf5 file
         """
-        assert(os.path.exists(file_name))
+        assert os.path.exists(file_name)
 
         new_nn = cls({}, None)
         new_nn.load_model(file_name)

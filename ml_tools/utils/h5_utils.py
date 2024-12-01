@@ -1,9 +1,8 @@
 from typing import List
 import os
+from concurrent.futures import ProcessPoolExecutor
 import h5py
 import numpy as np
-from concurrent.futures import ProcessPoolExecutor, as_completed
-from ml_tools.utils.status_bar import StatusBar
 
 def keys_with_prefix(keys: List[str], prefix: str) -> List[str]:
     """ Helper function for getting the keys within a list of key that start with the given prefix
@@ -43,13 +42,13 @@ def get_groups_with_prefix(file_name: str, prefix: str, num_procs: int = 1) -> L
         The list of groups that belong to the set
     """
 
-    assert(os.path.exists(file_name))
+    assert os.path.exists(file_name)
 
     with h5py.File(file_name, 'r') as h5_file:
         keys = list(h5_file.keys())
         key_chunks = np.array_split(keys, num_procs)
         with ProcessPoolExecutor(max_workers=num_procs) as executor:
-                keys = list(executor.map(keys_with_prefix, key_chunks, prefix))
+            keys = list(executor.map(keys_with_prefix, key_chunks, prefix))
         keys = [key for sublist in keys for key in sublist]
 
     return keys

@@ -1,8 +1,8 @@
-from typing import List
+from typing import List, Optional
+from math import isclose
 import numpy as np
 from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans
-from math import isclose
 
 from ml_tools.model.state import State
 from ml_tools.model.feature_processor import NoProcessing
@@ -43,7 +43,7 @@ class PODStrategy(PredictionStrategy):
         return self._fine_to_coarse_map
 
     @property
-    def ndims(self) -> int:
+    def ndims(self) -> Optional[int]:
         return self._ndims
 
     @property
@@ -51,14 +51,20 @@ class PODStrategy(PredictionStrategy):
         return self._nclusters
 
     @property
-    def max_svd_size(self) -> int:
+    def max_svd_size(self) -> Optional[int]:
         return self._max_svd_size
 
     @property
     def isTrained(self) -> bool:
         return all(mat is not None for mat in self._pod_mat)
 
-    def __init__(self, input_feature: str, predicted_feature: str, fine_to_coarse_map: np.ndarray, nclusters: int = 1, max_svd_size: int = None, ndims: int = None) -> None:
+    def __init__(self,
+                 input_feature:      str,
+                 predicted_feature:  str,
+                 fine_to_coarse_map: np.ndarray,
+                 nclusters:          int = 1,
+                 max_svd_size:       Optional[int] = None,
+                 ndims:              Optional[int] = None) -> None:
 
         super().__init__()
         self.input_features      = {input_feature: NoProcessing()}
@@ -70,6 +76,8 @@ class PODStrategy(PredictionStrategy):
         self._max_svd_size       = max_svd_size
 
         self._pod_mat = None
+        self._pca     = None
+        self._kmeans  = None
 
 
     def train(self, train_states: List[State], test_states: List[State] = None, num_procs: int = 1) -> None:
@@ -88,7 +96,7 @@ class PODStrategy(PredictionStrategy):
             self._kmeans = KMeans(n_clusters=self.nclusters)
             X            = self.preprocess_inputs(train_states)
 
-            if not(self.ndims is None):
+            if not self.ndims is None:
                 self._pca = PCA(n_components=self.ndims)
                 X         = self._pca.fit_transform(X)
 
@@ -109,8 +117,8 @@ class PODStrategy(PredictionStrategy):
                 klabels = np.random.choice(klabels, size=self.max_svd_size, replace=False)
 
             A = np.zeros((len(train_states[0][output_feature]), len(klabels)))
-            for i, id in enumerate(klabels):
-                A[:,i] = train_states[id][output_feature]
+            for i, label in enumerate(klabels):
+                A[:,i] = train_states[label][output_feature]
 
             u, S, v = np.linalg.svd(A)
 
@@ -124,11 +132,12 @@ class PODStrategy(PredictionStrategy):
 
     def _predict_all(self, states: List[State]) -> List[float]:
 
-        assert(self.isTrained)
-        assert(not self.hasBiasingModel)
+        assert self.isTrained
+        assert not self.hasBiasingModel
 
         if self.nclusters > 1:
-            X      = self.preprocess_inputs(states) if self.ndims is None else self._pca.transform(self.preprocess_inputs(states))
+            X = self.preprocess_inputs(states) if self.ndims is None else \
+                self._pca.transform(self.preprocess_inputs(states))
             labels = self._kmeans.predict(X)
         else:
             labels = [0]*len(states)

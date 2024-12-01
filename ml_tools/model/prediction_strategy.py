@@ -1,9 +1,9 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import List, Dict, Tuple, Type, TypeVar
+from typing import List, Dict
+from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 import h5py
-from concurrent.futures import ProcessPoolExecutor
 from ml_tools.model.state import State
 from ml_tools.model.feature_processor import FeatureProcessor, write_feature_processor, read_feature_processor
 
@@ -43,7 +43,7 @@ class PredictionStrategy(ABC):
 
     @predicted_feature.setter
     def predicted_feature(self, predicted_feature: str) -> None:
-        assert predicted_feature not in self.input_features.keys()
+        assert predicted_feature not in self.input_features
         self._predicted_feature = predicted_feature
 
     @property
@@ -85,7 +85,7 @@ class PredictionStrategy(ABC):
         num_procs : int
             The number of parallel processors to use when training
         """
-        pass
+
 
 
     def preprocess_inputs(self, states: List[State], num_procs: int = 1) -> np.ndarray:
@@ -232,4 +232,3 @@ class PredictionStrategy(ABC):
         float
             The predicted target value for the state
         """
-        pass
