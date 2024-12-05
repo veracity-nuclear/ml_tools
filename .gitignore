@@ -10,3 +10,6 @@
 # Repostiory list file for egdist
 .egdist
 *.sublime-*
+
+# VS Code list
+.vscode/
