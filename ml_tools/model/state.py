@@ -38,7 +38,7 @@ class State():
             The feature data that was retrieved
         """
 
-        assert feature_name in self.features
+        assert feature_name in self.features, f"'{name}' not found in state features. Available features: {list(self.features.keys())}"
         return self._features[feature_name]
 
 
@@ -53,12 +53,12 @@ class State():
                 The list of features expected to be read in for each state
         """
 
-        assert os.path.exists(file_name)
-        assert len(features) > 0
+        assert os.path.exists(file_name), f"File does not exist: {file_name}"
+        assert len(features) > 0, f"'len(features) = {len(features)}'"
 
         with h5py.File(file_name, 'r') as h5_file:
-            assert state in h5_file.keys()
-            assert all(feature in h5_file[state].keys() for feature in features)
+            assert state in h5_file.keys(), f"'{state}' not found in {file_name}"
+            assert all(feature in h5_file[state].keys() for feature in features), f"'{feature}' not found in {state} of {file_name}"
 
             state_data = {}
             for feature in features:
@@ -108,10 +108,10 @@ class State():
             A list of states read from the data in the HDF5 file
         """
 
-        assert os.path.exists(file_name)
-        assert len(states) > 0
-        assert len(features) > 0
-        assert num_procs > 0
+        assert os.path.exists(file_name), f"File does not exist: {file_name}"
+        assert len(states) > 0, f"'len(states) = {len(states)}'"
+        assert len(features) > 0, f"'len(features) = {len(features)}'"
+        assert num_procs > 0, f"'num_procs = {num_procs}'"
 
         if states is None:
             with h5py.File(file_name, 'r') as h5_file:
@@ -121,8 +121,8 @@ class State():
 
 
         if random_sample_size:
-            assert random_sample_size > 0
-            assert random_sample_size < len(states)
+            assert random_sample_size > 0, f"'random_sample_size = {random_sample_size}'"
+            assert random_sample_size < len(states), f"'random_sample_size = {random_sample_size}, len(states) = {len(states)}'"
             states = random.sample(states, random_sample_size)
 
         if not silent:

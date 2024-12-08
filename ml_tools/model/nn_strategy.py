@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import List, Dict
+from typing import List, Dict, Optional
 from dataclasses import dataclass
 import os
 from math import isclose
@@ -76,7 +76,7 @@ class NNStrategy(PredictionStrategy):
 
     @hidden_layers.setter
     def hidden_layers(self, hidden_layers: List[Layer]):
-        assert len(hidden_layers) > 0
+        assert len(hidden_layers) > 0, f"len(hidden_layers) = {len(hidden_layers)}"
         self._hidden_layers = hidden_layers
 
     @property
@@ -85,7 +85,7 @@ class NNStrategy(PredictionStrategy):
 
     @initial_learning_rate.setter
     def initial_learning_rate(self, initial_learning_rate: float):
-        assert initial_learning_rate >= 0.
+        assert initial_learning_rate >= 0., f"initial_learning_rate = {initial_learning_rate}"
         self._initial_learning_rate = initial_learning_rate
 
     @property
@@ -94,7 +94,7 @@ class NNStrategy(PredictionStrategy):
 
     @learning_decay_rate.setter
     def learning_decay_rate(self, learning_decay_rate: float):
-        assert learning_decay_rate >= 0. and learning_decay_rate <= 1.
+        assert learning_decay_rate >= 0. and learning_decay_rate <= 1., f"learning_decay_rate = {learning_decay_rate}"
         self._learning_decay_rate = learning_decay_rate
 
     @property
@@ -103,7 +103,7 @@ class NNStrategy(PredictionStrategy):
 
     @epoch_limit.setter
     def epoch_limit(self, epoch_limit: int):
-        assert epoch_limit > 0
+        assert epoch_limit > 0, f"epoch_limit = {epoch_limit}"
         self._epoch_limit = epoch_limit
 
     @property
@@ -112,7 +112,7 @@ class NNStrategy(PredictionStrategy):
 
     @convergence_criteria.setter
     def convergence_criteria(self, convergence_criteria: float):
-        assert convergence_criteria > 0.
+        assert convergence_criteria > 0., f"convergence_criteria = {convergence_criteria}"
         self._convergence_criteria = convergence_criteria
 
     @property
@@ -121,7 +121,7 @@ class NNStrategy(PredictionStrategy):
 
     @batch_size.setter
     def batch_size(self, batch_size: int):
-        assert batch_size > 0
+        assert batch_size > 0, f"batch_size = {batch_size}"
         self._batch_size = batch_size
 
     @property
@@ -152,10 +152,10 @@ class NNStrategy(PredictionStrategy):
         self._nn = None
 
 
-    def train(self, train_data: List[StateSeries], test_data: List[StateSeries] = None, num_procs: int = 1) -> None:
+    def train(self, train_data: List[StateSeries], test_data: Optional[List[StateSeries]] = None, num_procs: int = 1) -> None:
 
-        assert all(len(series) == 1 for series in train_data) # All State Series must be static statepoints (i.e. len(series) == 1)
-        assert test_data is None  # This model does not use Test Data as part of training
+        assert all(len(series) == 1 for series in train_data), f"All State Series must be static statepoints (i.e. len(series) == 1)"
+        assert test_data is None, f"The Neural Network Prediction Strategy does not use test data"
 
         X = self.preprocess_inputs(train_data, num_procs)[:,0,:]
         y = self._get_targets(train_data)[:,0]
@@ -195,7 +195,7 @@ class NNStrategy(PredictionStrategy):
 
     def _predict_all(self, state_series: List[StateSeries]) -> np.ndarray:
         assert self.isTrained
-        assert all(len(series) == 1 for series in state_series) # All State Series must be static statepoints (i.e. len(series) == 1)
+        assert all(len(series) == 1 for series in state_series), f"All State Series must be static statepoints (i.e. len(series) == 1)"
 
         X = self.preprocess_inputs(state_series)[:,0,:]
         tf.convert_to_tensor(X, dtype=tf.float32)
@@ -249,7 +249,7 @@ class NNStrategy(PredictionStrategy):
 
         file_name = file_name if file_name.endswith(".h5") else file_name + ".h5"
 
-        assert os.path.exists(file_name)
+        assert os.path.exists(file_name), f"file name = {file_name}"
 
         with h5py.File(file_name, 'r') as h5_file:
             self.base_load_model(h5_file)
@@ -288,7 +288,7 @@ class NNStrategy(PredictionStrategy):
         NNStrategy:
             The model from the hdf5 file
         """
-        assert os.path.exists(file_name)
+        assert os.path.exists(file_name), f"file name = {file_name}"
 
         new_nn = cls({}, None)
         new_nn.load_model(file_name)

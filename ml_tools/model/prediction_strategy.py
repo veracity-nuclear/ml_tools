@@ -1,6 +1,6 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import List, Dict
+from typing import List, Dict, Optional
 from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 import h5py
@@ -34,7 +34,7 @@ class PredictionStrategy(ABC):
     def input_features(self, input_features: Dict[str, FeatureProcessor]) -> None:
         self._input_features = {}
         for feature, processor in input_features.items():
-            assert feature is not self.predicted_feature
+            assert feature is not self.predicted_feature, f"'{feature}' is also the predicted feature"
             self._input_features[feature] = processor
         self._input_features = dict(sorted(self._input_features.items()))  # Ensure input features are in alphabetical order
 
@@ -44,7 +44,7 @@ class PredictionStrategy(ABC):
 
     @predicted_feature.setter
     def predicted_feature(self, predicted_feature: str) -> None:
-        assert predicted_feature not in self.input_features
+        assert predicted_feature not in self.input_features.keys(), f"'{feature}' is also an input feature"
         self._predicted_feature = predicted_feature
 
     @property
@@ -73,7 +73,7 @@ class PredictionStrategy(ABC):
 
 
     @abstractmethod
-    def train(self, train_data: List[StateSeries], test_data: List[StateSeries] = None, num_procs: int = 1) -> None:
+    def train(self, train_data: List[StateSeries], test_data: Optional[List[StateSeries]] = None, num_procs: int = 1) -> None:
         """ The method that trains the prediction strategy given a set of training data and testing data
 
         Parameters

@@ -69,7 +69,7 @@ class MinMaxNormalize(FeatureProcessor):
 
 
     def __init__(self, min_value: float, max_value: float):
-        assert min_value < max_value
+        assert min_value < max_value, f"min value = {min_value}, max value = {max_value}"
         self._min = min_value
         self._max = max_value
 

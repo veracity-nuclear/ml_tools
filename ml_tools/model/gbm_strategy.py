@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import List, Dict
+from typing import List, Dict, Optional
 import os
 import h5py
 import lightgbm as lgb
@@ -234,9 +234,9 @@ class GBMStrategy(PredictionStrategy):
         self._gbm               = None
 
 
-    def train(self, train_data: List[StateSeries], test_data: List[StateSeries] = None, num_procs: int = 1) -> None:
+    def train(self, train_data: List[StateSeries], test_data: Optional[List[StateSeries]] = None, num_procs: int = 1) -> None:
 
-        assert all(len(series) == 1 for series in train_data) # All State Series must be static statepoints (i.e. len(series) == 1)
+        assert all(len(series) == 1 for series in train_data), f"All State Series must be static statepoints (i.e. len(series) == 1)"
 
         X_train   = self.preprocess_inputs(train_data, num_procs)[:,0,:]
         y_train   = self._get_targets(train_data)[:,0]
@@ -245,7 +245,7 @@ class GBMStrategy(PredictionStrategy):
         lgb_eval  = None
         test_data = [] if test_data is None else test_data
         if len(test_data) > 0:
-            assert all(len(series) == 1 for series in test_data) # All State Series must be static statepoints (i.e. len(series) == 1)
+            assert all(len(series) == 1 for series in test_data), f"All State Series must be static statepoints (i.e. len(series) == 1"
 
             X_test   = self.preprocess_inputs(test_data, num_procs)[:,0,:]
             y_test   = self._get_targets(test_data)[:,0]
@@ -280,7 +280,7 @@ class GBMStrategy(PredictionStrategy):
     def _predict_all(self, state_series: List[StateSeries]) -> List[float]:
 
         assert self.isTrained
-        assert all(len(series) == 1 for series in state_series) # All State Series must be static statepoints (i.e. len(series) == 1)
+        assert all(len(series) == 1 for series in state_series), f"All State Series must be static statepoints (i.e. len(series) == 1)"
 
         X = self.preprocess_inputs(state_series)[:,0,:]
         return self._gbm.predict(X, num_iteration=self._gbm.best_iteration)
@@ -317,7 +317,7 @@ class GBMStrategy(PredictionStrategy):
         lgbm_name = file_name.removesuffix(".h5") + ".lgbm" if file_name.endswith(".h5") else file_name + ".lgbm"
         file_name = file_name if file_name.endswith(".h5") else file_name + ".h5"
 
-        assert os.path.exists(file_name)
+        assert os.path.exists(file_name), f"file name = {file_name}"
         read_lgbm_h5 = not os.path.exists(lgbm_name)
         with h5py.File(file_name, 'r') as h5_file:
             self.base_load_model(h5_file)
@@ -343,7 +343,7 @@ class GBMStrategy(PredictionStrategy):
         GBMStrategy:
             The model from the hdf5 file
         """
-        assert os.path.exists(file_name)
+        assert os.path.exists(file_name), f"file name = {file_name}"
 
         new_gbm = cls({}, None)
         new_gbm.load_model(file_name)
