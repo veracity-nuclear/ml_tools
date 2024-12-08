@@ -4,7 +4,7 @@ import os
 import h5py
 import lightgbm as lgb
 
-from ml_tools.model.state import State, StateSeries
+from ml_tools.model.state import StateSeries
 from ml_tools.model.prediction_strategy import PredictionStrategy
 from ml_tools.model.feature_processor import FeatureProcessor
 
@@ -236,7 +236,8 @@ class GBMStrategy(PredictionStrategy):
 
     def train(self, train_data: List[StateSeries], test_data: Optional[List[StateSeries]] = None, num_procs: int = 1) -> None:
 
-        assert all(len(series) == 1 for series in train_data), f"All State Series must be static statepoints (i.e. len(series) == 1)"
+        assert all(len(series) == 1 for series in train_data), \
+            "All State Series must be static statepoints (i.e. len(series) == 1)"
 
         X_train   = self.preprocess_inputs(train_data, num_procs)[:,0,:]
         y_train   = self._get_targets(train_data)[:,0]
@@ -245,7 +246,8 @@ class GBMStrategy(PredictionStrategy):
         lgb_eval  = None
         test_data = [] if test_data is None else test_data
         if len(test_data) > 0:
-            assert all(len(series) == 1 for series in test_data), f"All State Series must be static statepoints (i.e. len(series) == 1"
+            assert all(len(series) == 1 for series in test_data), \
+                "All State Series must be static statepoints (i.e. len(series) == 1"
 
             X_test   = self.preprocess_inputs(test_data, num_procs)[:,0,:]
             y_test   = self._get_targets(test_data)[:,0]
@@ -280,7 +282,8 @@ class GBMStrategy(PredictionStrategy):
     def _predict_all(self, state_series: List[StateSeries]) -> List[float]:
 
         assert self.isTrained
-        assert all(len(series) == 1 for series in state_series), f"All State Series must be static statepoints (i.e. len(series) == 1)"
+        assert all(len(series) == 1 for series in state_series), \
+            "All State Series must be static statepoints (i.e. len(series) == 1)"
 
         X = self.preprocess_inputs(state_series)[:,0,:]
         return self._gbm.predict(X, num_iteration=self._gbm.best_iteration)

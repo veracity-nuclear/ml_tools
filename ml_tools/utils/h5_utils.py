@@ -1,8 +1,8 @@
 from typing import List, Union
 import os
-import h5py
 from concurrent.futures import ProcessPoolExecutor
 from functools import partial
+import h5py
 
 def get_groups_with_prefix(file_name: str, prefix: str, num_procs: int = 1) -> List[str]:
     """ Helper function for getting the groups of an HDF5 file belonging to the set with a leading prefix

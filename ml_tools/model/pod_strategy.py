@@ -4,7 +4,7 @@ import numpy as np
 from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans
 
-from ml_tools.model.state import State, StateSeries
+from ml_tools.model.state import StateSeries
 from ml_tools.model.feature_processor import NoProcessing
 from ml_tools.model.prediction_strategy import PredictionStrategy
 
@@ -85,7 +85,7 @@ class PODStrategy(PredictionStrategy):
 
     def train(self, train_data: List[StateSeries], test_data: Optional[List[StateSeries]] = None, num_procs: int = 1) -> None:
 
-        assert test_data is None, f"The POD Prediction Strategy does not use test data"
+        assert test_data is None, "The POD Prediction Strategy does not use test data"
 
         self._pod_mat  = [None]*self.nclusters
         input_feature  = self.input_feature
@@ -141,7 +141,8 @@ class PODStrategy(PredictionStrategy):
 
         assert self.isTrained
         assert not self.hasBiasingModel
-        assert all(len(series) == 1 for series in state_series), f"All State Series must be static statepoints (i.e. len(series) == 1)"
+        assert all(len(series) == 1 for series in state_series), \
+            "All State Series must be static statepoints (i.e. len(series) == 1)"
 
         if self.nclusters > 1:
             X      = self.preprocess_inputs(state_series)[:,0,:] if self.ndims is None else \

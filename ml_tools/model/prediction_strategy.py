@@ -4,8 +4,8 @@ from typing import List, Dict, Optional
 from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 import h5py
-from concurrent.futures import ProcessPoolExecutor
-from ml_tools.model.state import State, StateSeries
+
+from ml_tools.model.state import StateSeries
 from ml_tools.model.feature_processor import FeatureProcessor, write_feature_processor, read_feature_processor
 
 
@@ -44,7 +44,7 @@ class PredictionStrategy(ABC):
 
     @predicted_feature.setter
     def predicted_feature(self, predicted_feature: str) -> None:
-        assert predicted_feature not in self.input_features.keys(), f"'{feature}' is also an input feature"
+        assert predicted_feature not in self.input_features, f"'{predicted_feature}' is also an input feature"
         self._predicted_feature = predicted_feature
 
     @property
