@@ -88,7 +88,6 @@ class PredictionStrategy(ABC):
         """
 
 
-
     def preprocess_inputs(self, state_series: List[StateSeries], num_procs: int = 1) -> np.ndarray:
         """ Preprocesses all the input state series into the series of processed input features of the model
 
