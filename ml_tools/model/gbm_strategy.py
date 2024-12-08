@@ -213,8 +213,6 @@ class GBMStrategy(PredictionStrategy):
         super().__init__()
 
         self._predicted_feature = predicted_feature
-        self._input_features    = input_features
-
         self.input_features     = input_features
         self.predicted_feature  = predicted_feature
         self.boosting_type      = boosting_type
@@ -305,6 +303,7 @@ class GBMStrategy(PredictionStrategy):
         assert all(len(series) == 1 for series in state_series), \
             "All State Series must be static statepoints (i.e. len(series) == 1)"
 
+        X = self.preprocess_inputs(state_series)[:,0,:]
         X = self.preprocess_inputs(state_series)[:,0,:]
         return self._gbm.predict(X, num_iteration=self._gbm.best_iteration)
 

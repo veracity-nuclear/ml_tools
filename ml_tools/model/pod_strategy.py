@@ -20,6 +20,9 @@ class PODStrategy(PredictionStrategy):
     This prediction strategy is only intended for use with static State-Points, meaning
     non-temporal series, or said another way, State Series with series lengths of one.
 
+    This prediction strategy is only intended for use with static State-Points, meaning
+    non-temporal series, or said another way, State Series with series lengths of one.
+
     Attributes
     ----------
     input_feature : str

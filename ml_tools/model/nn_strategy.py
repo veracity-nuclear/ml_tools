@@ -23,6 +23,8 @@ from ml_tools.model.feature_processor import FeatureProcessor
 
 valid_layer_types = ['Dense']
 
+valid_layer_types = ['Dense']
+
 valid_activation_functions = ['elu', 'exponential', 'gelu', 'hard_sigmoid', 'linear', 'mish',
                               'relu', 'selu', 'sigmoid', 'softmax', 'softplus', 'softsign', 'swish', 'tanh']
 
@@ -161,6 +163,9 @@ class NNStrategy(PredictionStrategy):
     This prediction strategy is only intended for use with static State-Points, meaning
     non-temporal series, or said another way, State Series with series lengths of one.
 
+    This prediction strategy is only intended for use with static State-Points, meaning
+    non-temporal series, or said another way, State Series with series lengths of one.
+
     Attributes
     ----------
     layers : List[Layer]
@@ -293,7 +298,6 @@ class NNStrategy(PredictionStrategy):
                                    restore_best_weights = True)
 
         self._model.fit(X, y, epochs=self.epoch_limit, batch_size=self.batch_size, callbacks=[early_stop])
-
 
     def _predict_one(self, state_series: StateSeries) -> np.ndarray:
         return self._predict_all([state_series])[0]

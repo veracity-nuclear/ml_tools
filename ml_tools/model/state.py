@@ -7,7 +7,6 @@ import h5py
 import numpy as np
 from ml_tools.utils.status_bar import StatusBar
 
-
 class State():
     """ A class for storing and accessing generic state data
 
