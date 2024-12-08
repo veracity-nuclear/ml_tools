@@ -3,6 +3,8 @@ from typing import List, Dict, Optional
 import os
 import h5py
 import lightgbm as lgb
+import numpy as np
+import pylab as plt
 
 from ml_tools.model.state import StateSeries
 from ml_tools.model.prediction_strategy import PredictionStrategy
@@ -272,6 +274,24 @@ class GBMStrategy(PredictionStrategy):
                               num_boost_round = self.num_boost_round,
                               valid_sets      = lgb_eval,
                               callbacks       = [lgb.early_stopping(stopping_rounds=self.stopping_rounds)])
+
+    def plot_importances(self) -> None:
+        """ A method for plotting the importance of each input feature for a given state series
+
+        This currently only supports plotting 20 state input features.  This should be more than
+        sufficient for most use cases
+        """
+
+        features            = list(self.input_features)
+        feature_importances = self._gbm.feature_importance().astype(float)
+        feature_importances *= 100. / np.max(feature_importances)
+
+        idx = np.argsort(feature_importances)[::-1]
+        assert len(features) <= 20, "Only 20 features effectively fit on a single plot"
+
+        plt.barh([features[i] for i in idx[:]][::-1], feature_importances[idx[:]][::-1])
+        plt.xlabel('Relative Feature Importance [%]')
+        plt.show()
 
 
     def _predict_one(self, state_series: StateSeries) -> float:
