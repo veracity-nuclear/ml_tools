@@ -125,11 +125,17 @@ class State():
             assert random_sample_size < len(states)
             states = random.sample(states, random_sample_size)
 
-        statusbar = StatusBar(len(states))
+        if not silent:
+            statusbar = StatusBar(len(states))
         state_data = []
         i = 0
-        if num_procs > 1:
 
+        if num_procs == 1:
+            for state in states:
+                state_data.append(State.read_state_from_hdf5(file_name, state, features))
+                if not silent: statusbar.update(i); i+=1
+
+        else:
             def chunkify(states: List[str], chunk_size: int):
                 for i in range(0, len(states), chunk_size):
                     yield states[i:i + chunk_size]
@@ -138,24 +144,18 @@ class State():
             chunks     = list(chunkify(states, chunk_size))
 
             with ProcessPoolExecutor(max_workers=num_procs) as executor:
-                jobs = {executor.submit(State.read_states_from_hdf5, file_name, features, chunks, silent=True):
-                        chunk for chunk in chunks}
+                jobs = {executor.submit(State.read_states_from_hdf5, file_name, features, chunk, silent=True): chunk for chunk in chunks}
 
                 for job in as_completed(jobs):
                     for state in job.result():
                         state_data.append(state)
                         if not silent:
-                            statusbar.update(i)
-                            i+=1
-
-        else:
-            for state in states:
-                state_data.append(State.read_state_from_hdf5(file_name, state, features))
-                if not silent:
-                    statusbar.update(i)
-                    i+=1
+                            statusbar.update(i); i+=1
 
         if not silent:
             statusbar.finalize()
 
         return state_data
+
+# Defining a series of States as an order list
+StateSeries = List[State]

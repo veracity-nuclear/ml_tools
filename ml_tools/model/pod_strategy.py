@@ -4,7 +4,7 @@ import numpy as np
 from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans
 
-from ml_tools.model.state import State
+from ml_tools.model.state import State, StateSeries
 from ml_tools.model.feature_processor import NoProcessing
 from ml_tools.model.prediction_strategy import PredictionStrategy
 
@@ -16,6 +16,9 @@ class PODStrategy(PredictionStrategy):
     clusters of inputs.  The K-means clustering may further be enhanced with PCA, which will
     project input feature vectors to a reduced dimensionality prior to clustering.  Simple
     POD may be achieved by simply not providing either k-means clustering / PCA specifications.
+
+    This prediction strategy is only intended for use with static State-Points, meaning
+    non-temporal series, or said another way, State Series with series lengths of one.
 
     Attributes
     ----------
@@ -80,12 +83,14 @@ class PODStrategy(PredictionStrategy):
         self._kmeans  = None
 
 
-    def train(self, train_states: List[State], test_states: List[State] = None, num_procs: int = 1) -> None:
+    def train(self, train_data: List[StateSeries], test_data: List[StateSeries] = None, num_procs: int = 1) -> None:
+
+        assert test_data is None  # This model does not use Test Data as part of training
 
         self._pod_mat  = [None]*self.nclusters
         input_feature  = self.input_feature
         output_feature = self.predicted_feature
-        state          = train_states[0]
+        state          = train_data[0][0]
 
         assert self.fine_to_coarse_map.shape[0] == len(state[input_feature])
         assert all(len(row) == len(state[output_feature]) for row in self.fine_to_coarse_map)
@@ -94,7 +99,7 @@ class PODStrategy(PredictionStrategy):
         # Setup of the PCA project and K-means clustering of the input feature based on the training samples
         if self.nclusters > 1:
             self._kmeans = KMeans(n_clusters=self.nclusters)
-            X            = self.preprocess_inputs(train_states)
+            X            = self.preprocess_inputs(train_data)[:,0,:]
 
             if not self.ndims is None:
                 self._pca = PCA(n_components=self.ndims)
@@ -104,8 +109,8 @@ class PODStrategy(PredictionStrategy):
             nlabel = np.bincount(labels)
 
         else:
-            labels = np.zeros(len(train_states), dtype=int)
-            nlabel = np.asarray([len(train_states)])
+            labels = np.zeros(len(train_data), dtype=int)
+            nlabel = np.asarray([len(train_data)])
 
         C = self.fine_to_coarse_map
         nvec = self.fine_to_coarse_map.shape[0]
@@ -116,9 +121,9 @@ class PODStrategy(PredictionStrategy):
             if self.max_svd_size is not None and nlabel[k] > self.max_svd_size:
                 klabels = np.random.choice(klabels, size=self.max_svd_size, replace=False)
 
-            A = np.zeros((len(train_states[0][output_feature]), len(klabels)))
+            A = np.zeros((len(state[output_feature]), len(klabels)))
             for i, label in enumerate(klabels):
-                A[:,i] = train_states[label][output_feature]
+                A[:,i] = train_data[label][0][output_feature]
 
             u, S, v = np.linalg.svd(A)
 
@@ -126,23 +131,24 @@ class PODStrategy(PredictionStrategy):
             self._pod_mat[k] = np.matmul(u[:,:nvec],np.linalg.inv(theta))
 
 
-    def _predict_one(self, state: State) -> float:
-        return self._predict_all([state])[0]
+    def _predict_one(self, state_series: StateSeries) -> float:
+        return self._predict_all([state_series])[0]
 
 
-    def _predict_all(self, states: List[State]) -> List[float]:
+    def _predict_all(self, state_series: List[StateSeries]) -> List[float]:
 
         assert self.isTrained
         assert not self.hasBiasingModel
+        assert all(len(series) == 1 for series in state_series) # All State Series must be static statepoints (i.e. len(series) == 1)
 
         if self.nclusters > 1:
-            X = self.preprocess_inputs(states) if self.ndims is None else \
-                self._pca.transform(self.preprocess_inputs(states))
+            X      = self.preprocess_inputs(state_series)[:,0,:] if self.ndims is None else \
+                     self._pca.transform(self.preprocess_inputs(state_series)[:,0,:])
             labels = self._kmeans.predict(X)
         else:
-            labels = [0]*len(states)
+            labels = [0]*len(state_series)
 
-        return [np.matmul(self._pod_mat[labels[i]], states[i][self.input_feature]) for i in range(len(states))]
+        return [np.matmul(self._pod_mat[labels[i]], state_series[i][0][self.input_feature]) for i in range(len(state_series))]
 
 
     def save_model(self, file_name: str) -> None:

@@ -16,7 +16,7 @@ from tensorflow.keras.losses import MeanSquaredError
 from tensorflow.keras.metrics import MeanAbsoluteError
 from tensorflow.keras.callbacks import EarlyStopping
 
-from ml_tools.model.state import State
+from ml_tools.model.state import State, StateSeries
 from ml_tools.model.prediction_strategy import PredictionStrategy
 from ml_tools.model.feature_processor import FeatureProcessor
 
@@ -27,6 +27,9 @@ valid_activation_functions = ['elu', 'exponential', 'gelu', 'hard_sigmoid', 'lin
 
 class NNStrategy(PredictionStrategy):
     """ A concrete class for a Neural-Network-based prediction strategy
+
+    This prediction strategy is only intended for use with static State-Points, meaning
+    non-temporal series, or said another way, State Series with series lengths of one.
 
     Attributes
     ----------
@@ -149,10 +152,13 @@ class NNStrategy(PredictionStrategy):
         self._nn = None
 
 
-    def train(self, train_states: List[State], test_states: List[State] = None, num_procs: int = 1) -> None:
+    def train(self, train_data: List[StateSeries], test_data: List[StateSeries] = None, num_procs: int = 1) -> None:
 
-        X = self.preprocess_inputs(train_states, num_procs)
-        y = self._get_targets(train_states)
+        assert all(len(series) == 1 for series in train_data) # All State Series must be static statepoints (i.e. len(series) == 1)
+        assert test_data is None  # This model does not use Test Data as part of training
+
+        X = self.preprocess_inputs(train_data, num_procs)[:,0,:]
+        y = self._get_targets(train_data)[:,0]
 
         number_of_input_features = len(X[0])
 
@@ -183,16 +189,17 @@ class NNStrategy(PredictionStrategy):
         self._nn.fit(X, y, epochs=self.epoch_limit, batch_size=self.batch_size, callbacks=[early_stop])
 
 
-    def _predict_one(self, state: State) -> float:
-        return self._predict_all([state])[0]
+    def _predict_one(self, state_series: StateSeries) -> np.ndarray:
+        return self._predict_all([state_series])[0]
 
 
-    def _predict_all(self, states: List[State]) -> List[float]:
+    def _predict_all(self, state_series: List[StateSeries]) -> np.ndarray:
         assert self.isTrained
+        assert all(len(series) == 1 for series in state_series) # All State Series must be static statepoints (i.e. len(series) == 1)
 
-        X = self.preprocess_inputs(states)
+        X = self.preprocess_inputs(state_series)[:,0,:]
         tf.convert_to_tensor(X, dtype=tf.float32)
-        y = self._nn.predict(X).flatten().tolist()
+        y = self._nn.predict(X).flatten()
         return y
 
 
