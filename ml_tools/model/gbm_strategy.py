@@ -17,8 +17,12 @@ class GBMStrategy(PredictionStrategy):
     This prediction strategy is only intended for use with static State-Points, meaning
     non-temporal series, or said another way, State Series with series lengths of one.
 
-    Attributes
+    Parameters
     ----------
+    input_features : Dict[str, FeatureProcessor]
+        A dictionary specifying the input features of this model and their corresponding feature processing strategy
+    predicted_feature : str
+        The string specifying the feature to be predicted
     boosting_type : str
         The boosting method to be used
         (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#boosting)
@@ -64,6 +68,39 @@ class GBMStrategy(PredictionStrategy):
     stopping_rounds : int
         The number of rounds the validation score must improve in for training to continue
         (see: https://lightgbm.readthedocs.io/en/stable/Python-Intro.html#early-stopping)
+
+    Attributes
+    ----------
+    boosting_type : str
+        The boosting method to be used
+    objective : str
+        The loss function to be used
+    metric : str
+        The metric to use when calculating the loss
+    num_leaves : int
+        The maximum number of leaves in one tree
+    learning_rate: float
+        The learning / shrinkage rate
+    n_estimators : int
+        Number of boosting iterations
+    max_depth : int
+        The limit on the max depth for the tree model
+    min_child_samples : int
+        Minimum number of data in one leaf required to create a new leaf
+    subsample : float
+        The fraction of the training data that is randomly sampled for each iteration / boosting round
+    colsample_bytree : float
+        The fraction of features (columns) that are randomly selected and used for training each tree in the model
+    reg_alpha : float
+        The L1 regularization
+    reg_lambda : float
+        The L2 regularization
+    verbose : int
+        The level of LightGBM’s verbosity
+    num_boost_round : int
+        Number of boosting iterations
+    stopping_rounds : int
+        The number of rounds the validation score must improve in for training to continue
     """
 
     @property
@@ -303,7 +340,6 @@ class GBMStrategy(PredictionStrategy):
         assert all(len(series) == 1 for series in state_series), \
             "All State Series must be static statepoints (i.e. len(series) == 1)"
 
-        X = self.preprocess_inputs(state_series)[:,0,:]
         X = self.preprocess_inputs(state_series)[:,0,:]
         return self._gbm.predict(X, num_iteration=self._gbm.best_iteration)
 

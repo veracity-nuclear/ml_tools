@@ -43,7 +43,6 @@ def test_preprocess_inputs():
     cips_calculator = NNStrategy(input_features, output_feature)
 
     actual_values   = cips_calculator.preprocess_inputs([[state]])[0][0].tolist()
-    actual_values   = cips_calculator.preprocess_inputs([[state]])[0][0].tolist()
     expected_values = [0.0, 0.0, 0.0, 0.0, 0.8229136277763227, 0.6038608249885462, 0.9359057444294857, 0.0,                0.0,
                        1.0, 1.0, 1.0, 1.0, 0.0,                0.0,                0.0,                0.0,                0.0,
                        0.0, 0.0, 0.0, 0.0, 0.6666666666666666, 0.6666666666666666, 0.0,                0.6666666666666666, 1.0]
@@ -65,7 +64,6 @@ def test_nn_strategy():
     new_cips_calculator = NNStrategy.read_from_hdf5('test_nn_model.h5')
 
     assert all(old_layer == new_layer for old_layer, new_layer in zip(cips_calculator.layers, new_cips_calculator.layers))
-    assert all(old_layer == new_layer for old_layer, new_layer in zip(cips_calculator.layers, new_cips_calculator.layers))
     assert cips_calculator.input_features.keys() == new_cips_calculator.input_features.keys()
     assert all(new_cips_calculator.input_features[feature] == cips_calculator.input_features[feature] for feature in cips_calculator.input_features.keys())
     assert new_cips_calculator.epoch_limit == cips_calculator.epoch_limit
@@ -82,7 +80,6 @@ def test_nn_strategy():
 def test_gbm_strategy():
 
     cips_calculator = GBMStrategy(input_features, output_feature)
-    cips_calculator.train([[state]]*5, [[state]]*5)
     cips_calculator.train([[state]]*5, [[state]]*5)
 
     assert_allclose(state["cips_index"], cips_calculator.predict([[state]])[0], atol=1E-5)
@@ -116,7 +113,6 @@ def test_gbm_strategy():
 def test_pod_strategy():
 
     cips_calculator = PODStrategy("measured_rh_detector", "fine_detector", np.asarray(fine_to_coarse_map))
-    cips_calculator.train([[state]]*100)
     cips_calculator.train([[state]]*100)
 
     assert np.allclose(state["fine_detector"], cips_calculator.predict([[state]])[0])

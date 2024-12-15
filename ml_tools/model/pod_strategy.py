@@ -20,8 +20,23 @@ class PODStrategy(PredictionStrategy):
     This prediction strategy is only intended for use with static State-Points, meaning
     non-temporal series, or said another way, State Series with series lengths of one.
 
-    This prediction strategy is only intended for use with static State-Points, meaning
-    non-temporal series, or said another way, State Series with series lengths of one.
+    Parameters
+    ----------
+    input_feature : str
+        The feature to use as input for this model.  Note: This strategy only allows one input feature and
+        this feature is expected to be a vector of floats
+    predicted_feature : str
+        The string specifying the feature to be predicted
+    fine_to_coarse_map : np.ndarray
+        The mapping that specifies the weights of the predicted feature "fine-mesh" signals to the
+        input feature "coarse-mesh".  This should be an M-by-N matrix where M is the number of input feature
+        values and N is the number of predicted feature values.  Each row of this matrix should sum to 1.0.
+    nclusters : int
+        The number of K-means clusters to create separate POD models for
+    max_svd_size : int
+        The maximum allowed number of training samples to use for the SVD of a cluster POD model
+    ndim : int
+        The number of dimensions to use for the input feature PCA projection
 
     Attributes
     ----------

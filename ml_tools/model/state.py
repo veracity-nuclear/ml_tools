@@ -10,6 +10,11 @@ from ml_tools.utils.status_bar import StatusBar
 class State():
     """ A class for storing and accessing generic state data
 
+    Parameters
+    ----------
+    features : Dict[str, np.ndarray]
+        The features which describe the state
+
     Attributes
     ----------
     features : Dict[str, np.ndarray]

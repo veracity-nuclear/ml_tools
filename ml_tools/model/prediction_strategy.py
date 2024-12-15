@@ -10,7 +10,7 @@ from ml_tools.model.feature_processor import FeatureProcessor, write_feature_pro
 
 
 class PredictionStrategy(ABC):
-    """ An abstract class for prediction strategies
+    """ An abstract class for prediction strategies. Not meant to be instantiated directly.
 
     Attributes
     ----------

@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from typing import List, Dict, Optional
 import os
 from math import isclose
+from decimal import Decimal
 import h5py
 import numpy as np
 
@@ -23,8 +24,6 @@ from ml_tools.model.feature_processor import FeatureProcessor
 
 valid_layer_types = ['Dense']
 
-valid_layer_types = ['Dense']
-
 valid_activation_functions = ['elu', 'exponential', 'gelu', 'hard_sigmoid', 'linear', 'mish',
                               'relu', 'selu', 'sigmoid', 'softmax', 'softplus', 'softsign', 'swish', 'tanh']
 
@@ -33,12 +32,17 @@ valid_activation_functions = ['elu', 'exponential', 'gelu', 'hard_sigmoid', 'lin
 # pylint: disable=no-member
 
 class Layer(ABC):
-    """ Abstract class for neural network layers
+    """ Abstract class for neural network layers. Not meant to be instantiated directly.
 
-    Attributes
+    Parameters
     ----------
     dropout_rate : float, optional
         Dropout rate for the layer. Default is 0.0 (no dropout).
+
+    Attributes
+    ----------
+    dropout_rate : float
+        Dropout rate for the layer.
     """
 
     @property
@@ -54,6 +58,36 @@ class Layer(ABC):
     def __init__(self, dropout_rate: float = 0.0) -> None:
         self.dropout_rate = dropout_rate
 
+    def __eq__(self, other: Layer) -> bool:
+        """ Compare two layers for equality
+
+        Parameters
+        ----------
+        other: Layer
+            The other Layer to compare against
+
+        Returns
+        -------
+        bool
+            True if self and other are equal within the tolerance.  False otherwise
+
+        Notes
+        -----
+        The relative tolerance is 1e-9 for float comparisons
+        """
+
+    def __hash__(self) -> int:
+        """ Generate a hash key for the layer
+
+        Returns
+        -------
+        int
+            The hash key corresponding to this layer
+
+        Notes
+        -----
+        Hash generation is consistent with the 1e-9 float comparison equality relative tolerance
+        """
 
     @abstractmethod
     def build(self, input_shape: tf.Tensor) -> tf.Tensor:
@@ -132,11 +166,14 @@ class Dense(Layer):
                 (isinstance(other, Dense) and
                  self.units == other.units and
                  self.activation == other.activation and
-                 isclose(self.dropout_rate, other.dropout_rate))
+                 isclose(self.dropout_rate, other.dropout_rate, rel_tol=1e-9))
                )
 
     def __hash__(self) -> int:
-        return hash(tuple(sorted(self.__dict__.items())))
+        return hash(tuple(self.units,
+                          self.activation,
+                          Decimal(self.dropout_rate).quantize(Decimal('1e-9'))
+                         ))
 
     def build(self, input_shape: tf.Tensor) -> tf.Tensor:
         x = tf.keras.layers.Dense(units=self._units, activation=self._activation)(input_shape)
@@ -163,8 +200,24 @@ class NNStrategy(PredictionStrategy):
     This prediction strategy is only intended for use with static State-Points, meaning
     non-temporal series, or said another way, State Series with series lengths of one.
 
-    This prediction strategy is only intended for use with static State-Points, meaning
-    non-temporal series, or said another way, State Series with series lengths of one.
+    Parameters
+    ----------
+    input_features : Dict[str, FeatureProcessor]
+        A dictionary specifying the input features of this model and their corresponding feature processing strategy
+    predicted_feature : str
+        The string specifying the feature to be predicted
+    layers : List[Layer]
+        The hidden layers of the neural network
+    initial_learning_rate : float
+        The initial learning rate of the training
+    learning_decay_rate : float
+        The decay rate of the learning using Exponential Decay
+    epoch_limit : int
+        The limit on the number of training epochs conducted during training
+    convergence_criteria : float
+        The convergence criteria for training
+    batch_size : int
+        The training batch sizes
 
     Attributes
     ----------
