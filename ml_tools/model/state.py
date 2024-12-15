@@ -4,8 +4,10 @@ import os
 import h5py
 import numpy as np
 import random
+from copy import deepcopy
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from ml_tools.utils.status_bar import StatusBar
+from ml_tools.model.feature_perturbator import FeaturePerturbator
 
 class State(object):
     """ A class for storing and accessing generic state data
@@ -144,7 +146,97 @@ class State(object):
             with ProcessPoolExecutor(max_workers=num_procs) as executor:
                 jobs = {executor.submit(State.read_states_from_hdf5, file_name, features, chunk, silent=True): chunk for chunk in chunks}
 
-                for job in as_completed(jobs):
+                for i, job in enumerate(jobs):
+                    for state in job.result():
+                        state_data.append(state)
+                        if not silent: statusbar.update(i); i+=1
+
+        if not silent: statusbar.finalize()
+
+        return state_data
+
+
+    @staticmethod
+    def perturb_state(perturbators: Dict[str, FeaturePerturbator],
+                      state:        State) -> State:
+        """ A method for perturbing the features of a given state
+
+        Parameters
+        ----------
+        perturbators : Dict[str, FeaturePerturbator]
+            The collection of perturbators to be applied with keys corresponding to the
+            feature to be perturbed
+        state : State
+            The state to be perturbed
+
+        Returns
+        -------
+        State
+            A new state which is a perturbation of the original state
+        """
+
+        assert len(perturbators) > 0, f"'len(perturbators) = {len(perturbators)}'"
+        assert all(feature in state.features for feature in perturbators.keys())
+
+        perturbed_state = deepcopy(state)
+        for feature, perturbator in perturbators.items():
+            perturbed_state._features[feature] = perturbator.perturb(perturbed_state._features[feature])
+
+        return perturbed_state
+
+
+    @staticmethod
+    def perturb_states(perturbators: Dict[str, FeaturePerturbator],
+                       states:             Union[List[State], State],
+                       silent:             bool = False,
+                       num_procs:          int = 1) -> List[State]:
+        """ A method for perturbing the features of a given collection of states
+
+        Parameters
+        ----------
+        perturbators : Dict[str, FeaturePerturbator]
+            The collection of perturbators to be applied with keys corresponding to the
+            feature to be perturbed
+        state : List[State]
+            The states to be perturbed
+        silent : bool
+            A flag indicating whether or not to display the progress bar to the screen
+        num_procs : int
+            The number of parallel processors to use when perturbing states
+
+        Returns
+        -------
+        List[State]
+            A new states which are perturbations of the original states
+        """
+
+        assert len(states) > 0, f"'len(states) = {len(states)}'"
+        assert len(perturbators) > 0, f"'len(perturbators) = {len(perturbators)}'"
+        assert num_procs > 0, f"'num_procs = {num_procs}'"
+
+        states = [states] if isinstance(states, State) else states
+
+        if not silent: statusbar = StatusBar(len(states))
+        state_data = []
+        i = 0
+
+        if num_procs == 1:
+            for state in states:
+                state_data.append(State.perturb_state(perturbators, state))
+                if not silent: statusbar.update(i); i+=1
+
+        else:
+            def chunkify(states: List[State], chunk_size: int):
+                for i in range(0, len(states), chunk_size):
+                    yield states[i:i + chunk_size]
+
+            chunk_size = max(1, len(states) // num_procs)
+            chunks     = list(chunkify(states, chunk_size))
+
+            with ProcessPoolExecutor(max_workers=num_procs) as executor:
+                jobs = {executor.submit(State.perturb_state(perturbators, state)): chunk for chunk in chunks}
+
+                for i, job in enumerate(jobs):
                     for state in job.result():
                         state_data.append(state)
                         if not silent: statusbar.update(i); i+=1

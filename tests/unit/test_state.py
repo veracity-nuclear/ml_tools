@@ -5,6 +5,7 @@ from math import isclose
 import numpy as np
 from ml_tools.model.state import State
 from ml_tools.utils.h5_utils import get_groups_with_prefix
+from ml_tools.model.feature_perturbator import RelativeNormalPerturbator
 
 def test_state():
 
@@ -32,3 +33,14 @@ def test_state():
     assert all(isclose(actual, expected) for actual, expected in zip(actual_average_enrichment,      expected_average_enrichment))
     assert all(isclose(actual, expected) for actual, expected in zip(actual_boron_concentration,     expected_boron_concentration))
     assert all(isclose(actual, expected) for actual, expected in zip(actual_measured_fixed_detector, expected_measured_fixed_detector))
+
+    perturbators = {"measured_fixed_detector": RelativeNormalPerturbator(0.5),
+                    "boron_concentration":     RelativeNormalPerturbator(0.2)}
+
+    perturbed_states = State.perturb_states(perturbators, states)
+
+    perturbed_boron_concentration     = perturbed_states[0].feature("boron_concentration")
+    perturbed_measured_fixed_detector = perturbed_states[0].feature("measured_fixed_detector")
+
+    assert not(all(isclose(actual, expected) for actual, expected in zip(actual_boron_concentration,     perturbed_boron_concentration)))
+    assert not(all(isclose(actual, expected) for actual, expected in zip(actual_measured_fixed_detector, perturbed_measured_fixed_detector)))
