@@ -45,11 +45,33 @@ class FeatureProcessor(ABC):
 
     @abstractmethod
     def __eq__(self, other: FeatureProcessor) -> bool:
-        pass
+        """ Compare two FeatureProcessors for equality
+
+        Parameters
+        ----------
+        other: FeatureProcessor
+            The other FeatureProcessor to compare against
+
+        Returns
+        -------
+        bool
+            True if self and other are equal within the tolerance.  False otherwise
+
+        Notes
+        -----
+        The relative tolerance is 1e-9 for float comparisons
+        """
 
 
 class MinMaxNormalize(FeatureProcessor):
     """ A feature processor that performs Min-Max normalization
+
+    Parameters
+    ----------
+    min_value : float
+        The minimum value of the value range
+    max_value : float
+        The maximum value of the value range
 
     Attributes
     ----------
@@ -69,7 +91,7 @@ class MinMaxNormalize(FeatureProcessor):
 
 
     def __init__(self, min_value: float, max_value: float):
-        assert min_value < max_value
+        assert min_value < max_value, f"min value = {min_value}, max value = {max_value}"
         self._min = min_value
         self._max = max_value
 
@@ -81,8 +103,8 @@ class MinMaxNormalize(FeatureProcessor):
 
     def __eq__(self, other: FeatureProcessor) -> bool:
         return (isinstance(other, MinMaxNormalize) and
-                isclose(self.min, other.min) and
-                isclose(self.max, other.max))
+                isclose(self.min, other.min, rel_tol=1e-9) and
+                isclose(self.max, other.max, rel_tol=1e-9))
 
 
 class NoProcessing(FeatureProcessor):
