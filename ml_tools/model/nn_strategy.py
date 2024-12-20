@@ -258,7 +258,7 @@ class CompoundLayer(Layer):
          # Input layer length is not known until at build
         assert all(not(spec.stop is None) and spec.stop >= 0
                    for spec in input_specifications if isinstance(spec, slice)), \
-                f"Input specification slices must have explicit non-negative ending indeces"
+                "Input specification slices must have explicit non-negative ending indeces"
 
         self._layers = layers
 
@@ -291,8 +291,8 @@ class CompoundLayer(Layer):
         def gather_indices(x, indices):
             return tf.gather(x, indices, axis=-1)
 
-        assert all(index < input_tensor.shape[1] for spec in self.input_specifications for index in spec),
-            f"index = {index}, input_tensor.shape[1] = {input_tensor.shape[1]}"
+        assert all(index < input_tensor.shape[1] for spec in self.input_specifications for index in spec), \
+            "input specification index greater than input feature vector length"
         split_inputs = [tensorflow.keras.layers.Lambda(gather_indices, arguments={'indices': indices})(input_tensor)
                         for indices in self.input_specifications]
 
