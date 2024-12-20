@@ -221,8 +221,10 @@ class CompoundLayer(Layer):
     ----------
     layers : List[Layer]
         The list of constituent layers that will be executed in parallel
-    input_specifications : List[List[int]]
-        The list of input indices each layer should use to pull from the incoming input
+    input_specifications : List[Union[slice, List[int]]]
+        The input indices each layer should use to pull from the incoming input.
+        This may be provided either as a list or a slice.  If a slice is provided
+        the end index must be explicitly stated and cannot be a negative value.
     dropout_rate : float, optional
         Dropout rate for the layer. Default is 0.0 (no dropout).
 
@@ -249,11 +251,14 @@ class CompoundLayer(Layer):
 
         super().__init__(dropout_rate)
 
-        assert len(layers) > 0
-        assert len(layers) == len(input_specifications)
+        assert len(layers) > 0, f"len(layers) = {len(layers)}"
+        assert len(layers) == len(input_specifications), \
+            f"len(layers) = {len(layers)}, len(input_specifications) = {len(input_specifications)}"
 
          # Input layer length is not known until at build
-        assert all(not(spec.stop is None) for spec in input_specifications if isinstance(spec, slice))
+        assert all(not(spec.stop is None) and spec.stop >= 0
+                   for spec in input_specifications if isinstance(spec, slice)), \
+                f"Input specification slices must have explicit non-negative ending indeces"
 
         self._layers = layers
 
@@ -286,7 +291,8 @@ class CompoundLayer(Layer):
         def gather_indices(x, indices):
             return tf.gather(x, indices, axis=-1)
 
-        assert all(index < input_tensor.shape[1] for spec in self.input_specifications for index in spec)
+        assert all(index < input_tensor.shape[1] for spec in self.input_specifications for index in spec),
+            f"index = {index}, input_tensor.shape[1] = {input_tensor.shape[1]}"
         split_inputs = [tensorflow.keras.layers.Lambda(gather_indices, arguments={'indices': indices})(input_tensor)
                         for indices in self.input_specifications]
 
@@ -334,7 +340,7 @@ class Dense(Layer):
 
     Parameters
     ----------
-    units : init
+    units : int
         Number of nodes (i.e. neurons) to use in the dense layer
     activation : str
         Activation function to use
@@ -453,7 +459,7 @@ class NNStrategy(PredictionStrategy):
 
     @layers.setter
     def layers(self, layers: List[Layer]):
-        assert len(layers) > 0
+        assert len(layers) > 0, f"len(layers) = {len(layers)}"
         self._layer_sequence = LayerSequence(layers)
 
     @property
