@@ -1,13 +1,12 @@
 from __future__ import annotations
-from typing import List, Dict
+from typing import List, Dict, Optional
 import os
+import h5py
+import lightgbm as lgb
 import numpy as np
 import pylab as plt
-import h5py
-from sklearn.model_selection import train_test_split
-import lightgbm as lgb
 
-from ml_tools.model.state import State, StateSeries
+from ml_tools.model.state import StateSeries
 from ml_tools.model.prediction_strategy import PredictionStrategy
 from ml_tools.model.feature_processor import FeatureProcessor
 
@@ -18,38 +17,90 @@ class GBMStrategy(PredictionStrategy):
     This prediction strategy is only intended for use with static State-Points, meaning
     non-temporal series, or said another way, State Series with series lengths of one.
 
+    Parameters
+    ----------
+    input_features : Dict[str, FeatureProcessor]
+        A dictionary specifying the input features of this model and their corresponding feature processing strategy
+    predicted_feature : str
+        The string specifying the feature to be predicted
+    boosting_type : str
+        The boosting method to be used
+        (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#boosting)
+    objective : str
+        The loss function to be used
+        (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#objective)
+    metric : str
+        The metric to use when calculating the loss
+        (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#metric)
+    num_leaves : int
+        The maximum number of leaves in one tree
+        (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#num_leaves)
+    learning_rate: float
+        The learning / shrinkage rate
+        (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#learning_rate)
+    n_estimators : int
+        Number of boosting iterations
+        (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#num_iterations)
+    max_depth : int
+        The limit on the max depth for the tree model
+        (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#max_depth)
+    min_child_samples : int
+        Minimum number of data in one leaf required to create a new leaf
+        (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#min_data_in_leaf)
+    subsample : float
+        The fraction of the training data that is randomly sampled for each iteration / boosting round
+        (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#bagging_fraction)
+    colsample_bytree : float
+        The fraction of features (columns) that are randomly selected and used for training each tree in the model
+        (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#feature_fraction)
+    reg_alpha : float
+        The L1 regularization
+        (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#lambda_l1)
+    reg_lambda : float
+        The L2 regularization
+        (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#lambda_l2)
+    verbose : int
+        The level of LightGBM’s verbosity
+        (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#verbosity)
+    num_boost_round : int
+        Number of boosting iterations
+        (see: https://lightgbm.readthedocs.io/en/stable/pythonapi/lightgbm.train.html)
+    stopping_rounds : int
+        The number of rounds the validation score must improve in for training to continue
+        (see: https://lightgbm.readthedocs.io/en/stable/Python-Intro.html#early-stopping)
+
     Attributes
     ----------
     boosting_type : str
-        The boosting method to be used (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#boosting)
+        The boosting method to be used
     objective : str
-        The loss function to be used (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#objective)
+        The loss function to be used
     metric : str
-        The metric to use when calculating the loss (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#metric)
+        The metric to use when calculating the loss
     num_leaves : int
-        The maximum number of leaves in one tree (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#num_leaves)
+        The maximum number of leaves in one tree
     learning_rate: float
-        The learning / shrinkage rate (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#learning_rate)
+        The learning / shrinkage rate
     n_estimators : int
-        Number of boosting iterations (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#num_iterations)
+        Number of boosting iterations
     max_depth : int
-        The limit on the max depth for the tree model (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#max_depth)
+        The limit on the max depth for the tree model
     min_child_samples : int
-        Minimum number of data in one leaf required to create a new leaf (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#min_data_in_leaf)
+        Minimum number of data in one leaf required to create a new leaf
     subsample : float
-        The fraction of the training data that is randomly sampled for each iteration / boosting round (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#bagging_fraction)
+        The fraction of the training data that is randomly sampled for each iteration / boosting round
     colsample_bytree : float
-        The fraction of features (columns) that are randomly selected and used for training each tree in the model (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#feature_fraction)
+        The fraction of features (columns) that are randomly selected and used for training each tree in the model
     reg_alpha : float
-        The L1 regularization (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#lambda_l1)
+        The L1 regularization
     reg_lambda : float
-        The L2 regularization (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#lambda_l2)
+        The L2 regularization
     verbose : int
-        The level of LightGBM’s verbosity (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#verbosity)
+        The level of LightGBM’s verbosity
     num_boost_round : int
-        Number of boosting iterations (see: https://lightgbm.readthedocs.io/en/stable/pythonapi/lightgbm.train.html)
+        Number of boosting iterations
     stopping_rounds : int
-        The number of rounds the validation score must improve in for training to continue (see: https://lightgbm.readthedocs.io/en/stable/Python-Intro.html#early-stopping)
+        The number of rounds the validation score must improve in for training to continue
     """
 
     @property
@@ -199,8 +250,6 @@ class GBMStrategy(PredictionStrategy):
         super().__init__()
 
         self._predicted_feature = predicted_feature
-        self._input_features    = input_features
-
         self.input_features     = input_features
         self.predicted_feature  = predicted_feature
         self.boosting_type      = boosting_type
@@ -222,17 +271,20 @@ class GBMStrategy(PredictionStrategy):
         self._gbm               = None
 
 
-    def train(self, train_data: List[StateSeries], test_data: List[StateSeries] = [], num_procs: int = 1) -> None:
+    def train(self, train_data: List[StateSeries], test_data: Optional[List[StateSeries]] = None, num_procs: int = 1) -> None:
 
-        assert all(len(series) == 1 for series in train_data) # All State Series must be static statepoints (i.e. len(series) == 1)
+        assert all(len(series) == 1 for series in train_data), \
+            "All State Series must be static statepoints (i.e. len(series) == 1)"
 
-        X_train = self.preprocess_inputs(train_data, num_procs)[:,0,:]
-        y_train = self._get_targets(train_data)[:,0]
+        X_train   = self.preprocess_inputs(train_data, num_procs)[:,0,:]
+        y_train   = self._get_targets(train_data)[:,0]
         lgb_train = lgb.Dataset(X_train, y_train)
 
         lgb_eval  = None
+        test_data = [] if test_data is None else test_data
         if len(test_data) > 0:
-            assert all(len(series) == 1 for series in test_data) # All State Series must be static statepoints (i.e. len(series) == 1)
+            assert all(len(series) == 1 for series in test_data), \
+                "All State Series must be static statepoints (i.e. len(series) == 1"
 
             X_test   = self.preprocess_inputs(test_data, num_procs)[:,0,:]
             y_test   = self._get_targets(test_data)[:,0]
@@ -258,22 +310,21 @@ class GBMStrategy(PredictionStrategy):
                               valid_sets      = lgb_eval,
                               callbacks       = [lgb.early_stopping(stopping_rounds=self.stopping_rounds)])
 
+    def plot_importances(self) -> None:
+        """ A method for plotting the importance of each input feature for a given state series
 
-    def plot_importances(self, state: State) -> None:
-        """ A method for plotting the importance of each input feature for a given state
-
-        Parameters
-        ----------
-        state: State
-            The state to plot the input feature importance graph for
+        This currently only supports plotting 20 state input features.  This should be more than
+        sufficient for most use cases
         """
 
-        names               = [feature for feature in self.input_features]
+        features            = list(self.input_features)
         feature_importances = self._gbm.feature_importance().astype(float)
         feature_importances *= 100. / np.max(feature_importances)
 
         idx = np.argsort(feature_importances)[::-1]
-        plt.barh([names[i] for i in idx[:20]][::-1], feature_importances[idx[:20]][::-1])
+        assert len(features) <= 20, "Only 20 features effectively fit on a single plot"
+
+        plt.barh([features[i] for i in idx[:]][::-1], feature_importances[idx[:]][::-1])
         plt.xlabel('Relative Feature Importance [%]')
         plt.show()
 
@@ -285,8 +336,9 @@ class GBMStrategy(PredictionStrategy):
 
     def _predict_all(self, state_series: List[StateSeries]) -> List[float]:
 
-        assert(self.isTrained)
-        assert all(len(series) == 1 for series in state_series) # All State Series must be static statepoints (i.e. len(series) == 1)
+        assert self.isTrained
+        assert all(len(series) == 1 for series in state_series), \
+            "All State Series must be static statepoints (i.e. len(series) == 1)"
 
         X = self.preprocess_inputs(state_series)[:,0,:]
         return self._gbm.predict(X, num_iteration=self._gbm.best_iteration)
@@ -323,7 +375,7 @@ class GBMStrategy(PredictionStrategy):
         lgbm_name = file_name.removesuffix(".h5") + ".lgbm" if file_name.endswith(".h5") else file_name + ".lgbm"
         file_name = file_name if file_name.endswith(".h5") else file_name + ".h5"
 
-        assert(os.path.exists(file_name))
+        assert os.path.exists(file_name), f"file name = {file_name}"
         read_lgbm_h5 = not os.path.exists(lgbm_name)
         with h5py.File(file_name, 'r') as h5_file:
             self.base_load_model(h5_file)
@@ -349,7 +401,7 @@ class GBMStrategy(PredictionStrategy):
         GBMStrategy:
             The model from the hdf5 file
         """
-        assert(os.path.exists(file_name))
+        assert os.path.exists(file_name), f"file name = {file_name}"
 
         new_gbm = cls({}, None)
         new_gbm.load_model(file_name)

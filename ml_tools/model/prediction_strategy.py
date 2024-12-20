@@ -1,15 +1,16 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import List, Dict, Tuple, Type, TypeVar
+from typing import List, Dict, Optional
+from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 import h5py
-from concurrent.futures import ProcessPoolExecutor
-from ml_tools.model.state import State, StateSeries
+
+from ml_tools.model.state import StateSeries
 from ml_tools.model.feature_processor import FeatureProcessor, write_feature_processor, read_feature_processor
 
 
 class PredictionStrategy(ABC):
-    """ An abstract class for prediction strategies
+    """ An abstract class for prediction strategies. Not meant to be instantiated directly.
 
     Attributes
     ----------
@@ -33,7 +34,7 @@ class PredictionStrategy(ABC):
     def input_features(self, input_features: Dict[str, FeatureProcessor]) -> None:
         self._input_features = {}
         for feature, processor in input_features.items():
-            assert feature is not self.predicted_feature
+            assert feature is not self.predicted_feature, f"'{feature}' is also the predicted feature"
             self._input_features[feature] = processor
         self._input_features = dict(sorted(self._input_features.items()))  # Ensure input features are in alphabetical order
 
@@ -43,7 +44,7 @@ class PredictionStrategy(ABC):
 
     @predicted_feature.setter
     def predicted_feature(self, predicted_feature: str) -> None:
-        assert predicted_feature not in self.input_features.keys()
+        assert predicted_feature not in self.input_features, f"'{predicted_feature}' is also an input feature"
         self._predicted_feature = predicted_feature
 
     @property
@@ -72,7 +73,7 @@ class PredictionStrategy(ABC):
 
 
     @abstractmethod
-    def train(self, train_data: List[StateSeries], test_data: List[StateSeries] = [], num_procs: int = 1) -> None:
+    def train(self, train_data: List[StateSeries], test_data: Optional[List[StateSeries]] = None, num_procs: int = 1) -> None:
         """ The method that trains the prediction strategy given a set of training data and testing data
 
         Parameters
@@ -85,7 +86,6 @@ class PredictionStrategy(ABC):
         num_procs : int
             The number of parallel processors to use when training
         """
-        pass
 
 
     def preprocess_inputs(self, state_series: List[StateSeries], num_procs: int = 1) -> np.ndarray:
@@ -103,20 +103,27 @@ class PredictionStrategy(ABC):
         np.ndarray
             The preprocessed collection of state series input features
         """
+        input_features = [self.input_features] * len(state_series) # input_features for each worker
 
-        processed_inputs = []
-
-        for series in state_series:
-            series_inputs = []
-            for feature, processor in self.input_features.items():
-                feature_data = [state.feature(feature) for state in series]
-                feature_data = np.array_split(feature_data, num_procs)
-                with ProcessPoolExecutor(max_workers=num_procs) as executor:
-                    processed_data = list(executor.map(processor.preprocess, feature_data))
-                series_inputs.append(np.vstack(processed_data))
-            processed_inputs.append(np.hstack(series_inputs).tolist())
+        with ProcessPoolExecutor(max_workers=num_procs) as executor:
+            processed_inputs = list(executor.map(self._process_single_series, state_series, input_features))
 
         return np.asarray(processed_inputs)
+
+
+    @staticmethod
+    def _process_single_series(series: StateSeries, input_features: Dict[str, FeatureProcessor]) -> np.ndarray:
+        """ Helper method to support parallelizing preprocess_inputs
+
+        This is required to be a separate method so it can be pickled by ProcessPoolExecutor
+        """
+
+        processed_inputs = []
+        for feature, processor in input_features.items():
+            feature_data = np.array([state[feature] for state in series])
+            processed_data = processor.preprocess(feature_data)
+            processed_inputs.append(processed_data)
+        return np.hstack(processed_inputs)
 
 
     def base_save_model(self, h5_file: h5py.File) -> None:
@@ -131,7 +138,7 @@ class PredictionStrategy(ABC):
         if self._biasing_model is not None:
             raise AttributeError('Cannot save model with bias model attached')
 
-        h5_file.create_dataset('predicted_feature',     data=self.predicted_feature)
+        h5_file.create_dataset('predicted_feature', data=self.predicted_feature)
         input_features_group = h5_file.create_group('input_features')
         for name, feature in self.input_features.items():
             write_feature_processor(input_features_group.create_group(name), feature)
@@ -211,7 +218,7 @@ class PredictionStrategy(ABC):
             The target values of each state of each series to use in training
         """
 
-        targets = np.array([[state.feature(self.predicted_feature) for state in series] for series in state_series])
+        targets = np.array([[state[self.predicted_feature] for state in series] for series in state_series])
         if self.hasBiasingModel:
             bias = np.asarray(self.biasing_model.predict(state_series))
             targets -= bias
@@ -236,4 +243,3 @@ class PredictionStrategy(ABC):
         np.ndarray
             The predicted target values for each state of the series
         """
-        pass

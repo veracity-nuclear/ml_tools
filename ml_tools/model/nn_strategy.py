@@ -1,24 +1,26 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import List, Dict
-from dataclasses import dataclass, field
+from typing import List, Dict, Optional, Union, Any
 import os
 from math import isclose
+from decimal import Decimal
 import h5py
 import numpy as np
 
+# Pylint appears to not be handling the tensorflow imports correctly
+# pylint: disable=import-error, no-name-in-module
 import tensorflow as tf
 from tensorflow.keras import KerasTensor
 import tensorflow.keras.layers
 from tensorflow.keras.saving import register_keras_serializable
-from tensorflow.keras.models import Model, load_model
+from tensorflow.keras.models import load_model
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.optimizers.schedules import ExponentialDecay
 from tensorflow.keras.losses import MeanSquaredError
 from tensorflow.keras.metrics import MeanAbsoluteError
 from tensorflow.keras.callbacks import EarlyStopping
 
-from ml_tools.model.state import State, StateSeries
+from ml_tools.model.state import StateSeries
 from ml_tools.model.prediction_strategy import PredictionStrategy
 from ml_tools.model.feature_processor import FeatureProcessor
 
@@ -28,14 +30,22 @@ valid_layer_types = ['Dense']
 valid_activation_functions = ['elu', 'exponential', 'gelu', 'hard_sigmoid', 'linear', 'mish',
                               'relu', 'selu', 'sigmoid', 'softmax', 'softplus', 'softsign', 'swish', 'tanh']
 
+# Pylint mistakenly interpretting layer_group["activation_function"][()] as an HDF5 Group
+# and subsequently complaining that it has no "decode" member
+# pylint: disable=no-member
 
 class Layer(ABC):
-    """ Abstract class for neural network layers
+    """ Abstract class for neural network layers. Not meant to be instantiated directly.
 
-    Attributes
+    Parameters
     ----------
     dropout_rate : float, optional
         Dropout rate for the layer. Default is 0.0 (no dropout).
+
+    Attributes
+    ----------
+    dropout_rate : float
+        Dropout rate for the layer.
     """
 
     @property
@@ -51,14 +61,38 @@ class Layer(ABC):
     def __init__(self, dropout_rate: float = 0.0) -> None:
         self.dropout_rate = dropout_rate
 
-
     @abstractmethod
-    def __eq__(self, other: Any) -> bool:
-        pass
+    def __eq__(self, other: Layer) -> bool:
+        """ Compare two layers for equality
+
+        Parameters
+        ----------
+        other: Layer
+            The other Layer to compare against
+
+        Returns
+        -------
+        bool
+            True if self and other are equal within the tolerance.  False otherwise
+
+        Notes
+        -----
+        The relative tolerance is 1e-9 for float comparisons
+        """
 
     @abstractmethod
     def __hash__(self) -> int:
-        pass
+        """ Generate a hash key for the layer
+
+        Returns
+        -------
+        int
+            The hash key corresponding to this layer
+
+        Notes
+        -----
+        Hash generation is consistent with the 1e-9 float comparison equality relative tolerance
+        """
 
     @abstractmethod
     def build(self, input_tensor: KerasTensor) -> KerasTensor:
@@ -69,7 +103,6 @@ class Layer(ABC):
         input_tensor : KerasTensor
             The input tensor for the layer
         """
-        pass
 
     @abstractmethod
     def save(self, group: h5py.Group) -> None:
@@ -80,7 +113,6 @@ class Layer(ABC):
         group : h5py.Group
             The h5py group to save the layer to
         """
-        pass
 
     @classmethod
     @abstractmethod
@@ -97,7 +129,6 @@ class Layer(ABC):
         Layer
             The layer constructed from the HDF5 group
         """
-        pass
 
 
 
@@ -108,6 +139,11 @@ class LayerSequence(Layer):
     this will be dictated by the final layer's dropout rate specification.
     If a dropout rate is provided, it will be ignored in favor of the final
     layer's dropout rate
+
+    Parameters
+    ----------
+    layers : List[Layer]
+        The list of layers that comprise the sequence
 
     Attributes
     ----------
@@ -129,11 +165,12 @@ class LayerSequence(Layer):
         self.layers = layers
 
     def __eq__(self, other: Any) -> bool:
-        if self is other:                                                                       return True
-        if not isinstance(other, LayerSequence):                                                return False
-        if not(len(self.layers) == len(other.layers)):                                          return False
-        if not(all(s_layer == o_layer for s_layer, o_layer in zip(self.layers, other.layers))): return False
-        return True
+        return (self is other or
+                 (isinstance(other, LayerSequence) and
+                  len(self.layers) == len(other.layers) and
+                  all(s_layer == o_layer for s_layer, o_layer in zip(self.layers, other.layers))
+                 )
+               )
 
     def __hash__(self) -> int:
         return hash(tuple(self.layers))
@@ -158,9 +195,12 @@ class LayerSequence(Layer):
         for layer_name in layer_names:
             layer_group = group[layer_name]
             layer_type = layer_group['type'][()].decode('utf-8')
-            if   layer_type == 'Dense':         layers.append(Dense.from_h5(layer_group))
-            elif layer_type == 'LayerSequence': layers.append(LayerSequence.from_h5(layer_group))
-            elif layer_type == 'CompoundLayer': layers.append(CompoundLayer.from_h5(layer_group))
+            if layer_type == 'Dense':
+                layers.append(Dense.from_h5(layer_group))
+            elif layer_type == 'LayerSequence':
+                layers.append(LayerSequence.from_h5(layer_group))
+            elif layer_type == 'CompoundLayer':
+                layers.append(CompoundLayer.from_h5(layer_group))
         return cls(layers=layers)
 
 
@@ -176,6 +216,15 @@ class CompoundLayer(Layer):
 
     Also, input features need not be "exclusive" to a given layer, but rather may be used by multiple
     constituent layers.
+
+    Parameters
+    ----------
+    layers : List[Layer]
+        The list of constituent layers that will be executed in parallel
+    input_specifications : List[List[int]]
+        The list of input indices each layer should use to pull from the incoming input
+    dropout_rate : float, optional
+        Dropout rate for the layer. Default is 0.0 (no dropout).
 
     Attributes
     ----------
@@ -193,11 +242,19 @@ class CompoundLayer(Layer):
     def input_specifications(self) -> List[List[int]]:
         return self._input_specifications
 
-    def __init__(self, layers: List[Layer], input_specifications: List[Union[slice, List[int]]], dropout_rate: float = 0.0) -> None:
+    def __init__(self,
+                 layers:               List[Layer],
+                 input_specifications: List[Union[slice, List[int]]],
+                 dropout_rate:         float = 0.0) -> None:
+
         super().__init__(dropout_rate)
+
         assert len(layers) > 0
         assert len(layers) == len(input_specifications)
-        assert all(not(spec.stop is None) for spec in input_specifications if isinstance(spec, slice)) # Input layer length is not known until at build
+
+         # Input layer length is not known until at build
+        assert all(not(spec.stop is None) for spec in input_specifications if isinstance(spec, slice))
+
         self._layers = layers
 
         self._input_specifications = []
@@ -211,17 +268,18 @@ class CompoundLayer(Layer):
                 self._input_specifications.append(specification)
 
     def __eq__(self, other: Any) -> bool:
-        if self is other:                                                                       return True
-        if not isinstance(other, CompoundLayer):                                                return False
-        if not(isclose(self.dropout_rate, other.dropout_rate)):                                 return False
-        if not(len(self.layers) == len(other.layers)):                                          return False
-        if not(all(s_layer == o_layer for s_layer, o_layer in zip(self.layers, other.layers))): return False
-        return True
+        return (self is other or
+                 (isinstance(other, CompoundLayer) and
+                  isclose(self.dropout_rate, other.dropout_rate) and
+                  len(self.layers) == len(other.layers) and
+                  all(s_layer == o_layer for s_layer, o_layer in zip(self.layers, other.layers))
+                 )
+               )
 
     def __hash__(self) -> int:
-        return hash((tuple(self.layers),
-                     tuple([tuple(specification) for specification in self.input_specifications]),
-                     self.dropout_rate))
+        return hash(tuple(self.layers),
+                     tuple(tuple(specification) for specification in self.input_specifications),
+                     Decimal(self.dropout_rate).quantize(Decimal('1e-9')))
 
     def build(self, input_tensor: KerasTensor) -> KerasTensor:
         @register_keras_serializable()
@@ -229,7 +287,8 @@ class CompoundLayer(Layer):
             return tf.gather(x, indices, axis=-1)
 
         assert all(index < input_tensor.shape[1] for spec in self.input_specifications for index in spec)
-        split_inputs = [tensorflow.keras.layers.Lambda(gather_indices, arguments={'indices': indices})(input_tensor) for indices in self.input_specifications]
+        split_inputs = [tensorflow.keras.layers.Lambda(gather_indices, arguments={'indices': indices})(input_tensor)
+                        for indices in self.input_specifications]
 
         outputs = [layer.build(split) for layer, split in zip(self._layers, split_inputs)]
 
@@ -260,15 +319,27 @@ class CompoundLayer(Layer):
         for layer_name in layer_names:
             layer_group = group[layer_name]
             layer_type = layer_group['type'][()].decode('utf-8')
-            if   layer_type == 'Dense':         layers.append(Dense.from_h5(layer_group))
-            elif layer_type == 'LayerSequence': layers.append(LayerSequence.from_h5(layer_group))
-            elif layer_type == 'CompoundLayer': layers.append(CompoundLayer.from_h5(layer_group))
+            if layer_type == 'Dense':
+                layers.append(Dense.from_h5(layer_group))
+            elif layer_type == 'LayerSequence':
+                layers.append(LayerSequence.from_h5(layer_group))
+            elif layer_type == 'CompoundLayer':
+                layers.append(CompoundLayer.from_h5(layer_group))
         dropout_rate = group.attrs.get('dropout_rate', 0.0)
         return cls(layers=layers, input_specifications=input_specifications, dropout_rate=dropout_rate)
 
 
 class Dense(Layer):
     """ A Dense Neural Network Layer
+
+    Parameters
+    ----------
+    units : init
+        Number of nodes (i.e. neurons) to use in the dense layer
+    activation : str
+        Activation function to use
+    dropout_rate : float, optional
+        Dropout rate for the layer. Default is 0.0 (no dropout).
 
     Attributes
     ----------
@@ -284,7 +355,7 @@ class Dense(Layer):
 
     @units.setter
     def units(self, units: int) -> None:
-        assert units > 0
+        assert units > 0, f"units = {units}"
         self._units = units
 
     @property
@@ -293,7 +364,7 @@ class Dense(Layer):
 
     @activation.setter
     def activation(self, activation: str) -> None:
-        assert activation in valid_activation_functions
+        assert activation in valid_activation_functions, f"activation = {activation}"
         self._activation = activation
 
 
@@ -302,16 +373,19 @@ class Dense(Layer):
         self.units      = units
         self.activation = activation
 
-    def __eq__(self, other: Any) -> bool:
-        if self is other:                                       return True
-        if not isinstance(other, Dense):                        return False
-        if not(self.units == other.units):                      return False
-        if not(self.activation == other.activation):            return False
-        if not(isclose(self.dropout_rate, other.dropout_rate)): return False
-        return True
+    def __eq__(self, other: Layer) -> bool:
+        return (self is other or
+                (isinstance(other, Dense) and
+                 self.units == other.units and
+                 self.activation == other.activation and
+                 isclose(self.dropout_rate, other.dropout_rate, rel_tol=1e-9))
+               )
 
     def __hash__(self) -> int:
-        return hash(tuple(sorted(self.__dict__.items())))
+        return hash(tuple(self.units,
+                          self.activation,
+                          Decimal(self.dropout_rate).quantize(Decimal('1e-9'))
+                         ))
 
     def build(self, input_tensor: KerasTensor) -> KerasTensor:
         x = tf.keras.layers.Dense(units=self._units, activation=self._activation)(input_tensor)
@@ -332,26 +406,30 @@ class Dense(Layer):
                      dropout_rate = float(group["dropout_rate"       ][()]))
 
 
-#class Conv2D(Layer):
-#    """
-#    """
-#
-#
-#class LSTM(Layer):
-#    """
-#    """
-#
-#
-#class Transformer(Layer):
-#    """
-#    """
-
-
 class NNStrategy(PredictionStrategy):
     """ A concrete class for a Neural-Network-based prediction strategy
 
     This prediction strategy is only intended for use with static State-Points, meaning
     non-temporal series, or said another way, State Series with series lengths of one.
+
+    Parameters
+    ----------
+    input_features : Dict[str, FeatureProcessor]
+        A dictionary specifying the input features of this model and their corresponding feature processing strategy
+    predicted_feature : str
+        The string specifying the feature to be predicted
+    layers : List[Layer]
+        The hidden layers of the neural network
+    initial_learning_rate : float
+        The initial learning rate of the training
+    learning_decay_rate : float
+        The decay rate of the learning using Exponential Decay
+    epoch_limit : int
+        The limit on the number of training epochs conducted during training
+    convergence_criteria : float
+        The convergence criteria for training
+    batch_size : int
+        The training batch sizes
 
     Attributes
     ----------
@@ -375,6 +453,7 @@ class NNStrategy(PredictionStrategy):
 
     @layers.setter
     def layers(self, layers: List[Layer]):
+        assert len(layers) > 0
         self._layer_sequence = LayerSequence(layers)
 
     @property
@@ -383,7 +462,7 @@ class NNStrategy(PredictionStrategy):
 
     @initial_learning_rate.setter
     def initial_learning_rate(self, initial_learning_rate: float):
-        assert initial_learning_rate >= 0.
+        assert initial_learning_rate >= 0., f"initial_learning_rate = {initial_learning_rate}"
         self._initial_learning_rate = initial_learning_rate
 
     @property
@@ -392,7 +471,7 @@ class NNStrategy(PredictionStrategy):
 
     @learning_decay_rate.setter
     def learning_decay_rate(self, learning_decay_rate: float):
-        assert 0. <= learning_decay_rate <= 1.
+        assert 0. <= learning_decay_rate <= 1., f"learning_decay_rate = {learning_decay_rate}"
         self._learning_decay_rate = learning_decay_rate
 
     @property
@@ -401,7 +480,7 @@ class NNStrategy(PredictionStrategy):
 
     @epoch_limit.setter
     def epoch_limit(self, epoch_limit: int):
-        assert epoch_limit > 0
+        assert epoch_limit > 0, f"epoch_limit = {epoch_limit}"
         self._epoch_limit = epoch_limit
 
     @property
@@ -410,7 +489,7 @@ class NNStrategy(PredictionStrategy):
 
     @convergence_criteria.setter
     def convergence_criteria(self, convergence_criteria: float):
-        assert convergence_criteria > 0.
+        assert convergence_criteria > 0., f"convergence_criteria = {convergence_criteria}"
         self._convergence_criteria = convergence_criteria
 
     @property
@@ -419,7 +498,7 @@ class NNStrategy(PredictionStrategy):
 
     @batch_size.setter
     def batch_size(self, batch_size: int):
-        assert batch_size > 0
+        assert batch_size > 0, f"batch_size = {batch_size}"
         self._batch_size = batch_size
 
     @property
@@ -430,7 +509,7 @@ class NNStrategy(PredictionStrategy):
     def __init__(self,
                  input_features        : Dict[str, FeatureProcessor],
                  predicted_feature     : str,
-                 layers                : List[Layer]=[Dense(units=5, activation='relu')],
+                 layers                : List[Layer]=None,
                  initial_learning_rate : float=0.01,
                  learning_decay_rate   : float=1.,
                  epoch_limit           : int=400,
@@ -440,7 +519,7 @@ class NNStrategy(PredictionStrategy):
         super().__init__()
         self.input_features         = input_features
         self.predicted_feature      = predicted_feature
-        self.layers                 = layers
+        self.layers                 = [Dense(units=5, activation='relu')] if layers is None else layers
         self.initial_learning_rate  = initial_learning_rate
         self.learning_decay_rate    = learning_decay_rate
         self.epoch_limit            = epoch_limit
@@ -450,10 +529,11 @@ class NNStrategy(PredictionStrategy):
         self._model = None
 
 
-    def train(self, train_data: List[StateSeries], test_data: List[StateSeries] = [], num_procs: int = 1) -> None:
+    def train(self, train_data: List[StateSeries], test_data: Optional[List[StateSeries]] = None, num_procs: int = 1) -> None:
 
-        assert all(len(series) == 1 for series in train_data) # All State Series must be static statepoints (i.e. len(series) == 1)
-        assert len(test_data) == 0  # This model does not use Test Data as part of training
+        assert all(len(series) == 1 for series in train_data), \
+            "All State Series must be static statepoints (i.e. len(series) == 1)"
+        assert test_data is None, "The Neural Network Prediction Strategy does not use test data"
 
         X = self.preprocess_inputs(train_data, num_procs)[:,0,:]
         y = self._get_targets(train_data)[:,0]
@@ -465,20 +545,31 @@ class NNStrategy(PredictionStrategy):
 
         self._model = tf.keras.Model(inputs=input_tensor, outputs=output)
 
-        learning_rate_schedule = ExponentialDecay(self.initial_learning_rate, decay_steps=self.epoch_limit, decay_rate=self.learning_decay_rate, staircase=True)
-        self._model.compile(optimizer=Adam(learning_rate=learning_rate_schedule), loss=MeanSquaredError(), metrics=[MeanAbsoluteError()])
+        learning_rate_schedule = ExponentialDecay(initial_learning_rate = self.initial_learning_rate,
+                                                  decay_steps           = self.epoch_limit,
+                                                  decay_rate            = self.learning_decay_rate, staircase=True)
 
-        early_stop = EarlyStopping(monitor='loss', min_delta=self.convergence_criteria, patience=5, verbose=1, mode='auto', restore_best_weights=True)
+        self._model.compile(optimizer=Adam(learning_rate = learning_rate_schedule),
+                                           loss          = MeanSquaredError(),
+                                           metrics       = [MeanAbsoluteError()])
+
+        early_stop = EarlyStopping(monitor              = 'mean_absolute_error',
+                                   min_delta            = self.convergence_criteria,
+                                   patience             = 5,
+                                   verbose              = 1,
+                                   mode                 = 'auto',
+                                   restore_best_weights = True)
+
         self._model.fit(X, y, epochs=self.epoch_limit, batch_size=self.batch_size, callbacks=[early_stop])
-
 
     def _predict_one(self, state_series: StateSeries) -> np.ndarray:
         return self._predict_all([state_series])[0]
 
 
     def _predict_all(self, state_series: List[StateSeries]) -> np.ndarray:
-        assert(self.isTrained)
-        assert all(len(series) == 1 for series in state_series) # All State Series must be static statepoints (i.e. len(series) == 1)
+        assert self.isTrained
+        assert all(len(series) == 1 for series in state_series), \
+            "All State Series must be static statepoints (i.e. len(series) == 1)"
 
         X = self.preprocess_inputs(state_series)[:,0,:]
         tf.convert_to_tensor(X, dtype=tf.float32)
@@ -527,7 +618,7 @@ class NNStrategy(PredictionStrategy):
 
         file_name = file_name if file_name.endswith(".h5") else file_name + ".h5"
 
-        assert(os.path.exists(file_name))
+        assert os.path.exists(file_name), f"file name = {file_name}"
 
         with h5py.File(file_name, 'r') as h5_file:
             self.base_load_model(h5_file)
@@ -555,7 +646,7 @@ class NNStrategy(PredictionStrategy):
         NNStrategy:
             The model from the hdf5 file
         """
-        assert(os.path.exists(file_name))
+        assert os.path.exists(file_name), f"file name = {file_name}"
 
         new_model = cls({}, None)
         new_model.load_model(file_name)

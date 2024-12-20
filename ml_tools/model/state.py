@@ -1,14 +1,19 @@
 from __future__ import annotations
 from typing import List, Dict, Union
 import os
-import h5py
-import numpy as np
 import random
 from concurrent.futures import ProcessPoolExecutor, as_completed
+import h5py
+import numpy as np
 from ml_tools.utils.status_bar import StatusBar
 
-class State(object):
+class State():
     """ A class for storing and accessing generic state data
+
+    Parameters
+    ----------
+    features : Dict[str, np.ndarray]
+        The features which describe the state
 
     Attributes
     ----------
@@ -23,12 +28,8 @@ class State(object):
     def __init__(self, features: Dict[str, np.ndarray]):
         self._features = features
 
-
-    def feature(self, name: "str") -> np.ndarray:
+    def __getitem__(self, feature_name: str) -> np.ndarray:
         """ Method for retrieving the feature data from a state
-
-        This method might not be entirely necessary, but I think it's a cleaner
-        way of accessing the underlying data than using the "features" property directly.
 
         Parameters
         ----------
@@ -41,8 +42,9 @@ class State(object):
             The feature data that was retrieved
         """
 
-        assert name in self.features
-        return self._features[name]
+        assert feature_name in self.features, \
+            f"'{feature_name}' not found in state features. Available features: {list(self.features.keys())}"
+        return self._features[feature_name]
 
 
     @staticmethod
@@ -56,11 +58,11 @@ class State(object):
                 The list of features expected to be read in for each state
         """
 
-        assert(os.path.exists(file_name))
-        assert(len(features) > 0)
+        assert os.path.exists(file_name), f"File does not exist: {file_name}"
+        assert len(features) > 0, f"'len(features) = {len(features)}'"
 
         with h5py.File(file_name, 'r') as h5_file:
-            assert state in h5_file.keys()
+            assert state in h5_file.keys(), f"'{state}' not found in {file_name}"
             assert all(feature in h5_file[state].keys() for feature in features)
 
             state_data = {}
@@ -111,10 +113,10 @@ class State(object):
             A list of states read from the data in the HDF5 file
         """
 
-        assert(os.path.exists(file_name))
-        assert(len(states) > 0)
-        assert(len(features) > 0)
-        assert(num_procs > 0)
+        assert os.path.exists(file_name), f"File does not exist: {file_name}"
+        assert len(states) > 0, f"'len(states) = {len(states)}'"
+        assert len(features) > 0, f"'len(features) = {len(features)}'"
+        assert num_procs > 0, f"'num_procs = {num_procs}'"
 
         if states is None:
             with h5py.File(file_name, 'r') as h5_file:
@@ -124,15 +126,24 @@ class State(object):
 
 
         if random_sample_size:
-            assert random_sample_size > 0
-            assert random_sample_size < len(states)
+            assert random_sample_size > 0, f"'random_sample_size = {random_sample_size}'"
+            assert random_sample_size < len(states), \
+                f"'random_sample_size = {random_sample_size}, len(states) = {len(states)}'"
             states = random.sample(states, random_sample_size)
 
-        statusbar = StatusBar(len(states))
+        if not silent:
+            statusbar = StatusBar(len(states))
         state_data = []
         i = 0
-        if num_procs > 1:
 
+        if num_procs == 1:
+            for state in states:
+                state_data.append(State.read_state_from_hdf5(file_name, state, features))
+                if not silent:
+                    statusbar.update(i)
+                    i+=1
+
+        else:
             def chunkify(states: List[str], chunk_size: int):
                 for i in range(0, len(states), chunk_size):
                     yield states[i:i + chunk_size]
@@ -141,19 +152,18 @@ class State(object):
             chunks     = list(chunkify(states, chunk_size))
 
             with ProcessPoolExecutor(max_workers=num_procs) as executor:
-                jobs = {executor.submit(State.read_states_from_hdf5, file_name, features, chunks, silent=True): chunk for chunk in chunks}
+                jobs = {executor.submit(State.read_states_from_hdf5, file_name, features, chunk, silent=True): \
+                    chunk for chunk in chunks}
 
                 for job in as_completed(jobs):
                     for state in job.result():
                         state_data.append(state)
-                        if not silent: statusbar.update(i); i+=1
+                        if not silent:
+                            statusbar.update(i)
+                            i+=1
 
-        else:
-            for state in states:
-                state_data.append(State.read_state_from_hdf5(file_name, state, features))
-                if not silent: statusbar.update(i); i+=1
-
-        if not silent: statusbar.finalize()
+        if not silent:
+            statusbar.finalize()
 
         return state_data
 
