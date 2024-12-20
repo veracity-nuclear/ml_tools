@@ -1,5 +1,5 @@
 import pytest
-from math import isclose
+from numpy.testing import assert_allclose
 import numpy as np
 import os
 import h5py
@@ -14,11 +14,11 @@ def test_minmax_normalize():
     # Test preprocess
     preprocessed_data  = processor.preprocess(orig_data)
     expected_values = np.array([0., 0.5, 2./3., 1.])
-    assert(all(isclose(actual, expected) for actual, expected in zip(preprocessed_data, expected_values)))
+    assert_allclose(preprocessed_data, expected_values)
 
     # Test postprocess
     postprocessed_data = processor.postprocess(preprocessed_data)
-    assert(all(isclose(actual, expected) for actual, expected in zip(postprocessed_data, orig_data)))
+    assert_allclose(postprocessed_data, orig_data)
 
 
 
@@ -29,11 +29,11 @@ def test_no_processing():
 
     # Test preprocess
     preprocessed_data  = processor.preprocess(orig_data)
-    assert(all(isclose(actual, expected) for actual, expected in zip(preprocessed_data, orig_data)))
+    assert_allclose(preprocessed_data, orig_data)
 
     # Test postprocess
     postprocessed_data = processor.postprocess(preprocessed_data)
-    assert(all(isclose(actual, expected) for actual, expected in zip(postprocessed_data, orig_data)))
+    assert_allclose(postprocessed_data, orig_data)
 
 
 

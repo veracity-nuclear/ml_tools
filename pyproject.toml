@@ -12,12 +12,15 @@ authors = [
 description = "A collection of Machine Learning tools for various Nuclear Reactor Applications"
 readme = "README.md"
 keywords = []
-requires-python = ">=3.9"
+requires-python = ">=3.12"
 license = {text = "TBD"}
 classifiers = [
-    'Development Status :: 3 - Alpha',
-    'Programming Language :: Python :: 3',
-    'Operating System :: OS Independent',
+    'Development Status :: 2 - Pre-Alpha',
+    'Intended Audience :: Science/Research',
+    'Programming Language :: Python :: 3.12',
+    'Operating System :: POSIX :: Linux',
+    'Natural Language :: English',
+    'Topic :: Scientific/Engineering :: Physics',
 ]
 dependencies = [
     'tensorflow',
@@ -65,6 +68,8 @@ disable = [
     "too-many-branches",
     "too-many-ancestors",
     "too-many-arguments",
+    "too-many-positional-arguments",
+    "too-many-public-methods",
     "too-many-statements",
     "too-many-nested-blocks",
     "too-many-instance-attributes",

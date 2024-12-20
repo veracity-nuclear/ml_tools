@@ -1,6 +1,5 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import List
 from copy import deepcopy
 from math import isclose
 import numpy as np
@@ -12,47 +11,67 @@ class FeatureProcessor(ABC):
 
     @abstractmethod
     def preprocess(self, orig_data: np.ndarray) -> np.ndarray:
-       """ a method for pre-processing feature data
+        """ a method for pre-processing feature data
 
-       Parameters
-       ----------
-       orig_data : np.ndarray
-           The data in its original form
+        Parameters
+        ----------
+        orig_data : np.ndarray
+            The data in its original form
 
-       Returns
-       -------
-       np.ndarray
-           The preprocessed form of the data
-       """
-       pass
+        Returns
+        -------
+        np.ndarray
+            The preprocessed form of the data
+        """
 
 
     @abstractmethod
     def postprocess(self, processed_data: np.ndarray) -> np.ndarray:
-       """ a method for post-processing feature data
+        """ a method for post-processing feature data
 
-       Post-processing here means the inverse operation of pre-processing
+        Post-processing here means the inverse operation of pre-processing
 
-       Parameters
-       ----------
-       processed_data : np.ndarray
-           The data in its processed form that must be post-processed
+        Parameters
+        ----------
+        processed_data : np.ndarray
+            The data in its processed form that must be post-processed
 
-       Returns
-       -------
-       np.ndarray
-           The post-processed form of the data
-       """
-       pass
+        Returns
+        -------
+        np.ndarray
+            The post-processed form of the data
+        """
 
 
     @abstractmethod
     def __eq__(self, other: FeatureProcessor) -> bool:
-       pass
+        """ Compare two FeatureProcessors for equality
+
+        Parameters
+        ----------
+        other: FeatureProcessor
+            The other FeatureProcessor to compare against
+
+        Returns
+        -------
+        bool
+            True if self and other are equal within the tolerance.  False otherwise
+
+        Notes
+        -----
+        The relative tolerance is 1e-9 for float comparisons
+        """
 
 
 class MinMaxNormalize(FeatureProcessor):
     """ A feature processor that performs Min-Max normalization
+
+    Parameters
+    ----------
+    min_value : float
+        The minimum value of the value range
+    max_value : float
+        The maximum value of the value range
 
     Attributes
     ----------
@@ -72,7 +91,7 @@ class MinMaxNormalize(FeatureProcessor):
 
 
     def __init__(self, min_value: float, max_value: float):
-        assert(min_value < max_value), f"min value = {min_value}, max value = {max_value}"
+        assert min_value < max_value, f"min value = {min_value}, max value = {max_value}"
         self._min = min_value
         self._max = max_value
 
@@ -83,10 +102,9 @@ class MinMaxNormalize(FeatureProcessor):
         return processed_data * (self.max - self.min) + self.min
 
     def __eq__(self, other: FeatureProcessor) -> bool:
-        if(not(type(self) == type(other))): return False
-        if(not(isclose(self.min, other.min))): return False
-        if(not(isclose(self.max, other.max))): return False
-        return True
+        return (isinstance(other, MinMaxNormalize) and
+                isclose(self.min, other.min, rel_tol=1e-9) and
+                isclose(self.max, other.max, rel_tol=1e-9))
 
 
 class NoProcessing(FeatureProcessor):
@@ -103,8 +121,7 @@ class NoProcessing(FeatureProcessor):
         return deepcopy(processed_data)
 
     def __eq__(self, other: FeatureProcessor) -> bool:
-        if(not(type(self) == type(other))): return False
-        return True
+        return isinstance(other, NoProcessing)
 
 
 def write_feature_processor(group: h5py.Group, processor: FeatureProcessor) -> None:
@@ -118,13 +135,12 @@ def write_feature_processor(group: h5py.Group, processor: FeatureProcessor) -> N
         The Feature Processor to write to the HDF5 Group
     """
 
-    def get_public_properties(obj):
-        public_properties = []
+    def get_public_properties(obj: FeatureProcessor):
         for attr_name in dir(obj):
             attr_value = getattr(obj, attr_name)
-            if isinstance(attr_value, property) or (not attr_name.startswith('_') and isinstance(getattr(type(obj), attr_name, None), property)):
-                public_properties.append(attr_name)
-        return public_properties
+            if isinstance(attr_value, property) or \
+               (not attr_name.startswith('_') and isinstance(getattr(type(obj), attr_name, None), property)):
+                yield attr_name
 
     group.create_dataset("type", data=type(processor).__name__, dtype=h5py.string_dtype())
     for var in get_public_properties(processor):
@@ -147,8 +163,8 @@ def read_feature_processor(group: h5py.Group) -> FeatureProcessor:
     """
 
     processor_type = group["type"][()].decode('utf-8')
-    if    processor_type == "MinMaxNormalize":  return MinMaxNormalize(group["min"][()], group["max"][()])
-    elif  processor_type == "NoProcessing"   :  return NoProcessing()
-    else:
-        found_valid_feature_processor = False
-        assert(found_valid_feature_processor)
+    if processor_type == "MinMaxNormalize":
+        return MinMaxNormalize(group["min"][()], group["max"][()])
+    if processor_type == "NoProcessing":
+        return NoProcessing()
+    assert False, f"Unsupported processor type: {processor_type}"

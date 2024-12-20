@@ -1,24 +1,26 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import List, Dict, Literal, Tuple
-from dataclasses import dataclass, field
+from typing import List, Dict, Literal, Tuple, Optional, Union, Any
 import os
 from math import isclose
+from decimal import Decimal
 import h5py
 import numpy as np
 
+# Pylint appears to not be handling the tensorflow imports correctly
+# pylint: disable=import-error, no-name-in-module
 import tensorflow as tf
 from tensorflow.keras import KerasTensor
 import tensorflow.keras.layers
 from tensorflow.keras.saving import register_keras_serializable
-from tensorflow.keras.models import Model, load_model
+from tensorflow.keras.models import load_model
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.optimizers.schedules import ExponentialDecay
 from tensorflow.keras.losses import MeanSquaredError
 from tensorflow.keras.metrics import MeanAbsoluteError
 from tensorflow.keras.callbacks import EarlyStopping
 
-from ml_tools.model.state import State, StateSeries
+from ml_tools.model.state import StateSeries
 from ml_tools.model.prediction_strategy import PredictionStrategy
 from ml_tools.model.feature_processor import FeatureProcessor
 
@@ -27,14 +29,22 @@ LayerType  = Literal['Dense', 'PassThrough', 'LSTM', 'LayerSequence', 'CompoundL
 Activation = Literal['elu', 'exponential', 'gelu', 'hard_sigmoid', 'linear', 'mish',
                      'relu', 'selu', 'sigmoid', 'softmax', 'softplus', 'softsign', 'swish', 'tanh']
 
+# Pylint mistakenly interpretting layer_group["activation_function"][()] as an HDF5 Group
+# and subsequently complaining that it has no "decode" member
+# pylint: disable=no-member
 
 class Layer(ABC):
-    """ Abstract class for neural network layers
+    """ Abstract class for neural network layers. Not meant to be instantiated directly.
 
-    Attributes
+    Parameters
     ----------
     dropout_rate : float, optional
         Dropout rate for the layer. Default is 0.0 (no dropout).
+
+    Attributes
+    ----------
+    dropout_rate : float
+        Dropout rate for the layer.
     """
 
     @property
@@ -50,14 +60,38 @@ class Layer(ABC):
     def __init__(self, dropout_rate: float = 0.0) -> None:
         self.dropout_rate = dropout_rate
 
-
     @abstractmethod
-    def __eq__(self, other: Any) -> bool:
-        pass
+    def __eq__(self, other: Layer) -> bool:
+        """ Compare two layers for equality
+
+        Parameters
+        ----------
+        other: Layer
+            The other Layer to compare against
+
+        Returns
+        -------
+        bool
+            True if self and other are equal within the tolerance.  False otherwise
+
+        Notes
+        -----
+        The relative tolerance is 1e-9 for float comparisons
+        """
 
     @abstractmethod
     def __hash__(self) -> int:
-        pass
+        """ Generate a hash key for the layer
+
+        Returns
+        -------
+        int
+            The hash key corresponding to this layer
+
+        Notes
+        -----
+        Hash generation is consistent with the 1e-9 float comparison equality relative tolerance
+        """
 
     @abstractmethod
     def build(self, input_tensor: KerasTensor) -> KerasTensor:
@@ -68,7 +102,6 @@ class Layer(ABC):
         input_tensor : KerasTensor
             The input tensor for the layer
         """
-        pass
 
     @abstractmethod
     def save(self, group: h5py.Group) -> None:
@@ -79,7 +112,6 @@ class Layer(ABC):
         group : h5py.Group
             The h5py group to save the layer to
         """
-        pass
 
     @classmethod
     @abstractmethod
@@ -96,7 +128,6 @@ class Layer(ABC):
         Layer
             The layer constructed from the HDF5 group
         """
-        pass
 
 
 
@@ -107,6 +138,11 @@ class LayerSequence(Layer):
     this will be dictated by the final layer's dropout rate specification.
     If a dropout rate is provided, it will be ignored in favor of the final
     layer's dropout rate
+
+    Parameters
+    ----------
+    layers : List[Layer]
+        The list of layers that comprise the sequence
 
     Attributes
     ----------
@@ -128,11 +164,11 @@ class LayerSequence(Layer):
         self.layers = layers
 
     def __eq__(self, other: Any) -> bool:
-        if self is other:                                                                       return True
-        if not isinstance(other, LayerSequence):                                                return False
-        if not(len(self.layers) == len(other.layers)):                                          return False
-        if not(all(s_layer == o_layer for s_layer, o_layer in zip(self.layers, other.layers))): return False
-        return True
+        return (self is other or
+                 (isinstance(other, LayerSequence) and
+                  len(self.layers) == len(other.layers) and
+                  all(s_layer == o_layer for s_layer, o_layer in zip(self.layers, other.layers)))
+               )
 
     def __hash__(self) -> int:
         return hash(tuple(self.layers))
@@ -157,14 +193,22 @@ class LayerSequence(Layer):
         for layer_name in layer_names:
             layer_group = group[layer_name]
             layer_type: LayerType = layer_group['type'][()].decode('utf-8')
-            if   layer_type == 'Dense':         layers.append(Dense.from_h5(layer_group))
-            elif layer_type == 'LSTM':          layers.append(LSTM.from_h5(layer_group))
-            elif layer_type == 'Transformer':   layers.append(Transformer.from_h5(layer_group))
-            elif layer_type == 'Conv2D':        layers.append(Conv2D.from_h5(layer_group))
-            elif layer_type == 'MaxPool2D':     layers.append(MaxPool2D.from_h5(layer_group))
-            elif layer_type == 'PassThrough':   layers.append(PassThrough.from_h5(layer_group))
-            elif layer_type == 'LayerSequence': layers.append(LayerSequence.from_h5(layer_group))
-            elif layer_type == 'CompoundLayer': layers.append(CompoundLayer.from_h5(layer_group))
+            if   layer_type == 'Dense':
+                layers.append(Dense.from_h5(layer_group))
+            elif layer_type == 'LSTM':
+                layers.append(LSTM.from_h5(layer_group))
+            elif layer_type == 'Transformer':
+                layers.append(Transformer.from_h5(layer_group))
+            elif layer_type == 'Conv2D':
+                layers.append(Conv2D.from_h5(layer_group))
+            elif layer_type == 'MaxPool2D':
+                layers.append(MaxPool2D.from_h5(layer_group))
+            elif layer_type == 'PassThrough':
+                layers.append(PassThrough.from_h5(layer_group))
+            elif layer_type == 'LayerSequence':
+                layers.append(LayerSequence.from_h5(layer_group))
+            elif layer_type == 'CompoundLayer':
+                layers.append(CompoundLayer.from_h5(layer_group))
         return cls(layers=layers)
 
 
@@ -180,6 +224,17 @@ class CompoundLayer(Layer):
 
     Also, input features need not be "exclusive" to a given layer, but rather may be used by multiple
     constituent layers.
+
+    Parameters
+    ----------
+    layers : List[Layer]
+        The list of constituent layers that will be executed in parallel
+    input_specifications : List[Union[slice, List[int]]]
+        The input indices each layer should use to pull from the incoming input.
+        This may be provided either as a list or a slice.  If a slice is provided
+        the end index must be explicitly stated and cannot be a negative value.
+    dropout_rate : float, optional
+        Dropout rate for the layer. Default is 0.0 (no dropout).
 
     Attributes
     ----------
@@ -197,11 +252,22 @@ class CompoundLayer(Layer):
     def input_specifications(self) -> List[List[int]]:
         return self._input_specifications
 
-    def __init__(self, layers: List[Layer], input_specifications: List[Union[slice, List[int]]], dropout_rate: float = 0.0) -> None:
+    def __init__(self,
+                 layers:               List[Layer],
+                 input_specifications: List[Union[slice, List[int]]],
+                 dropout_rate:         float = 0.0) -> None:
+
         super().__init__(dropout_rate)
+
         assert len(layers) > 0, f"len(layers) = {len(layers)}"
-        assert len(layers) == len(input_specifications), f"len(layers) = {len(layers)}, len(input_specifications) = {len(input_specifications)}"
-        assert all(not(spec.stop is None) for spec in input_specifications if isinstance(spec, slice)), f"Input layer length is not known until at build"
+        assert len(layers) == len(input_specifications), \
+            f"len(layers) = {len(layers)}, len(input_specifications) = {len(input_specifications)}"
+
+         # Input layer length is not known until at build
+        assert all(not(spec.stop is None) and spec.stop >= 0
+                   for spec in input_specifications if isinstance(spec, slice)), \
+                "Input specification slices must have explicit non-negative ending indeces"
+
         self._layers = layers
 
         self._input_specifications = []
@@ -215,30 +281,34 @@ class CompoundLayer(Layer):
                 self._input_specifications.append(specification)
 
     def __eq__(self, other: Any) -> bool:
-        if self is other:                                                                       return True
-        if not isinstance(other, CompoundLayer):                                                return False
-        if not(isclose(self.dropout_rate, other.dropout_rate)):                                 return False
-        if not(len(self.layers) == len(other.layers)):                                          return False
-        if not(all(s_layer == o_layer for s_layer, o_layer in zip(self.layers, other.layers))): return False
-        return True
+        return (self is other or
+                 (isinstance(other, CompoundLayer) and
+                  isclose(self.dropout_rate, other.dropout_rate, rel_tol=1e-9) and
+                  len(self.layers) == len(other.layers) and
+                  all(s_layer == o_layer for s_layer, o_layer in zip(self.layers, other.layers)))
+               )
 
     def __hash__(self) -> int:
-        return hash((tuple(self.layers),
-                     tuple([tuple(specification) for specification in self.input_specifications]),
-                     self.dropout_rate))
+        return hash(tuple(self.layers),
+                     tuple(tuple(specification) for specification in self.input_specifications),
+                     Decimal(self.dropout_rate).quantize(Decimal('1e-9')))
 
     def build(self, input_tensor: KerasTensor) -> KerasTensor:
         @register_keras_serializable()
         def gather_indices(x, indices):
             return tf.gather(x, indices, axis=-1)
 
-        assert all(index < input_tensor.shape[2] for spec in self.input_specifications for index in spec)
-        split_inputs = [tensorflow.keras.layers.TimeDistributed(tensorflow.keras.layers.Lambda(gather_indices, arguments={'indices': indices}))(input_tensor) for indices in self.input_specifications]
+        assert all(index < input_tensor.shape[2] for spec in self.input_specifications for index in spec), \
+            "input specification index greater than input feature vector length"
+        split_inputs = [tensorflow.keras.layers.TimeDistributed(
+                        tensorflow.keras.layers.Lambda(gather_indices, arguments={'indices': indices}))(input_tensor)
+                        for indices in self.input_specifications]
 
         outputs = [layer.build(split) for layer, split in zip(self._layers, split_inputs)]
 
         x = tensorflow.keras.layers.Concatenate(axis=-1)(outputs)
-        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x) if self.dropout_rate > 0. else x
+        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x) \
+            if self.dropout_rate > 0. else x
 
         return x
 
@@ -262,14 +332,22 @@ class CompoundLayer(Layer):
         for layer_name in layer_names:
             layer_group = group[layer_name]
             layer_type: LayerType = layer_group['type'][()].decode('utf-8')
-            if   layer_type == 'Dense':         layers.append(Dense.from_h5(layer_group))
-            elif layer_type == 'LSTM':          layers.append(LSTM.from_h5(layer_group))
-            elif layer_type == 'Transformer':   layers.append(Transformer.from_h5(layer_group))
-            elif layer_type == 'Conv2D':        layers.append(Conv2D.from_h5(layer_group))
-            elif layer_type == 'MaxPool2D':     layers.append(MaxPool2D.from_h5(layer_group))
-            elif layer_type == 'PassThrough':   layers.append(PassThrough.from_h5(layer_group))
-            elif layer_type == 'LayerSequence': layers.append(LayerSequence.from_h5(layer_group))
-            elif layer_type == 'CompoundLayer': layers.append(CompoundLayer.from_h5(layer_group))
+            if   layer_type == 'Dense':
+                layers.append(Dense.from_h5(layer_group))
+            elif layer_type == 'LSTM':
+                layers.append(LSTM.from_h5(layer_group))
+            elif layer_type == 'Transformer':
+                layers.append(Transformer.from_h5(layer_group))
+            elif layer_type == 'Conv2D':
+                layers.append(Conv2D.from_h5(layer_group))
+            elif layer_type == 'MaxPool2D':
+                layers.append(MaxPool2D.from_h5(layer_group))
+            elif layer_type == 'PassThrough':
+                layers.append(PassThrough.from_h5(layer_group))
+            elif layer_type == 'LayerSequence':
+                layers.append(LayerSequence.from_h5(layer_group))
+            elif layer_type == 'CompoundLayer':
+                layers.append(CompoundLayer.from_h5(layer_group))
         dropout_rate = group.attrs.get('dropout_rate', 0.0)
         return cls(layers=layers, input_specifications=input_specifications, dropout_rate=dropout_rate)
 
@@ -277,25 +355,28 @@ class CompoundLayer(Layer):
 class PassThrough(Layer):
     """ An layer for passing through input features
 
+    Parameters
+    ----------
+    dropout_rate : float, optional
+        Dropout rate for the layer. Default is 0.0 (no dropout).
+
     This layer type is useful when constructing composite layers that require passing some features
     straight through to the next layer while other features pass through an actual processing layer.
     """
 
-    def __init__(self, dropout_rate: float = 0.):
-        super().__init__(dropout_rate)
-
     def __eq__(self, other: Any) -> bool:
-        if self is other:                                       return True
-        if not isinstance(other, PassThrough):                  return False
-        if not(isclose(self.dropout_rate, other.dropout_rate)): return False
-        return True
+        return (self is other or
+                 (isinstance(other, PassThrough) and
+                  isclose(self.dropout_rate, other.dropout_rate, rel_tol=1e-9))
+               )
 
     def __hash__(self) -> int:
-        return hash(tuple(sorted(self.__dict__.items())))
+        return hash(Decimal(self.dropout_rate).quantize(Decimal('1e-9')))
 
     def build(self, input_tensor: KerasTensor) -> KerasTensor:
         x = input_tensor
-        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x) if self.dropout_rate > 0. else x
+        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x) \
+            if self.dropout_rate > 0. else x
         return x
 
     def save(self, group: h5py.Group) -> None:
@@ -309,6 +390,15 @@ class PassThrough(Layer):
 
 class Dense(Layer):
     """ A Dense Neural Network Layer
+
+    Parameters
+    ----------
+    units : int
+        Number of nodes (i.e. neurons) to use in the dense layer
+    activation : str
+        Activation function to use
+    dropout_rate : float, optional
+        Dropout rate for the layer. Default is 0.0 (no dropout).
 
     Attributes
     ----------
@@ -341,20 +431,24 @@ class Dense(Layer):
         self.units      = units
         self.activation = activation
 
-    def __eq__(self, other: Any) -> bool:
-        if self is other:                                       return True
-        if not isinstance(other, Dense):                        return False
-        if not(self.units == other.units):                      return False
-        if not(self.activation == other.activation):            return False
-        if not(isclose(self.dropout_rate, other.dropout_rate)): return False
-        return True
+    def __eq__(self, other: Layer) -> bool:
+        return (self is other or
+                (isinstance(other, Dense) and
+                 self.units == other.units and
+                 self.activation == other.activation and
+                 isclose(self.dropout_rate, other.dropout_rate, rel_tol=1e-9))
+               )
 
     def __hash__(self) -> int:
-        return hash(tuple(sorted(self.__dict__.items())))
+        return hash(tuple(self.units,
+                          self.activation,
+                          Decimal(self.dropout_rate).quantize(Decimal('1e-9')))
+                   )
 
     def build(self, input_tensor: KerasTensor) -> KerasTensor:
         x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(units=self.units, activation=self.activation))(input_tensor)
-        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x) if self.dropout_rate > 0. else x
+        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x) \
+            if self.dropout_rate > 0. else x
         return x
 
     def save(self, group: h5py.Group) -> None:
@@ -371,6 +465,19 @@ class Dense(Layer):
 
 class LSTM(Layer):
     """ A Long Short-Term Memory (LSTM) neural network layer
+
+    Parameters
+    ----------
+    units : int
+        Dimensionality of the output space
+    activation : Activation
+        Activation function to use
+    recurrent_activation : Activation
+        Activation function to use for the recurrent step
+    recurrent_dropout : float
+        Fraction of the units to drop for the linear transformation of the recurrent state
+    dropout_rate : float, optional
+        Dropout rate for the layer. Default is 0.0 (no dropout).
 
     Attributes
     ----------
@@ -419,7 +526,12 @@ class LSTM(Layer):
         self._recurrent_dropout_rate = dropout_rate
 
 
-    def __init__(self, units: int, activation: Activation, dropout_rate: float = 0., recurrent_activation: Activation = 'sigmoid', recurrent_dropout_rate: float = 0.):
+    def __init__(self,
+                 units:                  int,
+                 activation:             Activation,
+                 dropout_rate:           float = 0.,
+                 recurrent_activation:   Activation = 'sigmoid',
+                 recurrent_dropout_rate: float = 0.):
         super().__init__(dropout_rate)
         self.units                  = units
         self.activation             = activation
@@ -427,24 +539,31 @@ class LSTM(Layer):
         self.recurrent_dropout_rate = recurrent_dropout_rate
 
     def __eq__(self, other: Any) -> bool:
-        if self is other:                                                           return True
-        if not isinstance(other, LSTM):                                             return False
-        if not(self.units == other.units):                                          return False
-        if not(self.activation == other.activation):                                return False
-        if not(self.recurrent_activation == other.recurrent_activation):            return False
-        if not(isclose(self.recurrent_dropout_rate, other.recurrent_dropout_rate)): return False
-        if not(isclose(self.dropout_rate, other.dropout_rate)):                     return False
-        return True
+        return (self is other or
+                 (isinstance(other, LSTM) and
+                  self.units == other.units and
+                  self.activation == other.activation and
+                  self.recurrent_activation == other.recurrent_activation and
+                  isclose(self.recurrent_dropout_rate, other.recurrent_dropout_rate, rel_tol=1e-9) and
+                  isclose(self.dropout_rate, other.dropout_rate, rel_tol=1e-9))
+        )
+
 
     def __hash__(self) -> int:
-        return hash(tuple(sorted(self.__dict__.items())))
+        return hash(tuple(self.units,
+                          self.activation,
+                          self.recurrent_activation,
+                          Decimal(self.recurrent_dropout_rate).quantize(Decimal('1e-9')),
+                          Decimal(self.dropout_rate).quantize(Decimal('1e-9')))
+                   )
 
     def build(self, input_tensor: KerasTensor) -> KerasTensor:
         x = tf.keras.layers.LSTM(units                = self.units,
                                  activation           = self.activation,
                                  recurrent_activation = self.recurrent_activation,
                                  recurrent_dropout    = self.recurrent_dropout_rate)(input_tensor)
-        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x) if self.dropout_rate > 0. else x
+        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x) \
+            if self.dropout_rate > 0. else x
         return x
 
     def save(self, group: h5py.Group) -> None:
@@ -466,6 +585,24 @@ class LSTM(Layer):
 
 class Conv2D(Layer):
     """ A 2D Convolutional Neural Network (CNN) layer
+
+    Parameters
+    ----------
+    input_shape : Tuple[int, int]
+        The height and width of the input data before convolution (i.e. its 2D shape)
+    activation : Activation
+        Activation function to use
+    filters : int
+        Number of convolution filters
+    kernel_size : Tuple[int, int]
+        Size of the convolution kernel
+    strides : Tuple[int, int]
+        Strides of the convolution
+    padding : bool
+        Whether or not padding should be applied to the convolution
+    dropout_rate : float, optional
+        Dropout rate for the layer. Default is 0.0 (no dropout).
+
 
     Attributes
     ----------
@@ -539,7 +676,14 @@ class Conv2D(Layer):
         self._padding = padding
 
 
-    def __init__(self, input_shape: Tuple[int, int], activation = 'relu', filters: int = 1, kernel_size : Tuple[int, int] = (1, 1), strides : Tuple[int, int] = (1, 1), padding: bool = True, dropout_rate: float = 0.):
+    def __init__(self,
+                 input_shape:  Tuple[int, int],
+                 activation:   str = 'relu',
+                 filters:      int = 1,
+                 kernel_size:  Tuple[int, int] = (1, 1),
+                 strides:      Tuple[int, int] = (1, 1),
+                 padding:      bool = True,
+                 dropout_rate: float = 0.):
         super().__init__(dropout_rate)
         self.input_shape  = input_shape
         self.activation   = activation
@@ -549,23 +693,30 @@ class Conv2D(Layer):
         self.padding      = padding
 
     def __eq__(self, other: Any) -> bool:
-        if self is other:                                       return True
-        if not isinstance(other, Conv2D):                       return False
-        if not(self.input_shape == other.input_shape):          return False
-        if not(self.activation == other.activation):            return False
-        if not(self.filters == other.filters):                  return False
-        if not(self.kernel_size == other.kernel_size):          return False
-        if not(self.strides == other.strides):                  return False
-        if not(self.padding == other.padding):                  return False
-        if not(isclose(self.dropout_rate, other.dropout_rate)): return False
-        return True
+        return (self is other or
+                 (isinstance(other, Conv2D) and
+                  self.input_shape == other.input_shape and
+                  self.activation == other.activation and
+                  self.filters == other.filters and
+                  self.kernel_size == other.kernel_size and
+                  self.strides == other.strides and
+                  self.padding == other.padding and
+                  isclose(self.dropout_rate, other.dropout_rate, rel_tol=1e-9))
+        )
 
     def __hash__(self) -> int:
-        return hash(tuple(sorted(self.__dict__.items())))
-
+        return hash(tuple(self.input_shape,
+                          self.activation,
+                          self.filters,
+                          self.kernel_size,
+                          self.strides,
+                          self.padding,
+                          Decimal(self.dropout_rate).quantize(Decimal('1e-9')))
+                   )
 
     def build(self, input_tensor: KerasTensor) -> KerasTensor:
-        assert input_tensor.shape[-1] % (self.input_shape[0] * self.input_shape[1]) == 0, "Input tensor shape is not divisible by the expected input 2D shape"
+        assert input_tensor.shape[-1] % (self.input_shape[0] * self.input_shape[1]) == 0, \
+            "Input tensor shape is not divisible by the expected input 2D shape"
 
         number_of_channels = input_tensor.shape[-1] // (self.input_shape[0] * self.input_shape[1])
         input_shape = (-1, self.input_shape[0], self.input_shape[1], number_of_channels)
@@ -577,7 +728,8 @@ class Conv2D(Layer):
                                                                    padding     = 'same' if self.padding else 'valid',
                                                                    activation  = self.activation))(x)
         x = tf.keras.layers.TimeDistributed(tf.keras.layers.Flatten())(x)
-        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x) if self.dropout_rate > 0. else x
+        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x) \
+            if self.dropout_rate > 0. else x
         return x
 
     def save(self, group: h5py.Group) -> None:
@@ -603,6 +755,20 @@ class Conv2D(Layer):
 
 class MaxPool2D(Layer):
     """ A 2D Max Pool layer
+
+    Parameters
+    ----------
+    input_shape : Tuple[int, int]
+        The height and width of the input data before convolution (i.e. its 2D shape)
+    pool_size : Tuple[int, int]
+        Size of the pooling window
+    strides : Tuple[int, int]
+        Strides of the convolution
+    padding : bool
+        Whether or not padding should be applied to the convolution
+    dropout_rate : float, optional
+        Dropout rate for the layer. Default is 0.0 (no dropout).
+
 
     Attributes
     ----------
@@ -655,7 +821,12 @@ class MaxPool2D(Layer):
         self._padding = padding
 
 
-    def __init__(self, input_shape: Tuple[int, int], pool_size : Tuple[int, int] = (1, 1), strides : Tuple[int, int] = (1, 1), padding: bool = True, dropout_rate: float = 0.):
+    def __init__(self,
+                 input_shape:  Tuple[int, int],
+                 pool_size:    Tuple[int, int] = (1, 1),
+                 strides:      Tuple[int, int] = (1, 1),
+                 padding:      bool = True,
+                 dropout_rate: float = 0.):
         super().__init__(dropout_rate)
         self.input_shape = input_shape
         self.pool_size   = pool_size
@@ -663,21 +834,26 @@ class MaxPool2D(Layer):
         self.padding     = padding
 
     def __eq__(self, other: Any) -> bool:
-        if self is other:                                       return True
-        if not isinstance(other, MaxPool2D):                    return False
-        if not(self.input_shape == other.input_shape):          return False
-        if not(self.pool_size == other.pool_size):              return False
-        if not(self.strides == other.strides):                  return False
-        if not(self.padding == other.padding):                  return False
-        if not(isclose(self.dropout_rate, other.dropout_rate)): return False
-        return True
+        return (self is other or
+                 (isinstance(other, MaxPool2D) and
+                  self.input_shape == other.input_shape and
+                  self.pool_size == other.pool_size and
+                  self.strides == other.strides and
+                  self.padding == other.padding and
+                  isclose(self.dropout_rate, other.dropout_rate, rel_tol=1e-9))
+        )
 
     def __hash__(self) -> int:
-        return hash(tuple(sorted(self.__dict__.items())))
-
+        return hash(tuple(self.input_shape,
+                          self.pool_size,
+                          self.strides,
+                          self.padding,
+                          Decimal(self.dropout_rate).quantize(Decimal('1e-9')))
+                   )
 
     def build(self, input_tensor: KerasTensor) -> KerasTensor:
-        assert input_tensor.shape[-1] % (self.input_shape[0] * self.input_shape[1]) == 0, "Input tensor shape is not divisible by the expected input 2D shape"
+        assert input_tensor.shape[-1] % (self.input_shape[0] * self.input_shape[1]) == 0, \
+            "Input tensor shape is not divisible by the expected input 2D shape"
 
         number_of_channels = input_tensor.shape[-1] // (self.input_shape[0] * self.input_shape[1])
         input_shape = (-1, self.input_shape[0], self.input_shape[1], number_of_channels)
@@ -687,7 +863,8 @@ class MaxPool2D(Layer):
                                                                          strides     = self.strides,
                                                                          padding     = 'same' if self.padding else 'valid'))(x)
         x = tf.keras.layers.TimeDistributed(tf.keras.layers.Flatten())(x)
-        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x) if self.dropout_rate > 0. else x
+        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x) \
+            if self.dropout_rate > 0. else x
         return x
 
     def save(self, group: h5py.Group) -> None:
@@ -708,6 +885,19 @@ class MaxPool2D(Layer):
 
 class Transformer(Layer):
     """ A transformer layer
+
+    Parameters
+    ----------
+    num_heads : int
+        The number of attention heads
+    model_dim : int
+        The model dimensionality
+    ff_dim : int
+        The feed-forward network dimensionality
+    activation : Activation
+        Activation function to use for the Feed Forward Network of the Transformer
+    dropout_rate : float, optional
+        Dropout rate for the layer. Default is 0.0 (no dropout).
 
     Attributes
     ----------
@@ -764,22 +954,27 @@ class Transformer(Layer):
         self.activation = activation
 
     def __eq__(self, other: Any) -> bool:
-        if self is other:                                       return True
-        if not isinstance(other, Transformer):                  return False
-        if not(self.num_heads  == other.num_heads):             return False
-        if not(self.model_dim  == other.model_dim):             return False
-        if not(self.ff_dim     == other.ff_dim):                return False
-        if not(self.activation == other.activation):            return False
-        if not(isclose(self.dropout_rate, other.dropout_rate)): return False
-        return True
+        return (self is other or
+                 (isinstance(other, Transformer) and
+                  self.num_heads  == other.num_heads and
+                  self.model_dim  == other.model_dim and
+                  self.ff_dim     == other.ff_dim and
+                  self.activation == other.activation and
+                  isclose(self.dropout_rate, other.dropout_rate, rel_tol=1e-9))
+        )
 
     def __hash__(self) -> int:
-        return hash(tuple(sorted(self.__dict__.items())))
-
+        return hash(tuple(self.num_heads,
+                          self.model_dim,
+                          self.ff_dim,
+                          self.activation,
+                          Decimal(self.dropout_rate).quantize(Decimal('1e-9')))
+                   )
 
     def build(self, input_tensor: KerasTensor) -> KerasTensor:
         # Project input_tensor to model dimensions if they are not the same
-        input_tensor = tf.keras.layers.Dense(self.model_dim)(input_tensor) if input_tensor.shape[-1] != self.model_dim else input_tensor
+        input_tensor = tf.keras.layers.Dense(self.model_dim)(input_tensor) \
+                       if input_tensor.shape[-1] != self.model_dim else input_tensor
 
         attention = tf.keras.layers.MultiHeadAttention(num_heads = self.num_heads,
                                                        key_dim   = self.model_dim)(input_tensor, input_tensor)
@@ -790,7 +985,8 @@ class Transformer(Layer):
         feedfoward = tf.keras.layers.Dense(self.model_dim)(feedfoward)
         feedfoward = tf.keras.layers.Dropout(rate=self.dropout_rate)(feedfoward) if self.dropout_rate > 0. else feedfoward
         x = tf.keras.layers.LayerNormalization(epsilon=1e-6)(feedfoward + attention)
-        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x) if self.dropout_rate > 0. else x
+        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x) \
+            if self.dropout_rate > 0. else x
         return x
 
     def save(self, group: h5py.Group) -> None:
@@ -817,6 +1013,25 @@ class NNStrategy(PredictionStrategy):
     This prediction strategy is only intended for use with static State-Points, meaning
     non-temporal series, or said another way, State Series with series lengths of one.
 
+    Parameters
+    ----------
+    input_features : Dict[str, FeatureProcessor]
+        A dictionary specifying the input features of this model and their corresponding feature processing strategy
+    predicted_feature : str
+        The string specifying the feature to be predicted
+    layers : List[Layer]
+        The hidden layers of the neural network
+    initial_learning_rate : float
+        The initial learning rate of the training
+    learning_decay_rate : float
+        The decay rate of the learning using Exponential Decay
+    epoch_limit : int
+        The limit on the number of training epochs conducted during training
+    convergence_criteria : float
+        The convergence criteria for training
+    batch_size : int
+        The training batch sizes
+
     Attributes
     ----------
     layers : LayerSequence
@@ -842,6 +1057,7 @@ class NNStrategy(PredictionStrategy):
 
     @layers.setter
     def layers(self, layers: List[Layer]):
+        assert len(layers) > 0, f"len(layers) = {len(layers)}"
         self._layer_sequence = LayerSequence(layers)
 
     @property
@@ -906,7 +1122,7 @@ class NNStrategy(PredictionStrategy):
     def __init__(self,
                  input_features        : Dict[str, FeatureProcessor],
                  predicted_feature     : str,
-                 layers                : List[Layer]=[Dense(units=5, activation='relu')],
+                 layers                : List[Layer]=None,
                  initial_learning_rate : float=0.01,
                  learning_decay_rate   : float=1.,
                  epoch_limit           : int=400,
@@ -917,7 +1133,7 @@ class NNStrategy(PredictionStrategy):
         super().__init__()
         self.input_features         = input_features
         self.predicted_feature      = predicted_feature
-        self.layers                 = layers
+        self.layers                 = [Dense(units=5, activation='relu')] if layers is None else layers
         self.initial_learning_rate  = initial_learning_rate
         self.learning_decay_rate    = learning_decay_rate
         self.epoch_limit            = epoch_limit
@@ -928,8 +1144,8 @@ class NNStrategy(PredictionStrategy):
         self._model = None
 
 
-    def train(self, train_data: List[StateSeries], test_data: List[StateSeries] = [], num_procs: int = 1) -> None:
-        assert len(test_data) == 0, f"The Neural Network Prediction Strategy does not use test data"
+    def train(self, train_data: List[StateSeries], test_data: Optional[List[StateSeries]] = None, num_procs: int = 1) -> None:
+        assert test_data is None, "The Neural Network Prediction Strategy does not use test data"
         assert all(len(series) == len(train_data[0]) for series in train_data)
 
         X = self.preprocess_inputs(train_data, num_procs)
@@ -942,21 +1158,30 @@ class NNStrategy(PredictionStrategy):
 
         self._model = tf.keras.Model(inputs=input_tensor, outputs=output)
 
-        learning_rate_schedule = ExponentialDecay(self.initial_learning_rate, decay_steps=self.epoch_limit, decay_rate=self.learning_decay_rate, staircase=True)
-        self._model.compile(optimizer=Adam(learning_rate=learning_rate_schedule), loss=MeanSquaredError(), metrics=[MeanAbsoluteError()])
+        learning_rate_schedule = ExponentialDecay(initial_learning_rate = self.initial_learning_rate,
+                                                  decay_steps           = self.epoch_limit,
+                                                  decay_rate            = self.learning_decay_rate, staircase=True)
 
-        early_stop = EarlyStopping(monitor='mean_absolute_error', min_delta=self.convergence_criteria, patience=self.convergence_patience, verbose=1, mode='auto', restore_best_weights=True)
+        self._model.compile(optimizer=Adam(learning_rate = learning_rate_schedule),
+                                           loss          = MeanSquaredError(),
+                                           metrics       = [MeanAbsoluteError()])
+
+        early_stop = EarlyStopping(monitor              =  'mean_absolute_error',
+                                   min_delta            = self.convergence_criteria,
+                                   patience             = self.convergence_patience,
+                                   verbose              = 1,
+                                   mode                 = 'auto',
+                                   restore_best_weights = True)
         dataset    = tf.data.Dataset.from_tensor_slices((X, y))
         dataset    = dataset.batch(self.batch_size, drop_remainder=True)
         self._model.fit(dataset, epochs=self.epoch_limit, batch_size=self.batch_size, callbacks=[early_stop])
-
 
     def _predict_one(self, state_series: StateSeries) -> np.ndarray:
         return self._predict_all([state_series])[0]
 
 
     def _predict_all(self, state_series: List[StateSeries]) -> np.ndarray:
-        assert(self.isTrained)
+        assert self.isTrained
 
         X = self.preprocess_inputs(state_series)
         tf.convert_to_tensor(X, dtype=tf.float32)
