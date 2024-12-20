@@ -5,7 +5,7 @@ from numpy.testing import assert_allclose
 import numpy as np
 
 from ml_tools.model.state import State
-from ml_tools.model.nn_strategy import NNStrategy
+from ml_tools.model.nn_strategy import NNStrategy, Dense, LayerSequence, CompoundLayer
 from ml_tools.model.gbm_strategy import GBMStrategy
 from ml_tools.model.pod_strategy import PODStrategy
 from ml_tools.model.feature_processor import MinMaxNormalize, NoProcessing
@@ -32,7 +32,7 @@ for cm_min, cm_max in coarse_mesh:
         dx = fine_mesh[i+1] - fine_mesh[i]
         if fine_mesh[i] >= cm_min and fine_mesh[i + 1] <= cm_max:
             row[i] = dx
-    assert(np.sum(row) > 0.0)
+    assert np.sum(row) > 0.0
     row /= (cm_max - cm_min)
     fine_to_coarse_map.append(row)
 
@@ -49,40 +49,12 @@ def test_preprocess_inputs():
     assert_allclose(actual_values, expected_values)
 
 
-def test_nn_strategy():
-
-    cips_calculator = NNStrategy(input_features, output_feature)
-
-    cips_calculator.epoch_limit = 400
-    cips_calculator.convergence_criteria = 1E-14
-    cips_calculator.train([[state]]*5)
-
-    assert_allclose(state["cips_index"], cips_calculator.predict([[state]])[0], atol=1E-5)
-
-    cips_calculator.save_model('test_nn_model.h5')
-
-    new_cips_calculator = NNStrategy.read_from_hdf5('test_nn_model.h5')
-
-    assert all(old_layer == new_layer for old_layer, new_layer in zip(cips_calculator.layers, new_cips_calculator.layers))
-    assert cips_calculator.input_features.keys() == new_cips_calculator.input_features.keys()
-    assert all(new_cips_calculator.input_features[feature] == cips_calculator.input_features[feature] for feature in cips_calculator.input_features.keys())
-    assert new_cips_calculator.epoch_limit == cips_calculator.epoch_limit
-    assert new_cips_calculator.batch_size  == cips_calculator.batch_size
-    assert_allclose(new_cips_calculator.initial_learning_rate, cips_calculator.initial_learning_rate)
-    assert_allclose(new_cips_calculator.learning_decay_rate,   cips_calculator.learning_decay_rate)
-    assert_allclose(new_cips_calculator.convergence_criteria,  cips_calculator.convergence_criteria)
-
-    assert_allclose(state["cips_index"], new_cips_calculator.predict([[state]])[0], atol=1E-5)
-
-    os.remove('test_nn_model.h5')
-
-
 def test_gbm_strategy():
 
     cips_calculator = GBMStrategy(input_features, output_feature)
     cips_calculator.train([[state]]*5, [[state]]*5)
 
-    assert_allclose(state["cips_index"], cips_calculator.predict([[state]])[0], atol=1E-5)
+    assert_allclose(state["cips_index"][0], cips_calculator.predict([[state]])[0], atol=1E-5)
 
     cips_calculator.save_model('test_gbm_model.h5')
 
@@ -104,7 +76,7 @@ def test_gbm_strategy():
     assert_allclose(new_cips_calculator.reg_alpha,        cips_calculator.reg_alpha)
     assert_allclose(new_cips_calculator.reg_lambda,       cips_calculator.reg_lambda)
 
-    assert_allclose(state["cips_index"], new_cips_calculator.predict([[state]])[0], atol=1E-5)
+    assert_allclose(state["cips_index"][0], new_cips_calculator.predict([[state]])[0], atol=1E-5)
 
     os.remove('test_gbm_model.h5')
     os.remove('test_gbm_model.lgbm')
@@ -116,3 +88,51 @@ def test_pod_strategy():
     cips_calculator.train([[state]]*100)
 
     assert np.allclose(state["fine_detector"], cips_calculator.predict([[state]])[0])
+
+
+
+def test_nn_strategy_Dense():
+
+    cips_calculator = NNStrategy(input_features, output_feature)
+    cips_calculator.train([[state]]*1000)
+    assert_allclose(state["cips_index"][0], cips_calculator.predict([[state]])[0], atol=1E-5)
+
+    cips_calculator.save_model('test_nn_model.h5')
+    new_cips_calculator = NNStrategy.read_from_hdf5('test_nn_model.h5')
+    assert all(old_layer == new_layer for old_layer, new_layer in zip(cips_calculator.layers, new_cips_calculator.layers))
+    assert cips_calculator.input_features.keys() == new_cips_calculator.input_features.keys()
+    assert all(new_cips_calculator.input_features[feature] == cips_calculator.input_features[feature] for feature in cips_calculator.input_features.keys())
+    assert new_cips_calculator.epoch_limit == cips_calculator.epoch_limit
+    assert new_cips_calculator.batch_size  == cips_calculator.batch_size
+    assert_allclose(new_cips_calculator.initial_learning_rate, cips_calculator.initial_learning_rate)
+    assert_allclose(new_cips_calculator.learning_decay_rate,   cips_calculator.learning_decay_rate)
+    assert_allclose(new_cips_calculator.convergence_criteria,  cips_calculator.convergence_criteria)
+    assert_allclose(state["cips_index"][0], new_cips_calculator.predict([[state]])[0], atol=1E-5)
+
+
+def test_nn_strategy_LayerSequence():
+
+    layers          = [Dense(units=10, activation='relu'), LayerSequence(layers=[Dense(units=5, activation='relu'), Dense(units=10, activation='relu')])]
+    cips_calculator = NNStrategy(input_features, output_feature, layers)
+    cips_calculator.train([[state]]*1000)
+    assert_allclose(state["cips_index"][0], cips_calculator.predict([[state]])[0], atol=1E-5)
+
+    cips_calculator.save_model('test_nn_model.h5')
+    new_cips_calculator = NNStrategy.read_from_hdf5('test_nn_model.h5')
+    assert all(old_layer == new_layer for old_layer, new_layer in zip(cips_calculator.layers, new_cips_calculator.layers))
+    assert_allclose(state["cips_index"][0], new_cips_calculator.predict([[state]])[0], atol=1E-5)
+
+
+def test_nn_strategy_CompoundLayer():
+
+    layers          = [CompoundLayer(layers=[Dense(units=5, activation='relu'), Dense(units=10, activation='relu')], input_specifications=[slice(0, 9), slice(9, 19)])]
+    cips_calculator = NNStrategy(input_features, output_feature, layers)
+    cips_calculator.train([[state]]*1000)
+    assert_allclose(state["cips_index"][0], cips_calculator.predict([[state]])[0], atol=1E-5)
+
+    cips_calculator.save_model('test_nn_model.h5')
+    new_cips_calculator = NNStrategy.read_from_hdf5('test_nn_model.h5')
+    assert all(old_layer == new_layer for old_layer, new_layer in zip(cips_calculator.layers, new_cips_calculator.layers))
+    assert_allclose(state["cips_index"][0], new_cips_calculator.predict([[state]])[0], atol=1E-5)
+
+    os.remove('test_nn_model.h5')
