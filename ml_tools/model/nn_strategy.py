@@ -1,6 +1,6 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import List, Dict, Literal, Tuple, Optional, Union, Any
+from typing import List, Dict, Literal, Type, Tuple, Optional, Union, Any
 import os
 from math import isclose
 from decimal import Decimal
@@ -46,6 +46,22 @@ class Layer(ABC):
     dropout_rate : float
         Dropout rate for the layer.
     """
+
+    _registry: Dict[str, Type[Layer]] = {} # Registry for child classes
+
+    @classmethod
+    def register_subclass(cls, layer_type: str) -> None:
+        """ Method for registering a subclass for a specific layer type
+
+        Parameters
+        ----------
+        layer_type : str
+            The string corresponding to the layer type to be registered
+        """
+        def decorator(subclass: Type[Layer]):
+            cls._registry[layer_type] = subclass
+            return subclass
+        return decorator
 
     @property
     def dropout_rate(self) -> float:
@@ -129,8 +145,35 @@ class Layer(ABC):
             The layer constructed from the HDF5 group
         """
 
+    @staticmethod
+    def layers_from_h5(group: "h5py.Group") -> List[Layer]:
+        """ Create a list of Layers from an HDF5 group.
+
+        Parameters
+        ----------
+        group : h5py.Group
+            The HDF5 group containing layer data.
+
+        Returns
+        -------
+        List[Layer]
+            A list of Layer instances created from the HDF5 group.
+        """
+        layers = []
+        layer_names = [key for key in group.keys() if key.startswith("layer_")]
+        layer_names = sorted(layer_names, key=lambda x: int(x.split('_')[1]))
+
+        for layer_name in layer_names:
+            layer_group = group[layer_name]
+            layer_type = layer_group['type'][()].decode('utf-8')
+            if layer_type not in Layer._registry:
+                raise ValueError(f"Unknown layer type: {layer_type}")
+            layers.append(Layer._registry[layer_type].from_h5(layer_group))
+
+        return layers
 
 
+@Layer.register_subclass("LayerSequence")
 class LayerSequence(Layer):
     """ A class for a sequence of layers
 
@@ -187,31 +230,11 @@ class LayerSequence(Layer):
 
     @classmethod
     def from_h5(cls, group: h5py.Group) -> LayerSequence:
-        layers = []
-        layer_names = [key for key in group.keys() if key.startswith("layer_")]
-        layer_names = sorted(layer_names, key=lambda x: int(x.split('_')[1]))
-        for layer_name in layer_names:
-            layer_group = group[layer_name]
-            layer_type: LayerType = layer_group['type'][()].decode('utf-8')
-            if   layer_type == 'Dense':
-                layers.append(Dense.from_h5(layer_group))
-            elif layer_type == 'LSTM':
-                layers.append(LSTM.from_h5(layer_group))
-            elif layer_type == 'Transformer':
-                layers.append(Transformer.from_h5(layer_group))
-            elif layer_type == 'Conv2D':
-                layers.append(Conv2D.from_h5(layer_group))
-            elif layer_type == 'MaxPool2D':
-                layers.append(MaxPool2D.from_h5(layer_group))
-            elif layer_type == 'PassThrough':
-                layers.append(PassThrough.from_h5(layer_group))
-            elif layer_type == 'LayerSequence':
-                layers.append(LayerSequence.from_h5(layer_group))
-            elif layer_type == 'CompoundLayer':
-                layers.append(CompoundLayer.from_h5(layer_group))
+        layers = Layer.layers_from_h5(group)
         return cls(layers=layers)
 
 
+@Layer.register_subclass("CompoundLayer")
 class CompoundLayer(Layer):
     """ A class for compound / composite layers consisting layers that are executed in parallel
 
@@ -326,34 +349,14 @@ class CompoundLayer(Layer):
     @classmethod
     def from_h5(cls, group: h5py.Group) -> CompoundLayer:
         input_specifications = [list(item) for item in group['input_specifications'][:]]
-        layers = []
-        layer_names = [key for key in group.keys() if key.startswith("layer_")]
-        layer_names = sorted(layer_names, key=lambda x: int(x.split('_')[1]))
-        for layer_name in layer_names:
-            layer_group = group[layer_name]
-            layer_type: LayerType = layer_group['type'][()].decode('utf-8')
-            if   layer_type == 'Dense':
-                layers.append(Dense.from_h5(layer_group))
-            elif layer_type == 'LSTM':
-                layers.append(LSTM.from_h5(layer_group))
-            elif layer_type == 'Transformer':
-                layers.append(Transformer.from_h5(layer_group))
-            elif layer_type == 'Conv2D':
-                layers.append(Conv2D.from_h5(layer_group))
-            elif layer_type == 'MaxPool2D':
-                layers.append(MaxPool2D.from_h5(layer_group))
-            elif layer_type == 'PassThrough':
-                layers.append(PassThrough.from_h5(layer_group))
-            elif layer_type == 'LayerSequence':
-                layers.append(LayerSequence.from_h5(layer_group))
-            elif layer_type == 'CompoundLayer':
-                layers.append(CompoundLayer.from_h5(layer_group))
-        dropout_rate = group.attrs.get('dropout_rate', 0.0)
+        dropout_rate         = group.attrs.get('dropout_rate', 0.0)
+        layers               = Layer.layers_from_h5(group)
         return cls(layers=layers, input_specifications=input_specifications, dropout_rate=dropout_rate)
 
 
+@Layer.register_subclass("PassThrough")
 class PassThrough(Layer):
-    """ An layer for passing through input features
+    """ A layer for passing through input features
 
     Parameters
     ----------
@@ -388,6 +391,7 @@ class PassThrough(Layer):
         return cls(dropout_rate = float(group["dropout_rate"][()]))
 
 
+@Layer.register_subclass("Dense")
 class Dense(Layer):
     """ A Dense Neural Network Layer
 
@@ -463,6 +467,8 @@ class Dense(Layer):
                    activation   =       group["activation_function"][()].decode('utf-8'),
                    dropout_rate = float(group["dropout_rate"       ][()]))
 
+
+@Layer.register_subclass("LSTM")
 class LSTM(Layer):
     """ A Long Short-Term Memory (LSTM) neural network layer
 
@@ -583,6 +589,7 @@ class LSTM(Layer):
                    recurrent_dropout_rate = float(group["recurrent_dropout_rate"       ][()]))
 
 
+@Layer.register_subclass("Conv2D")
 class Conv2D(Layer):
     """ A 2D Convolutional Neural Network (CNN) layer
 
@@ -753,6 +760,7 @@ class Conv2D(Layer):
                    padding                =  bool(group["padding"                      ][()]))
 
 
+@Layer.register_subclass("MaxPool2D")
 class MaxPool2D(Layer):
     """ A 2D Max Pool layer
 
@@ -883,6 +891,8 @@ class MaxPool2D(Layer):
                    strides      = tuple(int(x) for x in group['strides'    ][()]),
                    padding      =  bool(group["padding"                    ][()]))
 
+
+@Layer.register_subclass("Transformer")
 class Transformer(Layer):
     """ A transformer layer
 
