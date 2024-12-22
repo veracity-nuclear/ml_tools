@@ -1,7 +1,7 @@
 import pytest
 import os
 import h5py
-from math import isclose
+from numpy.testing import assert_allclose
 import numpy as np
 from ml_tools.model.state import State
 from ml_tools.utils.h5_utils import get_groups_with_prefix
@@ -18,29 +18,29 @@ def test_state():
 
     state = states[0]
 
-    assert len(state.feature("average_enrichment"))      == 9
-    assert len(state.feature("boron_concentration"))     == 1
-    assert len(state.feature("measured_fixed_detector")) == 7
+    assert len(state["average_enrichment"])      == 9
+    assert len(state["boron_concentration"])     == 1
+    assert len(state["measured_fixed_detector"]) == 7
 
-    actual_average_enrichment      = np.nan_to_num(state.feature("average_enrichment"), nan=0.)
-    actual_boron_concentration     = state.feature("boron_concentration")
-    actual_measured_fixed_detector = state.feature("measured_fixed_detector")
+    actual_average_enrichment      = np.nan_to_num(state["average_enrichment"], nan=0.)
+    actual_boron_concentration     = state["boron_concentration"]
+    actual_measured_fixed_detector = state["measured_fixed_detector"]
 
     expected_average_enrichment      = [0., 0., 0., 0., 4.37, 4.59, 3.87, 3.95, 4.64]
     expected_boron_concentration     = [1439.72086910379]
     expected_measured_fixed_detector = [0.729616659550453, 1.08741813179624, 1.15960534546973, 1.16407884412748, 1.13889237591912, 1.05279742857571, 0.617740889411089]
 
-    assert all(isclose(actual, expected) for actual, expected in zip(actual_average_enrichment,      expected_average_enrichment))
-    assert all(isclose(actual, expected) for actual, expected in zip(actual_boron_concentration,     expected_boron_concentration))
-    assert all(isclose(actual, expected) for actual, expected in zip(actual_measured_fixed_detector, expected_measured_fixed_detector))
+    assert_allclose(actual_average_enrichment,      expected_average_enrichment)
+    assert_allclose(actual_boron_concentration,     expected_boron_concentration)
+    assert_allclose(actual_measured_fixed_detector, expected_measured_fixed_detector)
 
     perturbators = {"measured_fixed_detector": RelativeNormalPerturbator(0.5),
                     "boron_concentration":     RelativeNormalPerturbator(0.2)}
 
     perturbed_states = State.perturb_states(perturbators, states)
 
-    perturbed_boron_concentration     = perturbed_states[0].feature("boron_concentration")
-    perturbed_measured_fixed_detector = perturbed_states[0].feature("measured_fixed_detector")
+    perturbed_boron_concentration     = perturbed_states[0]["boron_concentration"]
+    perturbed_measured_fixed_detector = perturbed_states[0]["measured_fixed_detector"]
 
-    assert not(all(isclose(actual, expected) for actual, expected in zip(actual_boron_concentration,     perturbed_boron_concentration)))
-    assert not(all(isclose(actual, expected) for actual, expected in zip(actual_measured_fixed_detector, perturbed_measured_fixed_detector)))
+    assert not(np.allclose(actual_boron_concentration, perturbed_boron_concentration))
+    assert not(np.allclose(actual_measured_fixed_detector, perturbed_measured_fixed_detector))

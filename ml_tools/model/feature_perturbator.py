@@ -1,5 +1,4 @@
 from abc import ABC, abstractmethod
-from typing import List
 from copy import deepcopy
 import numpy as np
 
@@ -9,19 +8,18 @@ class FeaturePerturbator(ABC):
 
     @abstractmethod
     def perturb(self, orig_data: np.ndarray) -> np.ndarray:
-       """ a method for perturbing feature data
+        """ a method for perturbing feature data
 
-       Parameters
-       ----------
-       orig_data : np.ndarray
-           The data in its original form
+        Parameters
+        ----------
+        orig_data : np.ndarray
+            The data in its original form
 
-       Returns
-       -------
-       np.ndarray
-           The resulting perturbed data
-       """
-       pass
+        Returns
+        -------
+        np.ndarray
+            The resulting perturbed data
+        """
 
 
 class NonPerturbator(FeaturePerturbator):

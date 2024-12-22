@@ -1,10 +1,8 @@
-from __future__ import annotations
-from typing import List
+from typing import List, Union
 import os
-import h5py
-import numpy as np
 from concurrent.futures import ProcessPoolExecutor
 from functools import partial
+import h5py
 
 def get_groups_with_prefix(file_name: str, prefix: str, num_procs: int = 1) -> List[str]:
     """ Helper function for getting the groups of an HDF5 file belonging to the set with a leading prefix
@@ -35,7 +33,7 @@ def get_groups_with_prefix(file_name: str, prefix: str, num_procs: int = 1) -> L
 
     return groups
 
-def _check_group(group, prefix):
+def _check_group(group: str, prefix: str) -> Union[str, None]:
     """ Private function for get_groups_with_prefix that is required to be a separate function by ProcessPoolExecutor
     """
     return group if group.startswith(prefix) else None
