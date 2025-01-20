@@ -1195,8 +1195,7 @@ class NNStrategy(PredictionStrategy):
 
         X = self.preprocess_inputs(state_series)
         tf.convert_to_tensor(X, dtype=tf.float32)
-        y = self._model.predict(X)
-        return [[prediction for prediction in series] for series in y]
+        return [list(series) for series in self._model.predict(X)]
 
 
     def save_model(self, file_name: str) -> None:
