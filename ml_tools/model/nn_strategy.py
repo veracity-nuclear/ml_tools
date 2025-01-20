@@ -1186,17 +1186,17 @@ class NNStrategy(PredictionStrategy):
         dataset    = dataset.batch(self.batch_size, drop_remainder=True)
         self._model.fit(dataset, epochs=self.epoch_limit, batch_size=self.batch_size, callbacks=[early_stop])
 
-    def _predict_one(self, state_series: StateSeries) -> np.ndarray:
+    def _predict_one(self, state_series: StateSeries) -> List[np.ndarray]:
         return self._predict_all([state_series])[0]
 
 
-    def _predict_all(self, state_series: List[StateSeries]) -> np.ndarray:
+    def _predict_all(self, state_series: List[StateSeries]) -> List[List[np.ndarray]]:
         assert self.isTrained
 
         X = self.preprocess_inputs(state_series)
         tf.convert_to_tensor(X, dtype=tf.float32)
-        y = self._model.predict(X).flatten()
-        return y
+        y = self._model.predict(X)
+        return [[prediction for prediction in series] for series in y]
 
 
     def save_model(self, file_name: str) -> None:

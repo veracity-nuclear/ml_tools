@@ -151,11 +151,11 @@ class PODStrategy(PredictionStrategy):
             self._pod_mat[k] = np.matmul(u[:,:nvec],np.linalg.inv(theta))
 
 
-    def _predict_one(self, state_series: StateSeries) -> float:
+    def _predict_one(self, state_series: StateSeries) -> List[np.ndarray]:
         return self._predict_all([state_series])[0]
 
 
-    def _predict_all(self, state_series: List[StateSeries]) -> List[float]:
+    def _predict_all(self, state_series: List[StateSeries]) -> List[List[np.ndarray]]:
 
         assert self.isTrained
         assert not self.hasBiasingModel
@@ -169,7 +169,8 @@ class PODStrategy(PredictionStrategy):
         else:
             labels = [0]*len(state_series)
 
-        return [np.matmul(self._pod_mat[labels[i]], state_series[i][0][self.input_feature]) for i in range(len(state_series))]
+        return [[np.matmul(self._pod_mat[labels[i]], state_series[i][0][self.input_feature])]
+                 for i in range(len(state_series))]
 
 
     def save_model(self, file_name: str) -> None:
