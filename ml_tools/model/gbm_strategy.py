@@ -329,19 +329,20 @@ class GBMStrategy(PredictionStrategy):
         plt.show()
 
 
-    def _predict_one(self, state_series: StateSeries) -> float:
+    def _predict_one(self, state_series: StateSeries) -> List[np.ndarray]:
 
         return self._predict_all([state_series])[0]
 
 
-    def _predict_all(self, state_series: List[StateSeries]) -> List[float]:
+    def _predict_all(self, state_series: List[StateSeries]) -> List[List[np.ndarray]]:
 
         assert self.isTrained
         assert all(len(series) == 1 for series in state_series), \
             "All State Series must be static statepoints (i.e. len(series) == 1)"
 
         X = self.preprocess_inputs(state_series)[:,0,:]
-        return self._gbm.predict(X, num_iteration=self._gbm.best_iteration)
+        y = self._gbm.predict(X, num_iteration=self._gbm.best_iteration)
+        return [[np.asarray([result]) if isinstance(result, float) else np.asarray(result)] for result in y]
 
 
     def save_model(self, file_name: str) -> None:

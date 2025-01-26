@@ -159,7 +159,7 @@ class PredictionStrategy(ABC):
         self.input_features = input_features
 
 
-    def predict(self, state_series: List[StateSeries]) -> List[List[float]]:
+    def predict(self, state_series: List[StateSeries]) -> List[List[np.ndarray]]:
         """ The method that approximates the predicted features corresponding to a list of state series
 
         Parameters
@@ -169,7 +169,7 @@ class PredictionStrategy(ABC):
 
         Returns
         -------
-        List[List[float]]
+        List[List[np.ndarray]]
             The predicted features for each state in each series
         """
         assert self.isTrained
@@ -180,7 +180,7 @@ class PredictionStrategy(ABC):
         return y.tolist()
 
 
-    def _predict_all(self, state_series: List[StateSeries]) -> np.ndarray:
+    def _predict_all(self, state_series: List[StateSeries]) -> List[List[np.ndarray]]:
         """ The method that predicts the target values corresponding to the given state series
 
         Target value in this case refers either directly to the predicted feature if
@@ -194,7 +194,7 @@ class PredictionStrategy(ABC):
 
         Returns
         -------
-        np.ndarray
+        List[List[np.ndarray]]
             The predicted target values for each state in each series
         """
         return [self._predict_one(series) for series in state_series]
@@ -226,7 +226,7 @@ class PredictionStrategy(ABC):
 
 
     @abstractmethod
-    def _predict_one(self, state_series: StateSeries) -> np.ndarray:
+    def _predict_one(self, state_series: StateSeries) -> List[float]:
         """ The method that predicts the target values corresponding to the given state series
 
         Target value in this case refers either directly to the predicted feature if
