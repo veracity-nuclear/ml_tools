@@ -35,7 +35,7 @@ class State():
 
         Parameters
         ----------
-        name :str
+        name : str
             The name of the feature to be retrieved
 
         Returns
@@ -53,7 +53,7 @@ class State():
 
         Parameters
         ----------
-        name :str
+        name : str
             The name of the feature to be set
         data_array : Union[np.ndarray, List[float]]
             The array to assign to the state
@@ -225,7 +225,7 @@ class State():
         perturbators : Dict[str, FeaturePerturbator]
             The collection of perturbators to be applied with keys corresponding to the
             feature to be perturbed
-        state : List[State]
+        state : Union[List[State], State]
             The states to be perturbed
         silent : bool
             A flag indicating whether or not to display the progress bar to the screen

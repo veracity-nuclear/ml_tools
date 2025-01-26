@@ -59,27 +59,9 @@ class NormalPerturbator(FeaturePerturbator):
         return orig_data + np.random.normal(0.0, self.std_dev, orig_data.shape)
 
 
-class RelativeNormalPerturbator(FeaturePerturbator):
+class RelativeNormalPerturbator(NormalPerturbator):
     """ A feature perturbator that applies perturbations using random sampling from a relative normal distribution
-
-    Parameters
-    ----------
-    std_dev: float
-        The relative standard deviation of the random sampling normal distribution
     """
-
-    @property
-    def std_dev(self) -> float:
-        return self._std_dev
-
-    @std_dev.setter
-    def std_dev(self, std_dev: float) -> None:
-        assert std_dev > 0.
-        self._std_dev = std_dev
-
-
-    def __init__(self, std_dev: float):
-        self.std_dev = std_dev
 
     def perturb(self, orig_data: np.ndarray) -> np.ndarray:
         return orig_data * np.random.normal(1.0, self.std_dev, orig_data.shape)
