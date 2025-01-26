@@ -45,6 +45,8 @@ class Layer(ABC):
     ----------
     dropout_rate : float
         Dropout rate for the layer.
+    batch_normalize : bool
+    layer_normalize : bool
     """
 
     _registry: Dict[str, Type[Layer]] = {} # Registry for child classes
@@ -72,9 +74,29 @@ class Layer(ABC):
         assert 0.0 <= dropout_rate <= 1.0, f"dropout rate = {dropout_rate}"
         self._dropout_rate = dropout_rate
 
+    @property
+    def batch_normalize(self) -> bool:
+        return self._batch_normalize
 
-    def __init__(self, dropout_rate: float = 0.0) -> None:
-        self.dropout_rate = dropout_rate
+    @batch_normalize.setter
+    def batch_normalize(self, batch_normalize: bool) -> None:
+        self._batch_normalize = batch_normalize
+
+    @property
+    def layer_normalize(self) -> bool:
+        return self._layer_normalize
+
+    @layer_normalize.setter
+    def layer_normalize(self, layer_normalize: bool) -> None:
+        self._layer_normalize = layer_normalize
+
+    def __init__(self,
+                 dropout_rate:    float = 0.0,
+                 batch_normalize: bool = False,
+                 layer_normalize: bool = False) -> None:
+        self.dropout_rate    = dropout_rate
+        self.batch_normalize = batch_normalize
+        self.layer_normalize = layer_normalize
 
     @abstractmethod
     def __eq__(self, other: Layer) -> bool:
@@ -109,9 +131,26 @@ class Layer(ABC):
         Hash generation is consistent with the 1e-9 float comparison equality relative tolerance
         """
 
-    @abstractmethod
     def build(self, input_tensor: KerasTensor) -> KerasTensor:
         """ Method for constructing the layer
+
+        Parameters
+        ----------
+        input_tensor : KerasTensor
+            The input tensor for the layer
+        """
+        x = self._build(input_tensor)
+        x = tf.keras.layers.TimeDistributed(tf.keras.layers.BatchNormalization())(x) \
+            if self.batch_normalize else x
+        x = tf.keras.layers.TimeDistributed(tf.keras.layers.LayerNormalization())(x) \
+            if self.layer_normalize else x
+        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x) \
+            if self.dropout_rate > 0. else x
+        return x
+
+    @abstractmethod
+    def _build(self, input_tensor: KerasTensor) -> KerasTensor:
+        """ Method for constructing the layer without any dropout or normalization
 
         Parameters
         ----------
@@ -216,7 +255,7 @@ class LayerSequence(Layer):
     def __hash__(self) -> int:
         return hash(tuple(self.layers))
 
-    def build(self, input_tensor: KerasTensor) -> KerasTensor:
+    def _build(self, input_tensor: KerasTensor) -> KerasTensor:
         x = input_tensor
         for layer in self.layers:
             x = layer.build(x)
@@ -278,9 +317,11 @@ class CompoundLayer(Layer):
     def __init__(self,
                  layers:               List[Layer],
                  input_specifications: List[Union[slice, List[int]]],
-                 dropout_rate:         float = 0.0) -> None:
+                 dropout_rate:         float = 0.0,
+                 batch_normalize:      bool = False,
+                 layer_normalize:      bool = False) -> None:
 
-        super().__init__(dropout_rate)
+        super().__init__(dropout_rate, batch_normalize, layer_normalize)
 
         assert len(layers) > 0, f"len(layers) = {len(layers)}"
         assert len(layers) == len(input_specifications), \
@@ -316,7 +357,7 @@ class CompoundLayer(Layer):
                      tuple(tuple(specification) for specification in self.input_specifications),
                      Decimal(self.dropout_rate).quantize(Decimal('1e-9')))
 
-    def build(self, input_tensor: KerasTensor) -> KerasTensor:
+    def _build(self, input_tensor: KerasTensor) -> KerasTensor:
         @register_keras_serializable()
         def gather_indices(x, indices):
             return tf.gather(x, indices, axis=-1)
@@ -328,11 +369,7 @@ class CompoundLayer(Layer):
                         for indices in self.input_specifications]
 
         outputs = [layer.build(split) for layer, split in zip(self._layers, split_inputs)]
-
         x = tensorflow.keras.layers.Concatenate(axis=-1)(outputs)
-        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x) \
-            if self.dropout_rate > 0. else x
-
         return x
 
 
@@ -376,11 +413,8 @@ class PassThrough(Layer):
     def __hash__(self) -> int:
         return hash(Decimal(self.dropout_rate).quantize(Decimal('1e-9')))
 
-    def build(self, input_tensor: KerasTensor) -> KerasTensor:
-        x = input_tensor
-        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x) \
-            if self.dropout_rate > 0. else x
-        return x
+    def _build(self, input_tensor: KerasTensor) -> KerasTensor:
+        return input_tensor
 
     def save(self, group: h5py.Group) -> None:
         group.create_dataset('type'         , data='PassThrough', dtype=h5py.string_dtype())
@@ -430,8 +464,13 @@ class Dense(Layer):
         self._activation = activation
 
 
-    def __init__(self, units: int, activation: Activation, dropout_rate: float = 0.):
-        super().__init__(dropout_rate)
+    def __init__(self,
+                 units:           int,
+                 activation:      Activation,
+                 dropout_rate:    float = 0.,
+                 batch_normalize: bool = False,
+                 layer_normalize: bool = False):
+        super().__init__(dropout_rate, batch_normalize, layer_normalize)
         self.units      = units
         self.activation = activation
 
@@ -449,10 +488,8 @@ class Dense(Layer):
                           Decimal(self.dropout_rate).quantize(Decimal('1e-9')))
                    )
 
-    def build(self, input_tensor: KerasTensor) -> KerasTensor:
+    def _build(self, input_tensor: KerasTensor) -> KerasTensor:
         x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(units=self.units, activation=self.activation))(input_tensor)
-        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x) \
-            if self.dropout_rate > 0. else x
         return x
 
     def save(self, group: h5py.Group) -> None:
@@ -536,9 +573,11 @@ class LSTM(Layer):
                  units:                  int,
                  activation:             Activation,
                  dropout_rate:           float = 0.,
+                 batch_normalize:        bool = False,
+                 layer_normalize:        bool = False,
                  recurrent_activation:   Activation = 'sigmoid',
                  recurrent_dropout_rate: float = 0.):
-        super().__init__(dropout_rate)
+        super().__init__(dropout_rate, batch_normalize, layer_normalize)
         self.units                  = units
         self.activation             = activation
         self.recurrent_activation   = recurrent_activation
@@ -564,12 +603,17 @@ class LSTM(Layer):
                    )
 
     def build(self, input_tensor: KerasTensor) -> KerasTensor:
+        x = self._build(input_tensor)
+        x = tf.keras.layers.BatchNormalization()(x)            if self.batch_normalize   else x
+        x = tf.keras.layers.LayerNormalization()(x)            if self.layer_normalize   else x
+        x = tf.keras.layers.Dropout(rate=self.dropout_rate)(x) if self.dropout_rate > 0. else x
+        return x
+
+    def _build(self, input_tensor: KerasTensor) -> KerasTensor:
         x = tf.keras.layers.LSTM(units                = self.units,
                                  activation           = self.activation,
                                  recurrent_activation = self.recurrent_activation,
                                  recurrent_dropout    = self.recurrent_dropout_rate)(input_tensor)
-        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x) \
-            if self.dropout_rate > 0. else x
         return x
 
     def save(self, group: h5py.Group) -> None:
@@ -684,14 +728,16 @@ class Conv2D(Layer):
 
 
     def __init__(self,
-                 input_shape:  Tuple[int, int],
-                 activation:   str = 'relu',
-                 filters:      int = 1,
-                 kernel_size:  Tuple[int, int] = (1, 1),
-                 strides:      Tuple[int, int] = (1, 1),
-                 padding:      bool = True,
-                 dropout_rate: float = 0.):
-        super().__init__(dropout_rate)
+                 input_shape:     Tuple[int, int],
+                 activation:      str = 'relu',
+                 filters:         int = 1,
+                 kernel_size:     Tuple[int, int] = (1, 1),
+                 strides:         Tuple[int, int] = (1, 1),
+                 padding:         bool = True,
+                 dropout_rate:    float = 0.,
+                 batch_normalize: bool = False,
+                 layer_normalize: bool = False):
+        super().__init__(dropout_rate, batch_normalize, layer_normalize)
         self.input_shape  = input_shape
         self.activation   = activation
         self.filters      = filters
@@ -721,7 +767,7 @@ class Conv2D(Layer):
                           Decimal(self.dropout_rate).quantize(Decimal('1e-9')))
                    )
 
-    def build(self, input_tensor: KerasTensor) -> KerasTensor:
+    def _build(self, input_tensor: KerasTensor) -> KerasTensor:
         assert input_tensor.shape[-1] % (self.input_shape[0] * self.input_shape[1]) == 0, \
             "Input tensor shape is not divisible by the expected input 2D shape"
 
@@ -735,8 +781,6 @@ class Conv2D(Layer):
                                                                    padding     = 'same' if self.padding else 'valid',
                                                                    activation  = self.activation))(x)
         x = tf.keras.layers.TimeDistributed(tf.keras.layers.Flatten())(x)
-        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x) \
-            if self.dropout_rate > 0. else x
         return x
 
     def save(self, group: h5py.Group) -> None:
@@ -830,12 +874,14 @@ class MaxPool2D(Layer):
 
 
     def __init__(self,
-                 input_shape:  Tuple[int, int],
-                 pool_size:    Tuple[int, int] = (1, 1),
-                 strides:      Tuple[int, int] = (1, 1),
-                 padding:      bool = True,
-                 dropout_rate: float = 0.):
-        super().__init__(dropout_rate)
+                 input_shape:     Tuple[int, int],
+                 pool_size:       Tuple[int, int] = (1, 1),
+                 strides:         Tuple[int, int] = (1, 1),
+                 padding:         bool = True,
+                 dropout_rate:    float = 0.,
+                 batch_normalize: bool = False,
+                 layer_normalize: bool = False):
+        super().__init__(dropout_rate, batch_normalize, layer_normalize)
         self.input_shape = input_shape
         self.pool_size   = pool_size
         self.strides     = strides
@@ -859,7 +905,7 @@ class MaxPool2D(Layer):
                           Decimal(self.dropout_rate).quantize(Decimal('1e-9')))
                    )
 
-    def build(self, input_tensor: KerasTensor) -> KerasTensor:
+    def _build(self, input_tensor: KerasTensor) -> KerasTensor:
         assert input_tensor.shape[-1] % (self.input_shape[0] * self.input_shape[1]) == 0, \
             "Input tensor shape is not divisible by the expected input 2D shape"
 
@@ -871,8 +917,6 @@ class MaxPool2D(Layer):
                                                                          strides     = self.strides,
                                                                          padding     = 'same' if self.padding else 'valid'))(x)
         x = tf.keras.layers.TimeDistributed(tf.keras.layers.Flatten())(x)
-        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x) \
-            if self.dropout_rate > 0. else x
         return x
 
     def save(self, group: h5py.Group) -> None:
@@ -956,8 +1000,15 @@ class Transformer(Layer):
     def activation(self, activation: Activation) -> None:
         self._activation = activation
 
-    def __init__(self, num_heads: int, model_dim: int, ff_dim: int, activation: Activation = 'relu', dropout_rate: float = 0.):
-        super().__init__(dropout_rate)
+    def __init__(self,
+                 num_heads:       int,
+                 model_dim:       int,
+                 ff_dim:          int,
+                 activation:      Activation = 'relu',
+                 dropout_rate:    float = 0.,
+                 batch_normalize: bool = False,
+                 layer_normalize: bool = False):
+        super().__init__(dropout_rate, batch_normalize, layer_normalize)
         self.num_heads  = num_heads
         self.model_dim  = model_dim
         self.ff_dim     = ff_dim
@@ -982,6 +1033,13 @@ class Transformer(Layer):
                    )
 
     def build(self, input_tensor: KerasTensor) -> KerasTensor:
+        x = self._build(input_tensor)
+        x = tf.keras.layers.BatchNormalization()(x)            if self.batch_normalize   else x
+        x = tf.keras.layers.LayerNormalization()(x)            if self.layer_normalize   else x
+        x = tf.keras.layers.Dropout(rate=self.dropout_rate)(x) if self.dropout_rate > 0. else x
+        return x
+
+    def _build(self, input_tensor: KerasTensor) -> KerasTensor:
         # Project input_tensor to model dimensions if they are not the same
         input_tensor = tf.keras.layers.Dense(self.model_dim)(input_tensor) \
                        if input_tensor.shape[-1] != self.model_dim else input_tensor
@@ -994,10 +1052,7 @@ class Transformer(Layer):
         feedfoward = tf.keras.layers.Dense(self.ff_dim, activation=self.activation)(attention)
         feedfoward = tf.keras.layers.Dense(self.model_dim)(feedfoward)
         feedfoward = tf.keras.layers.Dropout(rate=self.dropout_rate)(feedfoward) if self.dropout_rate > 0. else feedfoward
-        x = tf.keras.layers.LayerNormalization(epsilon=1e-6)(feedfoward + attention)
-        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x) \
-            if self.dropout_rate > 0. else x
-        return x
+        return feedfoward + attention
 
     def save(self, group: h5py.Group) -> None:
         group.create_dataset('type'        ,             data='Transformer', dtype=h5py.string_dtype())
