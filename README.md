@@ -38,4 +38,4 @@ black ./ml_tools
 ```
 
 ## Contributing
-Veracity ML Tools is distributed under the terms of the **BEN TO PROVIDE LICENSE!!!!!!!**. If you propose or make a contribution to this repository, you hereby license your contribution to anyone under this same license.
+Veracity ML Tools is distributed under the terms in the LICENSE file. If you propose or make a contribution to this repository, you hereby license your contribution to anyone under this same license.
