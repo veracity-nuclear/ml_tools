@@ -40,13 +40,19 @@ class Layer(ABC):
     ----------
     dropout_rate : float, optional
         Dropout rate for the layer. Default is 0.0 (no dropout).
+    batch_normalize : bool
+        Whether or not batch normalization will be performed on the layer output prior to dropout
+    layer_normalize : bool
+        Whether or not layer normalization will be performed on the layer output prior to dropout
 
     Attributes
     ----------
     dropout_rate : float
         Dropout rate for the layer.
     batch_normalize : bool
+        Whether or not batch normalization will be performed on the layer output prior to dropout
     layer_normalize : bool
+        Whether or not layer normalization will be performed on the layer output prior to dropout
     """
 
     _registry: Dict[str, Type[Layer]] = {} # Registry for child classes
@@ -91,12 +97,12 @@ class Layer(ABC):
         self._layer_normalize = layer_normalize
 
     def __init__(self,
-                 dropout_rate:    float = 0.0,
-                 batch_normalize: bool = False,
-                 layer_normalize: bool = False) -> None:
-        self.dropout_rate    = dropout_rate
-        self.batch_normalize = batch_normalize
-        self.layer_normalize = layer_normalize
+                 dropout_rate:     float = 0.0,
+                 batch_normalize:  bool = False,
+                 layer_normalize:  bool = False) -> None:
+        self.dropout_rate     = dropout_rate
+        self.batch_normalize  = batch_normalize
+        self.layer_normalize  = layer_normalize
 
     @abstractmethod
     def __eq__(self, other: Layer) -> bool:
@@ -140,12 +146,16 @@ class Layer(ABC):
             The input tensor for the layer
         """
         x = self._build(input_tensor)
-        x = tf.keras.layers.TimeDistributed(tf.keras.layers.BatchNormalization())(x) \
-            if self.batch_normalize else x
-        x = tf.keras.layers.TimeDistributed(tf.keras.layers.LayerNormalization())(x) \
-            if self.layer_normalize else x
-        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x) \
-            if self.dropout_rate > 0. else x
+
+        if self.batch_normalize:
+            x = tf.keras.layers.TimeDistributed(tf.keras.layers.BatchNormalization())(x)
+
+        if self.layer_normalize:
+            x = tf.keras.layers.TimeDistributed(tf.keras.layers.LayerNormalization())(x)
+
+        if self.dropout_rate > 0.:
+            x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x)
+
         return x
 
     @abstractmethod
@@ -216,10 +226,10 @@ class Layer(ABC):
 class LayerSequence(Layer):
     """ A class for a sequence of layers
 
-    A layer sequence does not require a dropout rate specification because
-    this will be dictated by the final layer's dropout rate specification.
-    If a dropout rate is provided, it will be ignored in favor of the final
-    layer's dropout rate
+    A layer sequence does not require dropout rate or normalization,
+    specifications as these will this will be dictated by the final
+    layer's specifications. If any of these specifications are provided,
+    they will be ignored in favor of the final layer specifications.
 
     Parameters
     ----------
@@ -242,7 +252,7 @@ class LayerSequence(Layer):
         self._layers = value
 
     def __init__(self, layers: List[Layer]) -> None:
-        super().__init__(0.0)
+        super().__init__(0.0, False, False)
         self.layers = layers
 
     def __eq__(self, other: Any) -> bool:
@@ -297,6 +307,10 @@ class CompoundLayer(Layer):
         the end index must be explicitly stated and cannot be a negative value.
     dropout_rate : float, optional
         Dropout rate for the layer. Default is 0.0 (no dropout).
+    batch_normalize : bool
+        Whether or not batch normalization will be performed on the layer output prior to dropout
+    layer_normalize : bool
+        Whether or not layer normalization will be performed on the layer output prior to dropout
 
     Attributes
     ----------
@@ -348,14 +362,18 @@ class CompoundLayer(Layer):
         return (self is other or
                  (isinstance(other, CompoundLayer) and
                   isclose(self.dropout_rate, other.dropout_rate, rel_tol=1e-9) and
+                  self.batch_normalize == other.batch_normalize and
+                  self.layer_normalize == other.layer_normalize and
                   len(self.layers) == len(other.layers) and
                   all(s_layer == o_layer for s_layer, o_layer in zip(self.layers, other.layers)))
                )
 
     def __hash__(self) -> int:
         return hash(tuple(self.layers),
-                     tuple(tuple(specification) for specification in self.input_specifications),
-                     Decimal(self.dropout_rate).quantize(Decimal('1e-9')))
+                    tuple(tuple(specification) for specification in self.input_specifications),
+                    Decimal(self.dropout_rate).quantize(Decimal('1e-9')),
+                    self.batch_normalize,
+                    self.layer_normalize)
 
     def _build(self, input_tensor: KerasTensor) -> KerasTensor:
         @register_keras_serializable()
@@ -381,14 +399,22 @@ class CompoundLayer(Layer):
             layer_group = group.create_group('layer_' + str(i))
             layer.save(layer_group)
         group.attrs['dropout_rate'] = self._dropout_rate
+        group.attrs['batch_normalize'] = self._batch_normalize
+        group.attrs['layer_normalize'] = self._layer_normalize
 
 
     @classmethod
     def from_h5(cls, group: h5py.Group) -> CompoundLayer:
         input_specifications = [list(item) for item in group['input_specifications'][:]]
         dropout_rate         = group.attrs.get('dropout_rate', 0.0)
+        batch_normalize      = group.attrs.get('batch_normalize', False)
+        layer_normalize      = group.attrs.get('layer_normalize', False)
         layers               = Layer.layers_from_h5(group)
-        return cls(layers=layers, input_specifications=input_specifications, dropout_rate=dropout_rate)
+        return cls(layers               = layers,
+                   input_specifications = input_specifications,
+                   dropout_rate         = dropout_rate,
+                   batch_normalize      = batch_normalize,
+                   layer_normalize      = layer_normalize)
 
 
 @Layer.register_subclass("PassThrough")
@@ -399,6 +425,10 @@ class PassThrough(Layer):
     ----------
     dropout_rate : float, optional
         Dropout rate for the layer. Default is 0.0 (no dropout).
+    batch_normalize : bool
+        Whether or not batch normalization will be performed on the layer output prior to dropout
+    layer_normalize : bool
+        Whether or not layer normalization will be performed on the layer output prior to dropout
 
     This layer type is useful when constructing composite layers that require passing some features
     straight through to the next layer while other features pass through an actual processing layer.
@@ -407,22 +437,30 @@ class PassThrough(Layer):
     def __eq__(self, other: Any) -> bool:
         return (self is other or
                  (isinstance(other, PassThrough) and
-                  isclose(self.dropout_rate, other.dropout_rate, rel_tol=1e-9))
+                  isclose(self.dropout_rate, other.dropout_rate, rel_tol=1e-9) and
+                  self.batch_normalize == other.batch_normalize and
+                  self.layer_normalize == other.layer_normalize)
                )
 
     def __hash__(self) -> int:
-        return hash(Decimal(self.dropout_rate).quantize(Decimal('1e-9')))
+        return hash(Decimal(self.dropout_rate).quantize(Decimal('1e-9')),
+                    self.batch_normalize,
+                    self.layer_normalize)
 
     def _build(self, input_tensor: KerasTensor) -> KerasTensor:
         return input_tensor
 
     def save(self, group: h5py.Group) -> None:
-        group.create_dataset('type'         , data='PassThrough', dtype=h5py.string_dtype())
-        group.create_dataset('dropout_rate' , data=self.dropout_rate)
+        group.create_dataset('type'        ,     data='PassThrough', dtype=h5py.string_dtype())
+        group.create_dataset('dropout_rate',     data=self.dropout_rate)
+        group.create_dataset('batch_normalize',  data=self.batch_normalize)
+        group.create_dataset('layer_normalize',  data=self.layer_normalize)
 
     @classmethod
     def from_h5(cls, group: h5py.Group) -> PassThrough:
-        return cls(dropout_rate = float(group["dropout_rate"][()]))
+        return cls(dropout_rate     = float(group["dropout_rate"    ][()]),
+                   batch_normalize  =  bool(group["batch_normalize" ][()]),
+                   layer_normalize  =  bool(group["layer_normalize" ][()]))
 
 
 @Layer.register_subclass("Dense")
@@ -437,6 +475,10 @@ class Dense(Layer):
         Activation function to use
     dropout_rate : float, optional
         Dropout rate for the layer. Default is 0.0 (no dropout).
+    batch_normalize : bool
+        Whether or not batch normalization will be performed on the layer output prior to dropout
+    layer_normalize : bool
+        Whether or not layer normalization will be performed on the layer output prior to dropout
 
     Attributes
     ----------
@@ -465,11 +507,11 @@ class Dense(Layer):
 
 
     def __init__(self,
-                 units:           int,
-                 activation:      Activation,
-                 dropout_rate:    float = 0.,
-                 batch_normalize: bool = False,
-                 layer_normalize: bool = False):
+                 units:            int,
+                 activation:       Activation,
+                 dropout_rate:     float = 0.,
+                 batch_normalize:  bool = False,
+                 layer_normalize:  bool = False):
         super().__init__(dropout_rate, batch_normalize, layer_normalize)
         self.units      = units
         self.activation = activation
@@ -479,13 +521,17 @@ class Dense(Layer):
                 (isinstance(other, Dense) and
                  self.units == other.units and
                  self.activation == other.activation and
-                 isclose(self.dropout_rate, other.dropout_rate, rel_tol=1e-9))
+                 isclose(self.dropout_rate, other.dropout_rate, rel_tol=1e-9) and
+                 self.batch_normalize == other.batch_normalize and
+                 self.layer_normalize == other.layer_normalize)
                )
 
     def __hash__(self) -> int:
         return hash(tuple(self.units,
                           self.activation,
-                          Decimal(self.dropout_rate).quantize(Decimal('1e-9')))
+                          Decimal(self.dropout_rate).quantize(Decimal('1e-9'))),
+                          self.batch_normalize,
+                          self.layer_normalize
                    )
 
     def _build(self, input_tensor: KerasTensor) -> KerasTensor:
@@ -493,16 +539,20 @@ class Dense(Layer):
         return x
 
     def save(self, group: h5py.Group) -> None:
-        group.create_dataset('type'                , data='Dense', dtype=h5py.string_dtype())
-        group.create_dataset('dropout_rate'        , data=self.dropout_rate)
-        group.create_dataset('number_of_units'     , data=self.units)
-        group.create_dataset('activation_function' , data=self.activation, dtype=h5py.string_dtype())
+        group.create_dataset('type',                 data='Dense', dtype=h5py.string_dtype())
+        group.create_dataset('number_of_units',      data=self.units)
+        group.create_dataset('activation_function',  data=self.activation, dtype=h5py.string_dtype())
+        group.create_dataset('dropout_rate',         data=self.dropout_rate)
+        group.create_dataset('batch_normalize',      data=self.batch_normalize)
+        group.create_dataset('layer_normalize',      data=self.layer_normalize)
 
     @classmethod
     def from_h5(cls, group: h5py.Group) -> Dense:
-        return cls(units        =   int(group["number_of_units"    ][()]),
-                   activation   =       group["activation_function"][()].decode('utf-8'),
-                   dropout_rate = float(group["dropout_rate"       ][()]))
+        return cls(units            =   int(group["number_of_units"    ][()]),
+                   activation       =       group["activation_function"][()].decode('utf-8'),
+                   dropout_rate     = float(group["dropout_rate"       ][()]),
+                   batch_normalize  =  bool(group["batch_normalize"    ][()]),
+                   layer_normalize  =  bool(group["layer_normalize"    ][()]))
 
 
 @Layer.register_subclass("LSTM")
@@ -521,6 +571,10 @@ class LSTM(Layer):
         Fraction of the units to drop for the linear transformation of the recurrent state
     dropout_rate : float, optional
         Dropout rate for the layer. Default is 0.0 (no dropout).
+    batch_normalize : bool
+        Whether or not batch normalization will be performed on the layer output prior to dropout
+    layer_normalize : bool
+        Whether or not layer normalization will be performed on the layer output prior to dropout
 
     Attributes
     ----------
@@ -572,11 +626,11 @@ class LSTM(Layer):
     def __init__(self,
                  units:                  int,
                  activation:             Activation,
+                 recurrent_activation:   Activation = 'sigmoid',
+                 recurrent_dropout_rate: float = 0.,
                  dropout_rate:           float = 0.,
                  batch_normalize:        bool = False,
-                 layer_normalize:        bool = False,
-                 recurrent_activation:   Activation = 'sigmoid',
-                 recurrent_dropout_rate: float = 0.):
+                 layer_normalize:        bool = False):
         super().__init__(dropout_rate, batch_normalize, layer_normalize)
         self.units                  = units
         self.activation             = activation
@@ -590,7 +644,9 @@ class LSTM(Layer):
                   self.activation == other.activation and
                   self.recurrent_activation == other.recurrent_activation and
                   isclose(self.recurrent_dropout_rate, other.recurrent_dropout_rate, rel_tol=1e-9) and
-                  isclose(self.dropout_rate, other.dropout_rate, rel_tol=1e-9))
+                  isclose(self.dropout_rate, other.dropout_rate, rel_tol=1e-9) and
+                  self.batch_normalize == other.batch_normalize and
+                  self.layer_normalize == other.layer_normalize)
         )
 
 
@@ -599,38 +655,38 @@ class LSTM(Layer):
                           self.activation,
                           self.recurrent_activation,
                           Decimal(self.recurrent_dropout_rate).quantize(Decimal('1e-9')),
-                          Decimal(self.dropout_rate).quantize(Decimal('1e-9')))
+                          Decimal(self.dropout_rate).quantize(Decimal('1e-9'))),
+                          self.batch_normalize,
+                          self.layer_normalize
                    )
-
-    def build(self, input_tensor: KerasTensor) -> KerasTensor:
-        x = self._build(input_tensor)
-        x = tf.keras.layers.BatchNormalization()(x)            if self.batch_normalize   else x
-        x = tf.keras.layers.LayerNormalization()(x)            if self.layer_normalize   else x
-        x = tf.keras.layers.Dropout(rate=self.dropout_rate)(x) if self.dropout_rate > 0. else x
-        return x
 
     def _build(self, input_tensor: KerasTensor) -> KerasTensor:
         x = tf.keras.layers.LSTM(units                = self.units,
                                  activation           = self.activation,
+                                 return_sequences     = True,
                                  recurrent_activation = self.recurrent_activation,
                                  recurrent_dropout    = self.recurrent_dropout_rate)(input_tensor)
         return x
 
     def save(self, group: h5py.Group) -> None:
-        group.create_dataset('type'                          , data='LSTM', dtype=h5py.string_dtype())
-        group.create_dataset('dropout_rate'                  , data=self.dropout_rate)
-        group.create_dataset('number_of_units'               , data=self.units)
-        group.create_dataset('activation_function'           , data=self.activation,           dtype=h5py.string_dtype())
-        group.create_dataset('recurrent_activation_function' , data=self.recurrent_activation, dtype=h5py.string_dtype())
-        group.create_dataset('recurrent_dropout_rate'        , data=self.recurrent_dropout_rate)
+        group.create_dataset('type',                          data='LSTM', dtype=h5py.string_dtype())
+        group.create_dataset('number_of_units',               data=self.units)
+        group.create_dataset('activation_function',           data=self.activation,           dtype=h5py.string_dtype())
+        group.create_dataset('recurrent_activation_function', data=self.recurrent_activation, dtype=h5py.string_dtype())
+        group.create_dataset('recurrent_dropout_rate',        data=self.recurrent_dropout_rate)
+        group.create_dataset('dropout_rate',                  data=self.dropout_rate)
+        group.create_dataset('batch_normalize',               data=self.batch_normalize)
+        group.create_dataset('layer_normalize',               data=self.layer_normalize)
 
     @classmethod
     def from_h5(cls, group: h5py.Group) -> LSTM:
         return cls(units                  =   int(group["number_of_units"              ][()]),
                    activation             =       group["activation_function"          ][()].decode('utf-8'),
-                   dropout_rate           = float(group["dropout_rate"                 ][()]),
                    recurrent_activation   =       group["recurrent_activation_function"][()].decode('utf-8'),
-                   recurrent_dropout_rate = float(group["recurrent_dropout_rate"       ][()]))
+                   recurrent_dropout_rate = float(group["recurrent_dropout_rate"       ][()]),
+                   dropout_rate           = float(group["dropout_rate"                 ][()]),
+                   batch_normalize        =  bool(group["batch_normalize"              ][()]),
+                   layer_normalize        =  bool(group["layer_normalize"              ][()]))
 
 
 @Layer.register_subclass("Conv2D")
@@ -653,6 +709,10 @@ class Conv2D(Layer):
         Whether or not padding should be applied to the convolution
     dropout_rate : float, optional
         Dropout rate for the layer. Default is 0.0 (no dropout).
+    batch_normalize : bool
+        Whether or not batch normalization will be performed on the layer output prior to dropout
+    layer_normalize : bool
+        Whether or not layer normalization will be performed on the layer output prior to dropout
 
 
     Attributes
@@ -728,15 +788,15 @@ class Conv2D(Layer):
 
 
     def __init__(self,
-                 input_shape:     Tuple[int, int],
-                 activation:      str = 'relu',
-                 filters:         int = 1,
-                 kernel_size:     Tuple[int, int] = (1, 1),
-                 strides:         Tuple[int, int] = (1, 1),
-                 padding:         bool = True,
-                 dropout_rate:    float = 0.,
-                 batch_normalize: bool = False,
-                 layer_normalize: bool = False):
+                 input_shape:      Tuple[int, int],
+                 activation:       str = 'relu',
+                 filters:          int = 1,
+                 kernel_size:      Tuple[int, int] = (1, 1),
+                 strides:          Tuple[int, int] = (1, 1),
+                 padding:          bool = True,
+                 dropout_rate:     float = 0.,
+                 batch_normalize:  bool = False,
+                 layer_normalize:  bool = False):
         super().__init__(dropout_rate, batch_normalize, layer_normalize)
         self.input_shape  = input_shape
         self.activation   = activation
@@ -754,7 +814,9 @@ class Conv2D(Layer):
                   self.kernel_size == other.kernel_size and
                   self.strides == other.strides and
                   self.padding == other.padding and
-                  isclose(self.dropout_rate, other.dropout_rate, rel_tol=1e-9))
+                  isclose(self.dropout_rate, other.dropout_rate, rel_tol=1e-9) and
+                  self.batch_normalize == other.batch_normalize and
+                  self.layer_normalize == other.layer_normalize)
         )
 
     def __hash__(self) -> int:
@@ -764,7 +826,9 @@ class Conv2D(Layer):
                           self.kernel_size,
                           self.strides,
                           self.padding,
-                          Decimal(self.dropout_rate).quantize(Decimal('1e-9')))
+                          Decimal(self.dropout_rate).quantize(Decimal('1e-9'))),
+                          self.batch_normalize,
+                          self.layer_normalize
                    )
 
     def _build(self, input_tensor: KerasTensor) -> KerasTensor:
@@ -784,24 +848,28 @@ class Conv2D(Layer):
         return x
 
     def save(self, group: h5py.Group) -> None:
-        group.create_dataset('type'               , data='Conv2D', dtype=h5py.string_dtype())
-        group.create_dataset('dropout_rate'       , data=self.dropout_rate)
-        group.create_dataset('input_shape'        , data=self.input_shape)
+        group.create_dataset('type',                data='Conv2D', dtype=h5py.string_dtype())
+        group.create_dataset('input_shape',         data=self.input_shape)
         group.create_dataset('activation_function', data=self.activation, dtype=h5py.string_dtype())
-        group.create_dataset('number_of_filters'  , data=self.filters)
-        group.create_dataset('kernel_size'        , data=self.kernel_size)
-        group.create_dataset('strides'            , data=self.strides)
-        group.create_dataset('padding'            , data=self.padding)
+        group.create_dataset('number_of_filters',   data=self.filters)
+        group.create_dataset('kernel_size',         data=self.kernel_size)
+        group.create_dataset('strides',             data=self.strides)
+        group.create_dataset('padding',             data=self.padding)
+        group.create_dataset('dropout_rate',        data=self.dropout_rate)
+        group.create_dataset('batch_normalize',     data=self.batch_normalize)
+        group.create_dataset('layer_normalize',     data=self.layer_normalize)
 
     @classmethod
     def from_h5(cls, group: h5py.Group) -> Conv2D:
         return cls(input_shape            = tuple(int(x) for x in group['input_shape'  ][()]),
                    activation             =       group["activation_function"          ][()].decode('utf-8'),
-                   dropout_rate           = float(group["dropout_rate"                 ][()]),
                    filters                =   int(group["number_of_filters"            ][()]),
                    kernel_size            = tuple(int(x) for x in group['kernel_size'  ][()]),
                    strides                = tuple(int(x) for x in group['strides'      ][()]),
-                   padding                =  bool(group["padding"                      ][()]))
+                   padding                =  bool(group["padding"                      ][()]),
+                   dropout_rate           = float(group["dropout_rate"                 ][()]),
+                   batch_normalize        =  bool(group["batch_normalize"              ][()]),
+                   layer_normalize        =  bool(group["layer_normalize"              ][()]))
 
 
 @Layer.register_subclass("MaxPool2D")
@@ -820,6 +888,10 @@ class MaxPool2D(Layer):
         Whether or not padding should be applied to the convolution
     dropout_rate : float, optional
         Dropout rate for the layer. Default is 0.0 (no dropout).
+    batch_normalize : bool
+        Whether or not batch normalization will be performed on the layer output prior to dropout
+    layer_normalize : bool
+        Whether or not layer normalization will be performed on the layer output prior to dropout
 
 
     Attributes
@@ -874,13 +946,13 @@ class MaxPool2D(Layer):
 
 
     def __init__(self,
-                 input_shape:     Tuple[int, int],
-                 pool_size:       Tuple[int, int] = (1, 1),
-                 strides:         Tuple[int, int] = (1, 1),
-                 padding:         bool = True,
-                 dropout_rate:    float = 0.,
-                 batch_normalize: bool = False,
-                 layer_normalize: bool = False):
+                 input_shape:      Tuple[int, int],
+                 pool_size:        Tuple[int, int] = (1, 1),
+                 strides:          Tuple[int, int] = (1, 1),
+                 padding:          bool = True,
+                 dropout_rate:     float = 0.,
+                 batch_normalize:  bool = False,
+                 layer_normalize:  bool = False):
         super().__init__(dropout_rate, batch_normalize, layer_normalize)
         self.input_shape = input_shape
         self.pool_size   = pool_size
@@ -894,7 +966,9 @@ class MaxPool2D(Layer):
                   self.pool_size == other.pool_size and
                   self.strides == other.strides and
                   self.padding == other.padding and
-                  isclose(self.dropout_rate, other.dropout_rate, rel_tol=1e-9))
+                  isclose(self.dropout_rate, other.dropout_rate, rel_tol=1e-9) and
+                  self.batch_normalize == other.batch_normalize and
+                  self.layer_normalize == other.layer_normalize)
         )
 
     def __hash__(self) -> int:
@@ -902,7 +976,9 @@ class MaxPool2D(Layer):
                           self.pool_size,
                           self.strides,
                           self.padding,
-                          Decimal(self.dropout_rate).quantize(Decimal('1e-9')))
+                          Decimal(self.dropout_rate).quantize(Decimal('1e-9'))),
+                          self.batch_normalize,
+                          self.layer_normalize
                    )
 
     def _build(self, input_tensor: KerasTensor) -> KerasTensor:
@@ -920,20 +996,24 @@ class MaxPool2D(Layer):
         return x
 
     def save(self, group: h5py.Group) -> None:
-        group.create_dataset('type'        , data='MaxPool2D', dtype=h5py.string_dtype())
-        group.create_dataset('dropout_rate', data=self.dropout_rate)
-        group.create_dataset('input_shape' , data=self.input_shape)
-        group.create_dataset('pool_size'   , data=self.pool_size)
-        group.create_dataset('strides'     , data=self.strides)
-        group.create_dataset('padding'     , data=self.padding)
+        group.create_dataset('type',             data='MaxPool2D', dtype=h5py.string_dtype())
+        group.create_dataset('input_shape',      data=self.input_shape)
+        group.create_dataset('pool_size',        data=self.pool_size)
+        group.create_dataset('strides',          data=self.strides)
+        group.create_dataset('padding',          data=self.padding)
+        group.create_dataset('dropout_rate',     data=self.dropout_rate)
+        group.create_dataset('batch_normalize',  data=self.batch_normalize)
+        group.create_dataset('layer_normalize',  data=self.layer_normalize)
 
     @classmethod
     def from_h5(cls, group: h5py.Group) -> MaxPool2D:
-        return cls(input_shape  = tuple(int(x) for x in group['input_shape'][()]),
-                   dropout_rate = float(group["dropout_rate"               ][()]),
-                   pool_size    = tuple(int(x) for x in group['pool_size'  ][()]),
-                   strides      = tuple(int(x) for x in group['strides'    ][()]),
-                   padding      =  bool(group["padding"                    ][()]))
+        return cls(input_shape      = tuple(int(x) for x in group['input_shape'][()]),
+                   pool_size        = tuple(int(x) for x in group['pool_size'  ][()]),
+                   strides          = tuple(int(x) for x in group['strides'    ][()]),
+                   padding          =  bool(group["padding"                    ][()]),
+                   dropout_rate     = float(group["dropout_rate"               ][()]),
+                   batch_normalize  =  bool(group["batch_normalize"            ][()]),
+                   layer_normalize  =  bool(group["layer_normalize"            ][()]))
 
 
 @Layer.register_subclass("Transformer")
@@ -952,6 +1032,10 @@ class Transformer(Layer):
         Activation function to use for the Feed Forward Network of the Transformer
     dropout_rate : float, optional
         Dropout rate for the layer. Default is 0.0 (no dropout).
+    batch_normalize : bool
+        Whether or not batch normalization will be performed on the layer output prior to dropout
+    layer_normalize : bool
+        Whether or not layer normalization will be performed on the layer output prior to dropout
 
     Attributes
     ----------
@@ -1000,44 +1084,42 @@ class Transformer(Layer):
     def activation(self, activation: Activation) -> None:
         self._activation = activation
 
+
     def __init__(self,
-                 num_heads:       int,
-                 model_dim:       int,
-                 ff_dim:          int,
-                 activation:      Activation = 'relu',
-                 dropout_rate:    float = 0.,
-                 batch_normalize: bool = False,
-                 layer_normalize: bool = False):
+                 num_heads:        int,
+                 model_dim:        int,
+                 ff_dim:           int,
+                 activation:       Activation = 'relu',
+                 dropout_rate:     float = 0.,
+                 batch_normalize:  bool = False,
+                 layer_normalize:  bool = False):
         super().__init__(dropout_rate, batch_normalize, layer_normalize)
-        self.num_heads  = num_heads
-        self.model_dim  = model_dim
-        self.ff_dim     = ff_dim
-        self.activation = activation
+        self.num_heads        = num_heads
+        self.model_dim        = model_dim
+        self.ff_dim           = ff_dim
+        self.activation       = activation
 
     def __eq__(self, other: Any) -> bool:
         return (self is other or
                  (isinstance(other, Transformer) and
-                  self.num_heads  == other.num_heads and
-                  self.model_dim  == other.model_dim and
-                  self.ff_dim     == other.ff_dim and
-                  self.activation == other.activation and
-                  isclose(self.dropout_rate, other.dropout_rate, rel_tol=1e-9))
+                  self.num_heads        == other.num_heads and
+                  self.model_dim        == other.model_dim and
+                  self.ff_dim           == other.ff_dim and
+                  self.activation       == other.activation and
+                  isclose(self.dropout_rate, other.dropout_rate, rel_tol=1e-9) and
+                  self.batch_normalize  == other.batch_normalize and
+                  self.layer_normalize  == other.layer_normalize)
         )
 
     def __hash__(self) -> int:
         return hash(tuple(self.num_heads,
                           self.model_dim,
                           self.ff_dim,
-                          self.activation,
-                          Decimal(self.dropout_rate).quantize(Decimal('1e-9')))
+                          Decimal(self.dropout_rate).quantize(Decimal('1e-9'))),
+                          self.batch_normalize,
+                          self.layer_normalize,
+                          self.activation
                    )
-
-    def build(self, input_tensor: KerasTensor) -> KerasTensor:
-        x = self._build(input_tensor)
-        x = tf.keras.layers.BatchNormalization()(x)            if self.batch_normalize   else x
-        x = tf.keras.layers.LayerNormalization()(x)            if self.layer_normalize   else x
-        x = tf.keras.layers.Dropout(rate=self.dropout_rate)(x) if self.dropout_rate > 0. else x
-        return x
 
     def _build(self, input_tensor: KerasTensor) -> KerasTensor:
         # Project input_tensor to model dimensions if they are not the same
@@ -1052,24 +1134,30 @@ class Transformer(Layer):
         feedfoward = tf.keras.layers.Dense(self.ff_dim, activation=self.activation)(attention)
         feedfoward = tf.keras.layers.Dense(self.model_dim)(feedfoward)
         feedfoward = tf.keras.layers.Dropout(rate=self.dropout_rate)(feedfoward) if self.dropout_rate > 0. else feedfoward
+
         return feedfoward + attention
 
+
     def save(self, group: h5py.Group) -> None:
-        group.create_dataset('type'        ,             data='Transformer', dtype=h5py.string_dtype())
-        group.create_dataset('dropout_rate',             data=self.dropout_rate)
-        group.create_dataset('number_of_heads' ,         data=self.num_heads)
-        group.create_dataset('model_dimensions' ,        data=self.model_dim)
-        group.create_dataset('feed_forward_dimensions' , data=self.ff_dim)
-        group.create_dataset('activation_function' ,     data=self.activation, dtype=h5py.string_dtype())
+        group.create_dataset('type',                    data='Transformer', dtype=h5py.string_dtype())
+        group.create_dataset('number_of_heads',         data=self.num_heads)
+        group.create_dataset('model_dimensions',        data=self.model_dim)
+        group.create_dataset('feed_forward_dimensions', data=self.ff_dim)
+        group.create_dataset('activation_function',     data=self.activation, dtype=h5py.string_dtype())
+        group.create_dataset('dropout_rate',            data=self.dropout_rate)
+        group.create_dataset('batch_normalize',         data=self.batch_normalize)
+        group.create_dataset('layer_normalize',         data=self.layer_normalize)
 
 
     @classmethod
     def from_h5(cls, group: h5py.Group) -> Transformer:
-        return cls(num_heads    =   int(group["number_of_heads"        ][()]),
-                   model_dim    =   int(group["model_dimensions"       ][()]),
-                   ff_dim       =   int(group["feed_forward_dimensions"][()]),
-                   activation   =       group["activation_function"    ][()].decode('utf-8'),
-                   dropout_rate = float(group["dropout_rate"           ][()]))
+        return cls(num_heads        =   int(group["number_of_heads"        ][()]),
+                   model_dim        =   int(group["model_dimensions"       ][()]),
+                   ff_dim           =   int(group["feed_forward_dimensions"][()]),
+                   activation       =       group["activation_function"    ][()].decode('utf-8'),
+                   dropout_rate     = float(group["dropout_rate"           ][()]),
+                   batch_normalize  =  bool(group["batch_normalize"        ][()]),
+                   layer_normalize  =  bool(group["layer_normalize"        ][()]))
 
 
 class NNStrategy(PredictionStrategy):

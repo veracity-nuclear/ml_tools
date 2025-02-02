@@ -180,6 +180,8 @@ def plot_sensitivities(models:                  Dict[str, PredictionStrategy],
         plt.figure(figsize=(12, 5))
         plt.boxplot([results[i] for i in order])
         plt.plot(range(1,len(order)+1), [predicted[i] for i in order],'.r')
+        ticks = plt.gca().get_xticks()
+        plt.xticks(ticks, [str(int(tick)) if int(tick) % 10 == 0 else '' for tick in ticks])
         plt.savefig(fig_name_prefix+label+'.png', dpi=600, bbox_inches='tight')
         plt.close()
 
