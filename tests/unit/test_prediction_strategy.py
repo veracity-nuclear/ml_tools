@@ -6,7 +6,7 @@ from numpy.testing import assert_allclose
 import numpy as np
 
 from ml_tools.model.state import State
-from ml_tools.model.nn_strategy import NNStrategy, Dense, LSTM, Transformer, Conv2D, MaxPool2D, PassThrough, LayerSequence, CompoundLayer
+from ml_tools.model.nn_strategy import NNStrategy, Dense, LSTM, Transformer, SpatialConv, SpatialMaxPool, PassThrough, LayerSequence, CompoundLayer
 from ml_tools.model.gbm_strategy import GBMStrategy
 from ml_tools.model.pod_strategy import PODStrategy
 from ml_tools.model.feature_processor import MinMaxNormalize, NoProcessing
@@ -139,8 +139,8 @@ def test_nn_strategy_Transformer():
 
 def test_nn_strategy_CNN():
 
-    layers = [Conv2D(input_shape=(3,3), kernel_size=(2,2), filters=4),
-              MaxPool2D(input_shape=(3,3), pool_size=(2,2), padding=False)]
+    layers = [SpatialConv(input_shape=(3,3), kernel_size=(2,2), filters=4),
+              SpatialMaxPool(input_shape=(3,3), pool_size=(2,2), padding=False)]
     cips_calculator = NNStrategy(input_features, output_feature, layers)
     cips_calculator.train([[state]]*100)
     assert_allclose(state["cips_index"], cips_calculator.predict([[state]])[0][0], atol=1E-5)
