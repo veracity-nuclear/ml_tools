@@ -26,6 +26,7 @@ dependencies = [
     'tensorflow',
     'keras',
     'numpy',
+    'pandas',
     'h5py',
     'scikit-learn',
     'scipy',
