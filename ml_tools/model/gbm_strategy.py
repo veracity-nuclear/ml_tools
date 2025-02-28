@@ -273,21 +273,18 @@ class GBMStrategy(PredictionStrategy):
 
     def train(self, train_data: List[StateSeries], test_data: Optional[List[StateSeries]] = None, num_procs: int = 1) -> None:
 
-        assert all(len(series) == 1 for series in train_data), \
-            "All State Series must be static statepoints (i.e. len(series) == 1)"
-
-        X_train   = self.preprocess_inputs(train_data, num_procs)[:,0,:]
-        y_train   = self._get_targets(train_data)[:,0]
+        X_train   = self.preprocess_inputs(train_data, num_procs)
+        X_train   = X_train.reshape(-1, X_train.shape[-1])
+        y_train   = np.vstack([np.array(series) for series in self._get_targets(train_data)])
         lgb_train = lgb.Dataset(X_train, y_train)
 
         lgb_eval  = None
         test_data = [] if test_data is None else test_data
         if len(test_data) > 0:
-            assert all(len(series) == 1 for series in test_data), \
-                "All State Series must be static statepoints (i.e. len(series) == 1"
 
-            X_test   = self.preprocess_inputs(test_data, num_procs)[:,0,:]
-            y_test   = self._get_targets(test_data)[:,0]
+            X_test   = self.preprocess_inputs(test_data, num_procs)
+            X_test   = X_test.reshape(-1, X_test.shape[-1])
+            y_test   = np.vstack([np.array(series) for series in self._get_targets(test_data)])
             lgb_eval = lgb.Dataset(X_test, y_test, reference=lgb_train)
 
         params = {"boosting_type"    : self.boosting_type,
@@ -337,12 +334,22 @@ class GBMStrategy(PredictionStrategy):
     def _predict_all(self, state_series: List[StateSeries]) -> List[List[np.ndarray]]:
 
         assert self.isTrained
-        assert all(len(series) == 1 for series in state_series), \
-            "All State Series must be static statepoints (i.e. len(series) == 1)"
 
-        X = self.preprocess_inputs(state_series)[:,0,:]
+        X = self.preprocess_inputs(state_series)
+        X = X.reshape(-1, X.shape[-1])
         y = self._gbm.predict(X, num_iteration=self._gbm.best_iteration)
-        return [[np.asarray([result]) if isinstance(result, float) else np.asarray(result)] for result in y]
+
+        results = []
+        index = 0
+        for series in state_series:
+            num_timesteps = len(series)
+            predictions   = y[index: index + num_timesteps]
+            predictions   = [np.asarray([result]) if isinstance(result, float) else np.asarray(result)
+                             for result in predictions]
+            results.append(predictions)
+            index += num_timesteps
+
+        return results
 
 
     def save_model(self, file_name: str) -> None:

@@ -117,9 +117,11 @@ class PODStrategy(PredictionStrategy):
         assert all(isclose(row.sum(), 1.) for row in self.fine_to_coarse_map)
 
         # Setup of the PCA project and K-means clustering of the input feature based on the training samples
+        targets = np.vstack([np.array(series) for series in self._get_targets(train_data)])
         if self.nclusters > 1:
             self._kmeans = KMeans(n_clusters=self.nclusters)
-            X            = self.preprocess_inputs(train_data)[:,0,:]
+            X            = self.preprocess_inputs(train_data)
+            X            = X.reshape(-1, X.shape[-1])
 
             if not self.ndims is None:
                 self._pca = PCA(n_components=self.ndims)
@@ -129,8 +131,8 @@ class PODStrategy(PredictionStrategy):
             nlabel = np.bincount(labels)
 
         else:
-            labels = np.zeros(len(train_data), dtype=int)
-            nlabel = np.asarray([len(train_data)])
+            labels = np.zeros(len(targets), dtype=int)
+            nlabel = np.asarray([len(targets)])
 
         C = self.fine_to_coarse_map
         nvec = self.fine_to_coarse_map.shape[0]
@@ -143,7 +145,7 @@ class PODStrategy(PredictionStrategy):
 
             A = np.zeros((len(state[output_feature]), len(klabels)))
             for i, label in enumerate(klabels):
-                A[:,i] = train_data[label][0][output_feature]
+                A[:,i] = targets[label]
 
             u, S, v = np.linalg.svd(A)
 
@@ -163,14 +165,23 @@ class PODStrategy(PredictionStrategy):
             "All State Series must be static statepoints (i.e. len(series) == 1)"
 
         if self.nclusters > 1:
-            X      = self.preprocess_inputs(state_series)[:,0,:] if self.ndims is None else \
-                     self._pca.transform(self.preprocess_inputs(state_series)[:,0,:])
+            X      = self.preprocess_inputs(state_series)
+            X      = X.reshape(-1, X.shape[-1])
+            X      = X if self.ndims is None else self._pca.transform(X)
             labels = self._kmeans.predict(X)
         else:
             labels = [0]*len(state_series)
 
-        return [[np.matmul(self._pod_mat[labels[i]], state_series[i][0][self.input_feature])]
-                 for i in range(len(state_series))]
+        results = []
+        index = 0
+        for series in state_series:
+            series_results = []
+            for state in series:
+                series_results.append(np.matmul(self._pod_mat[labels[index]], state[self.input_feature]))
+                index += 1
+            results.append(series_results)
+
+        return results
 
 
     def save_model(self, file_name: str) -> None:
