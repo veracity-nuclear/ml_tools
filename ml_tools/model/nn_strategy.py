@@ -689,21 +689,49 @@ class LSTM(Layer):
                    layer_normalize        =  bool(group["layer_normalize"              ][()]))
 
 
-@Layer.register_subclass("Conv2D")
-class Conv2D(Layer):
-    """ A 2D Convolutional Neural Network (CNN) layer
+ShapeType = Union[
+    Tuple[int],           # 1D shape: (H,)
+    Tuple[int, int],      # 2D shape: (H, W)
+    Tuple[int, int, int]  # 3D shape: (H, W, D)
+]
+
+def _extend_shape(shape: ShapeType) -> Tuple[int, int, int]:
+    """Extends a 1D or 2D tuple to a 3D tuple by appending ones.
 
     Parameters
     ----------
-    input_shape : Tuple[int, int]
-        The height and width of the input data before convolution (i.e. its 2D shape)
+    shape : ShapeType
+        A tuple representing 1D, 2D, or 3D spatial dimensions.
+
+    Returns
+    -------
+    Tuple[int, int, int]
+        A 3D tuple where missing dimensions are filled with 1s.
+    """
+    if len(shape) == 1:
+        return (shape[0], 1, 1)  # Convert (H,) -> (H, 1, 1)
+    if len(shape) == 2:
+        return (shape[0], shape[1], 1)  # Convert (H, W) -> (H, W, 1)
+    if len(shape) == 3:
+        return shape  # Already 3D
+    raise ValueError(f"Invalid shape {shape}. Expected a 1D, 2D, or 3D tuple.")
+
+
+@Layer.register_subclass("SpatialConv")
+class SpatialConv(Layer):
+    """ A Spatial Convolutional Neural Network (CNN) layer
+
+    Parameters
+    ----------
+    input_shape : ShapeType
+        The height, width, and depth of the input data before convolution (i.e. its 3D shape)
     activation : Activation
         Activation function to use
     filters : int
         Number of convolution filters
-    kernel_size : Tuple[int, int]
+    kernel_size : ShapeType
         Size of the convolution kernel
-    strides : Tuple[int, int]
+    strides : ShapeType
         Strides of the convolution
     padding : bool
         Whether or not padding should be applied to the convolution
@@ -717,28 +745,30 @@ class Conv2D(Layer):
 
     Attributes
     ----------
-    input_shape : Tuple[int, int]
-        The height and width of the input data before convolution (i.e. its 2D shape)
+    input_shape : Tuple[int, int, int]
+        The height, width, and depth of the input data before convolution (i.e. its 3D shape)
     activation : Activation
         Activation function to use
     filters : int
         Number of convolution filters
-    kernel_size : Tuple[int, int]
+    kernel_size : Tuple[int, int, int]
         Size of the convolution kernel
-    strides : Tuple[int, int]
+    strides : Tuple[int, int, int]
         Strides of the convolution
     padding : bool
         Whether or not padding should be applied to the convolution
     """
 
     @property
-    def input_shape(self) -> Tuple[int, int]:
+    def input_shape(self) -> Tuple[int, int, int]:
         return self._input_shape
 
     @input_shape.setter
-    def input_shape(self, input_shape: Tuple[int, int]) -> None:
+    def input_shape(self, input_shape: ShapeType) -> None:
+        input_shape = _extend_shape(input_shape)
         assert input_shape[0] > 0, f"input_shape[0] = {input_shape[0]}"
         assert input_shape[1] > 0, f"input_shape[1] = {input_shape[1]}"
+        assert input_shape[2] > 0, f"input_shape[2] = {input_shape[2]}"
         self._input_shape = input_shape
 
     @property
@@ -759,23 +789,27 @@ class Conv2D(Layer):
         self._filters = filters
 
     @property
-    def kernel_size(self) -> Tuple[int, int]:
+    def kernel_size(self) -> Tuple[int, int, int]:
         return self._kernel_size
 
     @kernel_size.setter
-    def kernel_size(self, kernel_size: Tuple[int, int]) -> None:
+    def kernel_size(self, kernel_size: ShapeType) -> None:
+        kernel_size = _extend_shape(kernel_size)
         assert kernel_size[0] > 0, f"kernel_size[0] = {kernel_size[0]}"
         assert kernel_size[1] > 0, f"kernel_size[1] = {kernel_size[1]}"
+        assert kernel_size[2] > 0, f"kernel_size[2] = {kernel_size[2]}"
         self._kernel_size = kernel_size
 
     @property
-    def strides(self) -> Tuple[int, int]:
+    def strides(self) -> Tuple[int, int, int]:
         return self._strides
 
     @strides.setter
-    def strides(self, strides: Tuple[int, int]) -> None:
+    def strides(self, strides: ShapeType) -> None:
+        strides = _extend_shape(strides)
         assert strides[0] > 0, f"strides[0] = {strides[0]}"
         assert strides[1] > 0, f"strides[1] = {strides[1]}"
+        assert strides[2] > 0, f"strides[2] = {strides[2]}"
         self._strides = strides
 
     @property
@@ -788,11 +822,11 @@ class Conv2D(Layer):
 
 
     def __init__(self,
-                 input_shape:      Tuple[int, int],
+                 input_shape:      ShapeType,
                  activation:       str = 'relu',
                  filters:          int = 1,
-                 kernel_size:      Tuple[int, int] = (1, 1),
-                 strides:          Tuple[int, int] = (1, 1),
+                 kernel_size:      ShapeType = (1,),
+                 strides:          ShapeType = (1,),
                  padding:          bool = True,
                  dropout_rate:     float = 0.,
                  batch_normalize:  bool = False,
@@ -807,7 +841,7 @@ class Conv2D(Layer):
 
     def __eq__(self, other: Any) -> bool:
         return (self is other or
-                 (isinstance(other, Conv2D) and
+                 (isinstance(other, SpatialConv) and
                   self.input_shape == other.input_shape and
                   self.activation == other.activation and
                   self.filters == other.filters and
@@ -832,14 +866,14 @@ class Conv2D(Layer):
                    )
 
     def _build(self, input_tensor: KerasTensor) -> KerasTensor:
-        assert input_tensor.shape[-1] % (self.input_shape[0] * self.input_shape[1]) == 0, \
-            "Input tensor shape is not divisible by the expected input 2D shape"
+        assert input_tensor.shape[-1] % (self.input_shape[0] * self.input_shape[1] * self.input_shape[2]) == 0, \
+            "Input tensor shape is not divisible by the expected input 3D shape"
 
-        number_of_channels = input_tensor.shape[-1] // (self.input_shape[0] * self.input_shape[1])
-        input_shape = (-1, self.input_shape[0], self.input_shape[1], number_of_channels)
+        number_of_channels = input_tensor.shape[-1] // (self.input_shape[0] * self.input_shape[1] * self.input_shape[2])
+        input_shape = (-1, self.input_shape[0], self.input_shape[1], self.input_shape[2], number_of_channels)
         x = tf.keras.layers.Reshape(target_shape=input_shape)(input_tensor)
 
-        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Conv2D(filters     = self.filters,
+        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Conv3D(filters     = self.filters,
                                                                    kernel_size = self.kernel_size,
                                                                    strides     = self.strides,
                                                                    padding     = 'same' if self.padding else 'valid',
@@ -848,7 +882,7 @@ class Conv2D(Layer):
         return x
 
     def save(self, group: h5py.Group) -> None:
-        group.create_dataset('type',                data='Conv2D', dtype=h5py.string_dtype())
+        group.create_dataset('type',                data='SpatialConv', dtype=h5py.string_dtype())
         group.create_dataset('input_shape',         data=self.input_shape)
         group.create_dataset('activation_function', data=self.activation, dtype=h5py.string_dtype())
         group.create_dataset('number_of_filters',   data=self.filters)
@@ -860,7 +894,7 @@ class Conv2D(Layer):
         group.create_dataset('layer_normalize',     data=self.layer_normalize)
 
     @classmethod
-    def from_h5(cls, group: h5py.Group) -> Conv2D:
+    def from_h5(cls, group: h5py.Group) -> SpatialConv:
         return cls(input_shape            = tuple(int(x) for x in group['input_shape'  ][()]),
                    activation             =       group["activation_function"          ][()].decode('utf-8'),
                    filters                =   int(group["number_of_filters"            ][()]),
@@ -872,17 +906,17 @@ class Conv2D(Layer):
                    layer_normalize        =  bool(group["layer_normalize"              ][()]))
 
 
-@Layer.register_subclass("MaxPool2D")
-class MaxPool2D(Layer):
-    """ A 2D Max Pool layer
+@Layer.register_subclass("SpatialMaxPool")
+class SpatialMaxPool(Layer):
+    """ A Spatial Max Pool layer
 
     Parameters
     ----------
-    input_shape : Tuple[int, int]
-        The height and width of the input data before convolution (i.e. its 2D shape)
-    pool_size : Tuple[int, int]
+    input_shape : ShapeType
+        The height, width, and depth of the input data before convolution (i.e. its 3D shape)
+    pool_size : ShapeType
         Size of the pooling window
-    strides : Tuple[int, int]
+    strides : ShapeType
         Strides of the convolution
     padding : bool
         Whether or not padding should be applied to the convolution
@@ -896,44 +930,50 @@ class MaxPool2D(Layer):
 
     Attributes
     ----------
-    input_shape : Tuple[int, int]
+    input_shape : Tuple[int, int, int]
         The height and width of the input data before convolution (i.e. its 2D shape)
-    pool_size : Tuple[int, int]
+    pool_size : Tuple[int, int, int]
         Size of the pooling window
-    strides : Tuple[int, int]
+    strides : Tuple[int, int, int]
         Strides of the convolution
     padding : bool
         Whether or not padding should be applied to the convolution
     """
 
     @property
-    def input_shape(self) -> Tuple[int, int]:
+    def input_shape(self) -> Tuple[int, int, int]:
         return self._input_shape
 
     @input_shape.setter
-    def input_shape(self, input_shape: Tuple[int, int]) -> None:
+    def input_shape(self, input_shape: ShapeType) -> None:
+        input_shape = _extend_shape(input_shape)
         assert input_shape[0] > 0, f"input_shape[0] = {input_shape[0]}"
         assert input_shape[1] > 0, f"input_shape[1] = {input_shape[1]}"
+        assert input_shape[2] > 0, f"input_shape[2] = {input_shape[2]}"
         self._input_shape = input_shape
 
     @property
-    def pool_size(self) -> Tuple[int, int]:
+    def pool_size(self) -> Tuple[int, int, int]:
         return self._pool_size
 
     @pool_size.setter
-    def pool_size(self, pool_size: Tuple[int, int]) -> None:
+    def pool_size(self, pool_size: ShapeType) -> None:
+        pool_size = _extend_shape(pool_size)
         assert pool_size[0] > 0, f"pool_size[0] = {pool_size[0]}"
         assert pool_size[1] > 0, f"pool_size[1] = {pool_size[1]}"
+        assert pool_size[2] > 0, f"pool_size[2] = {pool_size[2]}"
         self._pool_size = pool_size
 
     @property
-    def strides(self) -> Tuple[int, int]:
+    def strides(self) -> Tuple[int, int, int]:
         return self._strides
 
     @strides.setter
-    def strides(self, strides: Tuple[int, int]) -> None:
+    def strides(self, strides: ShapeType) -> None:
+        strides = _extend_shape(strides)
         assert strides[0] > 0, f"strides[0] = {strides[0]}"
         assert strides[1] > 0, f"strides[1] = {strides[1]}"
+        assert strides[2] > 0, f"strides[2] = {strides[2]}"
         self._strides = strides
 
     @property
@@ -946,9 +986,9 @@ class MaxPool2D(Layer):
 
 
     def __init__(self,
-                 input_shape:      Tuple[int, int],
-                 pool_size:        Tuple[int, int] = (1, 1),
-                 strides:          Tuple[int, int] = (1, 1),
+                 input_shape:      ShapeType,
+                 pool_size:        ShapeType = (1,),
+                 strides:          ShapeType = (1,),
                  padding:          bool = True,
                  dropout_rate:     float = 0.,
                  batch_normalize:  bool = False,
@@ -961,7 +1001,7 @@ class MaxPool2D(Layer):
 
     def __eq__(self, other: Any) -> bool:
         return (self is other or
-                 (isinstance(other, MaxPool2D) and
+                 (isinstance(other, SpatialMaxPool) and
                   self.input_shape == other.input_shape and
                   self.pool_size == other.pool_size and
                   self.strides == other.strides and
@@ -982,21 +1022,21 @@ class MaxPool2D(Layer):
                    )
 
     def _build(self, input_tensor: KerasTensor) -> KerasTensor:
-        assert input_tensor.shape[-1] % (self.input_shape[0] * self.input_shape[1]) == 0, \
-            "Input tensor shape is not divisible by the expected input 2D shape"
+        assert input_tensor.shape[-1] % (self.input_shape[0] * self.input_shape[1] * self.input_shape[2]) == 0, \
+            "Input tensor shape is not divisible by the expected input 3D shape"
 
-        number_of_channels = input_tensor.shape[-1] // (self.input_shape[0] * self.input_shape[1])
-        input_shape = (-1, self.input_shape[0], self.input_shape[1], number_of_channels)
+        number_of_channels = input_tensor.shape[-1] // (self.input_shape[0] * self.input_shape[1] * self.input_shape[2])
+        input_shape = (-1, self.input_shape[0], self.input_shape[1], self.input_shape[2], number_of_channels)
         x = tf.keras.layers.Reshape(target_shape=input_shape)(input_tensor)
 
-        x = tf.keras.layers.TimeDistributed(tf.keras.layers.MaxPooling2D(pool_size   = self.pool_size,
-                                                                         strides     = self.strides,
-                                                                         padding     = 'same' if self.padding else 'valid'))(x)
+        x = tf.keras.layers.TimeDistributed(tf.keras.layers.MaxPooling3D(pool_size = self.pool_size,
+                                                                         strides   = self.strides,
+                                                                         padding   = 'same' if self.padding else 'valid'))(x)
         x = tf.keras.layers.TimeDistributed(tf.keras.layers.Flatten())(x)
         return x
 
     def save(self, group: h5py.Group) -> None:
-        group.create_dataset('type',             data='MaxPool2D', dtype=h5py.string_dtype())
+        group.create_dataset('type',             data='SpatialMaxPool', dtype=h5py.string_dtype())
         group.create_dataset('input_shape',      data=self.input_shape)
         group.create_dataset('pool_size',        data=self.pool_size)
         group.create_dataset('strides',          data=self.strides)
@@ -1006,7 +1046,7 @@ class MaxPool2D(Layer):
         group.create_dataset('layer_normalize',  data=self.layer_normalize)
 
     @classmethod
-    def from_h5(cls, group: h5py.Group) -> MaxPool2D:
+    def from_h5(cls, group: h5py.Group) -> SpatialMaxPool:
         return cls(input_shape      = tuple(int(x) for x in group['input_shape'][()]),
                    pool_size        = tuple(int(x) for x in group['pool_size'  ][()]),
                    strides          = tuple(int(x) for x in group['strides'    ][()]),
