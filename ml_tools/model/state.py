@@ -6,6 +6,7 @@ from copy import deepcopy
 from concurrent.futures import ProcessPoolExecutor
 import h5py
 import numpy as np
+import pandas as pd
 from ml_tools.utils.status_bar import StatusBar
 from ml_tools.model.feature_perturbator import FeaturePerturbator
 
@@ -63,6 +64,36 @@ class State():
             f"'{feature_name}' not found in state features. Available features: {list(self.features.keys())}"
         data_array = data_array if isinstance(data_array, np.ndarray) else np.asarray(data_array)
         self._features[feature_name] = data_array
+
+
+    def to_dataframe(self, features: List[str]) -> pd.DataFrame:
+        """ Convert the State into a Pandas DataFrame.
+
+        Parameters
+        ----------
+        features : List[str]
+            List of features to extract to the dataframe, default is all features of the state
+
+        Returns
+        -------
+        pd.DataFrame
+            A DataFrame where each feature is a column, and each row corresponds to an element in the feature arrays.
+        """
+
+        features = self.features if features is None else {k: self.features[k] for k in features}
+
+        flat_data = {}
+        for feature_name, values in features.items():
+            values = np.asarray(values)
+
+            if len(values) == 1:
+                flat_data[feature_name] = values
+            else:
+                for i, v in enumerate(values.flat):
+                    flat_data[f"{feature_name}_{i}"] = v
+
+        return pd.DataFrame([flat_data])
+
 
     @staticmethod
     def read_state_from_hdf5(file_name: str, state: str, features: List[str]) -> State:
@@ -281,3 +312,36 @@ class State():
 
 # Defining a series of States as an order list
 StateSeries = List[State]
+
+
+def series_to_pandas(state_series: List[StateSeries], features: List[str] = None,) -> pd.DataFrame:
+    """ Convert a List of StateSeries to a Pandas Dataframe
+
+    Parameters
+    ----------
+    state_series : List[StateSeries]
+        The list of state series to be converted
+    features : List[str]
+        List of features to extract to the dataframe, default is all features of the state
+
+    Returns
+    -------
+    pd.DataFrame
+        The created Pandas Dataframe
+    """
+
+    series_dfs = []
+
+    for series_idx, series in enumerate(state_series):
+        if not series:
+            continue
+
+        state_dfs = [state.to_dataframe(features) for state in series]
+        assert all(isinstance(df, pd.DataFrame) for df in state_dfs), \
+            "One or more states returned an invalid DataFrame"
+
+        df       = pd.concat(state_dfs, ignore_index=True)
+        df.index = pd.MultiIndex.from_product([[series_idx], range(len(df))], names=["series_index", "state_index"])
+        series_dfs.append(df)
+
+    return pd.concat(series_dfs)

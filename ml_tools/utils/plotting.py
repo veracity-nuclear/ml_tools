@@ -121,6 +121,7 @@ def plot_hist(models:       Dict[str, PredictionStrategy],
     plt.ylabel('Count')
     plt.legend()
     plt.savefig(fig_name+'.png')
+    plt.close()
 
 
 def plot_sensitivities(models:                  Dict[str, PredictionStrategy],
