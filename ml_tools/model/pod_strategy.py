@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import List, Optional
+from typing import List, Optional, Type
 from math import isclose
 import numpy as np
 from sklearn.decomposition import PCA
@@ -206,7 +206,7 @@ class PODStrategy(PredictionStrategy):
         raise NotImplementedError
 
     @classmethod
-    def read_from_file(cls, file_name: str) -> PODStrategy:
+    def read_from_file(cls, file_name: str) -> Type[PODStrategy]:
         """ A method for loading a trained model from a file
 
         Parameters

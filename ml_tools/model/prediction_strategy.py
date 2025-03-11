@@ -1,6 +1,6 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Type
 from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 import h5py
@@ -161,7 +161,7 @@ class PredictionStrategy(ABC):
 
     @classmethod
     @abstractmethod
-    def read_from_file(cls, file_name: str) -> None:
+    def read_from_file(cls, file_name: str) -> Type[PredictionStrategy]:
         """ A method for loading a trained model from a file
 
         Parameters

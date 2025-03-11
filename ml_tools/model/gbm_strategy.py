@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Type
 import os
 import h5py
 import lightgbm as lgb
@@ -383,7 +383,6 @@ class GBMStrategy(PredictionStrategy):
         file_name = h5_file.filename
         lgbm_name = file_name.removesuffix(".h5") + ".lgbm" if file_name.endswith(".h5") else file_name + ".lgbm"
 
-        assert os.path.exists(file_name), f"file name = {file_name}"
         read_lgbm_h5 = not os.path.exists(lgbm_name)
         self.base_load_model(h5_file)
         if read_lgbm_h5:
@@ -395,7 +394,7 @@ class GBMStrategy(PredictionStrategy):
 
 
     @classmethod
-    def read_from_file(cls: GBMStrategy, file_name: str) -> GBMStrategy:
+    def read_from_file(cls: GBMStrategy, file_name: str) -> Type[GBMStrategy]:
         """ A basic factory method for building a GBM Strategy from an HDF5 file
 
         Parameters
