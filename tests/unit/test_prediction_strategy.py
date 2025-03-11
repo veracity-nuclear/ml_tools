@@ -56,7 +56,7 @@ def test_gbm_strategy():
 
     cips_calculator.save_model('test_gbm_model.h5')
 
-    new_cips_calculator = GBMStrategy.read_from_hdf5('test_gbm_model.h5')
+    new_cips_calculator = GBMStrategy.read_from_file('test_gbm_model.h5')
 
     assert new_cips_calculator.boosting_type          == cips_calculator.boosting_type
     assert new_cips_calculator.objective              == cips_calculator.objective

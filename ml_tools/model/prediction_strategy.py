@@ -159,6 +159,19 @@ class PredictionStrategy(ABC):
         self.input_features = input_features
 
 
+    @classmethod
+    @abstractmethod
+    def read_from_file(cls, file_name: str) -> None:
+        """ A method for loading a trained model from a file
+
+        Parameters
+        ----------
+        file_name : str
+            The name of the file to load the model from
+        """
+        raise NotImplementedError
+
+
     def predict(self, state_series: List[StateSeries]) -> List[List[np.ndarray]]:
         """ The method that approximates the predicted features corresponding to a list of state series
 

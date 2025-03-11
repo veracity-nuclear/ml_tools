@@ -1,3 +1,4 @@
+from __future__ import annotations
 from typing import List, Optional
 from math import isclose
 import numpy as np
@@ -196,6 +197,17 @@ class PODStrategy(PredictionStrategy):
 
     def load_model(self, file_name: str) -> None:
         """ A method for loading a trained model
+
+        Parameters
+        ----------
+        file_name : str
+            The name of the file to load the model from
+        """
+        raise NotImplementedError
+
+    @classmethod
+    def read_from_file(cls, file_name: str) -> PODStrategy:
+        """ A method for loading a trained model from a file
 
         Parameters
         ----------

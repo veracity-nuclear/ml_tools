@@ -372,7 +372,7 @@ class GBMStrategy(PredictionStrategy):
             h5_file.create_dataset('serialized_lgbm_file', data=file_data)
 
 
-    def load_model(self, file_name: str) -> None:
+    def load_model(self, h5_file: h5py.File) -> None:
         """ A method for loading a trained model
 
         Parameters
@@ -380,23 +380,22 @@ class GBMStrategy(PredictionStrategy):
         file_name : str
             The name of the file to load the model from
         """
+        file_name = h5_file.filename
         lgbm_name = file_name.removesuffix(".h5") + ".lgbm" if file_name.endswith(".h5") else file_name + ".lgbm"
-        file_name = file_name if file_name.endswith(".h5") else file_name + ".h5"
 
         assert os.path.exists(file_name), f"file name = {file_name}"
         read_lgbm_h5 = not os.path.exists(lgbm_name)
-        with h5py.File(file_name, 'r') as h5_file:
-            self.base_load_model(h5_file)
-            if read_lgbm_h5:
-                file_data = h5_file['serialized_lgbm_file'][()]
-                with open(lgbm_name, 'wb') as file:
-                    file.write(file_data)
+        self.base_load_model(h5_file)
+        if read_lgbm_h5:
+            file_data = h5_file['serialized_lgbm_file'][()]
+            with open(lgbm_name, 'wb') as file:
+                file.write(file_data)
 
         self._gbm = lgb.Booster(model_file=lgbm_name)
 
 
     @classmethod
-    def read_from_hdf5(cls: GBMStrategy, file_name: str) -> GBMStrategy:
+    def read_from_file(cls: GBMStrategy, file_name: str) -> GBMStrategy:
         """ A basic factory method for building a GBM Strategy from an HDF5 file
 
         Parameters
@@ -409,9 +408,10 @@ class GBMStrategy(PredictionStrategy):
         GBMStrategy:
             The model from the hdf5 file
         """
+        file_name = file_name if file_name.endswith(".h5") else file_name + ".h5"
         assert os.path.exists(file_name), f"file name = {file_name}"
 
         new_gbm = cls({}, None)
-        new_gbm.load_model(file_name)
+        new_gbm.load_model(h5py.File(file_name, "r"))
 
         return new_gbm
