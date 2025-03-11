@@ -2,7 +2,7 @@ import pytest
 from numpy.testing import assert_array_equal, assert_allclose
 import numpy as np
 
-from ml_tools.model.feature_perturbator import NonPerturbator, NormalPerturbator, RelativeNormalPerturbator
+from ml_tools import NonPerturbator, NormalPerturbator, RelativeNormalPerturbator
 
 orig_data = np.random.uniform(0.0, 10.0, size=100000)
 
