@@ -5,7 +5,7 @@ from numpy.testing import assert_allclose
 import numpy as np
 import pandas as pd
 import pandas.testing as pdt
-from ml_tools.model.state import State, series_to_pandas
+from ml_tools.model.state import State, series_to_pandas, pandas_to_series
 from ml_tools.utils.h5_utils import get_groups_with_prefix
 from ml_tools.model.feature_perturbator import RelativeNormalPerturbator
 
@@ -45,6 +45,14 @@ def test_state():
                                 "boron_concentration": [1439.7208691037854]
     }).set_index(["series_index", "state_index"])
     pdt.assert_frame_equal(actual_df, expected_df, check_dtype=False)
+
+    state                          = pandas_to_series(series_to_pandas([[state]]))[0][0]
+    actual_average_enrichment      = state["average_enrichment"]
+    actual_boron_concentration     = state["boron_concentration"]
+    actual_measured_fixed_detector = state["measured_fixed_detector"]
+    assert_allclose(actual_average_enrichment,      expected_average_enrichment)
+    assert_allclose(actual_boron_concentration,     expected_boron_concentration)
+    assert_allclose(actual_measured_fixed_detector, expected_measured_fixed_detector)
 
     perturbators = {"measured_fixed_detector": RelativeNormalPerturbator(0.5),
                     "boron_concentration":     RelativeNormalPerturbator(0.2)}
