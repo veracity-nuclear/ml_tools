@@ -1,9 +1,13 @@
 from typing import Dict, List, Optional
 import time
+from copy import deepcopy
 import pylab as plt
 import numpy as np
+import pandas as padding
+import seaborn as sns
+import shap
 
-from ml_tools.model.state import State, StateSeries
+from ml_tools.model.state import State, StateSeries, series_to_pandas
 from ml_tools.model.prediction_strategy import PredictionStrategy
 from ml_tools.model.feature_perturbator import FeaturePerturbator
 
@@ -183,7 +187,7 @@ def plot_sensitivities(models:                  Dict[str, PredictionStrategy],
         plt.plot(range(1,len(order)+1), [predicted[i] for i in order],'.r')
         ticks = plt.gca().get_xticks()
         plt.xticks(ticks, [str(int(tick)) if int(tick) % 10 == 0 else '' for tick in ticks])
-        plt.savefig(fig_name_prefix+label+'.png', dpi=600, bbox_inches='tight')
+        plt.savefig(fig_name_prefix+"_"+label+'.png', dpi=600, bbox_inches='tight')
         plt.close()
 
 
@@ -224,3 +228,149 @@ def print_metrics(models:       Dict[str, PredictionStrategy],
         avg = np.mean(diff)
         std = np.std(diff)
         print(fmtstr.format(label + ' :', avg, std, rms, maxdiff, dt/len(state_series)))
+
+
+def plot_corr_matrix(input_features:  List[str],
+                     state_series:    List[StateSeries],
+                     state_index:     int = -1,
+                     fig_name:        str = 'corr_matrix') -> None:
+    """ Function for plotting the correlation matrix of a
+
+    Parameters
+    ----------
+    input_features : List[str]
+        A list specifying the input features whose correlations are to be plotted.
+    state_index : int
+        The index of the state in the series to be plotted (Default: -1)
+    fig_name : str
+        A name for the figure that is generated
+    """
+
+    X = series_to_pandas(state_series, input_features)
+    if state_index == -1:
+            state_index = X.index.get_level_values('state_index').max()
+
+    input_features = [col for col in X.columns if any(col == prefix or col.startswith(prefix) for prefix in input_features)]
+
+    X           = X.loc[(slice(None), state_index), :]
+    X           = X[input_features]
+    corr_matrix = X.corr()
+    corr_matrix = corr_matrix.fillna(0)
+
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(corr_matrix, annot=True, xticklabels=input_features, yticklabels=input_features, cmap='coolwarm', fmt='.2f')
+    plt.tight_layout()
+    plt.savefig(fig_name+'.png', dpi=600, bbox_inches='tight')
+    plt.close()
+
+
+def plot_shap(models: Dict[str, PredictionStrategy],
+              state_series: List[StateSeries],
+              input_features: List[str],
+              fig_name_prefix: str = 'shap_summary',
+              state_index: int = -1) -> None:
+    """ Function to plot SHAP feature importance summary for a given set of models.
+
+    Parameters
+    ----------
+    models : Dict[str, PredictionStrategy]
+        The collection of models (i.e. prediction strategies) whose sensitivities are to be plotted.
+        The dictionary key will be the suffix of the figure file name
+    state_series : List[StateSeries]
+        The state series to use for plotting
+    input_features : List[str]
+        The list of features to be included in SHAP analysis
+    fig_name_prefix : str, optional
+        The prefix for the figure files that will be created
+    state_index : int, optional
+        The index of the state in the series to be analyzed (Default: -1, last state).
+    max_display : int, optional
+        The maximum number of features to display in the SHAP summary plot.
+    """
+
+    for label, model in models.items():
+        assert model.isTrained, f"Model {label} must be trained before SHAP analysis."
+
+        def shap_wrapper()
+
+        explainer = shap.Explainer(model.predict, state_series)
+        shap_values = explainer(state_series)
+
+        state_shap_values = []
+        for i, series in enumerate(state_series):
+            state_shap_values.append(shap_values[i][state_index])
+        state_shap_values = np.array(state_shap_values)  # Shape: (num_samples, num_features)
+
+        X = series_to_pandas(state_series)
+        all_input_features = list(X.columns)
+        selected_input_feature_indeces = [i for i, feature in enumerate(all_input_features)
+                                          if any(feature == f or feature.startswith(f) for f in input_features)
+        ]
+        selected_shap_values = state_shap_values[:, selected_input_feature_indeces]
+        selected_feature_names = [all_input_features[i] for i in selected_input_feature_indeces]
+
+        plt.figure(figsize=(10, 6))
+        shap.summary_plot(selected_shap_values, features=selected_feature_names, max_display=max_display, show=False)
+        
+        plt.savefig(fig_name_prefix+"_"+label+'.png', dpi=600, bbox_inches='tight')
+        plt.close()
+
+
+def plot_ice_pdp(models: Dict[str, PredictionStrategy],
+                 state_series: List[StateSeries],
+                 input_feature: str,
+                 fig_name_prefix: str = 'shap_summary',
+                 state_index: int = -1,
+                 array_index: int = 0,
+                 num_points: int = 50) -> None:
+    """ Function to plot ICE/PDP feature analyses for a given set of models.
+
+    Parameters
+    ----------
+    models : Dict[str, PredictionStrategy]
+        The collection of models (i.e. prediction strategies) whose sensitivities are to be plotted.
+        The dictionary key will be the suffix of the figure file name
+    state_series : List[StateSeries]
+        The state series to use for plotting
+    input_feature : List[str]
+        The list of features to be included in SHAP analysis
+    fig_name_prefix : str, optional
+        The prefix for the figure files that will be created
+    state_index : int, optional
+        The index of the state in the series to be analyzed (Default: -1, last state)
+    array_index : int
+        The index of the inpute feature value array to be plotted (Default: 0)
+    num_points : int, optional
+        The number of sampled points for ICE and PDP curves.
+    """
+
+    predicted_feature = next(iter(models.values())).predicted_feature
+
+    for label, model in models.items():
+        assert model.isTrained, f"Model {label} must be trained before ICE/PDP analysis."
+
+        values = np.asarray([series[state_index][input_feature][array_index] for series in state_series])
+        values = np.linspace(np.min(values), np.min(values), num_points)
+
+        ice_curves = []
+        for value in values:
+            state_series_perturbed = deepcopy(state_series)
+            for series in state_series_perturbed:
+                series[state_index][input_feature][array_index] = value
+
+            predicted = np.asarray([series[state_index][array_index]
+                        for series in model.predict(state_series_perturbed)])
+            ice_curves.append(predictions)
+
+        ice_curves = np.array(ice_curves).T
+        pdp_curve = np.mean(ice_curves, axis=0)
+            
+        plt.figure(figsize=(10,6))
+        plt.plot(values, ice_curves.T, color='lightgray', alpha=0.3, label='_nolegend_')
+        plt.plot(values, pdp_curve, color='red', label=f'PDP - {input_feature}', linewidth=2)
+        plt.xlabel(f"{input_feature} (Perturbed)")
+        plt.ylabel("Predicted Output")
+        plt.legend()
+        plt.grid(True)
+        plt.savefig(f"{fig_name_prefix}_{label}_{input_feature}.png", dpi=600, bbox_inches='tight')
+        plt.close()

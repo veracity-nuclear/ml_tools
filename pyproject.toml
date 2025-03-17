@@ -32,6 +32,8 @@ dependencies = [
     'scipy',
     'lightgbm',
     'matplotlib',
+    'seaborn',
+    'shap',
 ]
 
 [project.optional-dependencies]
