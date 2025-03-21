@@ -2,10 +2,12 @@ from typing import Dict, List, Optional
 import time
 import pylab as plt
 import numpy as np
+import seaborn as sns
 
-from ml_tools.model.state import State, StateSeries
+from ml_tools.model.state import State, StateSeries, series_to_pandas
 from ml_tools.model.prediction_strategy import PredictionStrategy
 from ml_tools.model.feature_perturbator import FeaturePerturbator
+
 
 def plot_ref_vs_pred(models:                  Dict[str, PredictionStrategy],
                      state_series:            List[StateSeries],
@@ -183,7 +185,7 @@ def plot_sensitivities(models:                  Dict[str, PredictionStrategy],
         plt.plot(range(1,len(order)+1), [predicted[i] for i in order],'.r')
         ticks = plt.gca().get_xticks()
         plt.xticks(ticks, [str(int(tick)) if int(tick) % 10 == 0 else '' for tick in ticks])
-        plt.savefig(fig_name_prefix+label+'.png', dpi=600, bbox_inches='tight')
+        plt.savefig(fig_name_prefix+"_"+label+'.png', dpi=600, bbox_inches='tight')
         plt.close()
 
 
@@ -224,3 +226,45 @@ def print_metrics(models:       Dict[str, PredictionStrategy],
         avg = np.mean(diff)
         std = np.std(diff)
         print(fmtstr.format(label + ' :', avg, std, rms, maxdiff, dt/len(state_series)))
+
+
+def plot_corr_matrix(input_features:  List[str],
+                     state_series:    List[StateSeries],
+                     state_index:     int = -1,
+                     fig_name:        str = 'corr_matrix') -> None:
+    """ Function for plotting the correlation matrix of a given set of input features
+
+    Parameters
+    ----------
+    input_features : List[str]
+        A list specifying the input features whose correlations are to be plotted.
+    state_series : List[StateSeries]
+        The state series to use for plotting
+    state_index : int
+        The index of the state in the series to be plotted (Default: -1)
+    fig_name : str
+        A name for the figure that is generated (Default: 'corr_matrix')
+    """
+
+    X = series_to_pandas(state_series, input_features)
+
+    if state_index < 0:
+        max_index = X.index.get_level_values('state_index').max()
+        state_index = max_index + 1 + state_index
+
+    valid_indices = X.index.get_level_values('state_index').unique()
+    assert state_index in valid_indices, \
+        f"state_index {state_index} is out of bounds (valid: {valid_indices.min()} to {valid_indices.max()})"
+
+    input_features = [col for col in X.columns if any(col == prefix or col.startswith(prefix) for prefix in input_features)]
+
+    X           = X.loc[(slice(None), state_index), :]
+    X           = X[input_features]
+    corr_matrix = X.corr()
+    corr_matrix = corr_matrix.fillna(0)
+
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(corr_matrix, annot=True, xticklabels=input_features, yticklabels=input_features, cmap='coolwarm', fmt='.2f')
+    plt.tight_layout()
+    plt.savefig(fig_name+'.png', dpi=600, bbox_inches='tight')
+    plt.close()

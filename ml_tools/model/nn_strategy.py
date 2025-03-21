@@ -1318,7 +1318,7 @@ class NNStrategy(PredictionStrategy):
                  layers                : List[Layer]=None,
                  initial_learning_rate : float=0.01,
                  learning_decay_rate   : float=1.,
-                 epoch_limit           : int=400,
+                 epoch_limit           : int=1000,
                  convergence_criteria  : float=1E-14,
                  convergence_patience  : int=100,
                  batch_size            : int=32) -> None:
