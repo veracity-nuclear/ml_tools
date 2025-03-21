@@ -5,11 +5,8 @@ import h5py
 from numpy.testing import assert_allclose
 import numpy as np
 
-from ml_tools.model.state import State
-from ml_tools.model.nn_strategy import NNStrategy, Dense, LSTM, Transformer, SpatialConv, SpatialMaxPool, PassThrough, LayerSequence, CompoundLayer
-from ml_tools.model.gbm_strategy import GBMStrategy
-from ml_tools.model.pod_strategy import PODStrategy
-from ml_tools.model.feature_processor import MinMaxNormalize, NoProcessing
+from ml_tools.model.nn_strategy import Dense, LSTM, Transformer, SpatialConv, SpatialMaxPool, PassThrough, LayerSequence, CompoundLayer
+from ml_tools import State, NNStrategy, GBMStrategy, PODStrategy, MinMaxNormalize, NoProcessing
 
 input_features = {'average_exposure' : MinMaxNormalize(0., 45.),
                   'num_gad_rods'     : MinMaxNormalize(0., 12.),
@@ -59,7 +56,7 @@ def test_gbm_strategy():
 
     cips_calculator.save_model('test_gbm_model.h5')
 
-    new_cips_calculator = GBMStrategy.read_from_hdf5('test_gbm_model.h5')
+    new_cips_calculator = GBMStrategy.read_from_file('test_gbm_model.h5')
 
     assert new_cips_calculator.boosting_type          == cips_calculator.boosting_type
     assert new_cips_calculator.objective              == cips_calculator.objective

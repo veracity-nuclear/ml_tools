@@ -12,12 +12,12 @@ authors = [
 description = "A collection of Machine Learning tools for various Nuclear Reactor Applications"
 readme = "README.md"
 keywords = []
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 license = {text = "TBD"}
 classifiers = [
     'Development Status :: 2 - Pre-Alpha',
     'Intended Audience :: Science/Research',
-    'Programming Language :: Python :: 3.12',
+    'Programming Language :: Python :: 3.11',
     'Operating System :: POSIX :: Linux',
     'Natural Language :: English',
     'Topic :: Scientific/Engineering :: Physics',

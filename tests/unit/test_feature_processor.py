@@ -4,7 +4,7 @@ import numpy as np
 import os
 import h5py
 
-from ml_tools.model.feature_processor import MinMaxNormalize, NoProcessing, write_feature_processor, read_feature_processor
+from ml_tools import MinMaxNormalize, NoProcessing, write_feature_processor, read_feature_processor
 
 def test_minmax_normalize():
     orig_data = np.array([2., 5., 6., 8.])

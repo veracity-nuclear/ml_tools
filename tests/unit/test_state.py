@@ -5,9 +5,9 @@ from numpy.testing import assert_allclose
 import numpy as np
 import pandas as pd
 import pandas.testing as pdt
-from ml_tools.model.state import State, series_to_pandas
+from ml_tools.model.state import series_to_pandas
 from ml_tools.utils.h5_utils import get_groups_with_prefix
-from ml_tools.model.feature_perturbator import RelativeNormalPerturbator
+from ml_tools import State, RelativeNormalPerturbator
 
 def test_state():
 

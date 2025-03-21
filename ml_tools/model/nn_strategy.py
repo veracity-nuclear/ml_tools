@@ -1403,7 +1403,7 @@ class NNStrategy(PredictionStrategy):
 
 
     @classmethod
-    def read_from_file(cls: NNStrategy, file_name: str) -> NNStrategy:
+    def read_from_file(cls: NNStrategy, file_name: str) -> Type[NNStrategy]:
         """ A basic factory method for building NN Strategy from an HDF5 file
 
         Parameters
