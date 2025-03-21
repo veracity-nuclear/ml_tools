@@ -232,20 +232,29 @@ def plot_corr_matrix(input_features:  List[str],
                      state_series:    List[StateSeries],
                      state_index:     int = -1,
                      fig_name:        str = 'corr_matrix') -> None:
-    """ Function for plotting the correlation matrix of a
+    """ Function for plotting the correlation matrix of a given set of input features
+
     Parameters
     ----------
     input_features : List[str]
         A list specifying the input features whose correlations are to be plotted.
+    state_series : List[StateSeries]
+        The state series to use for plotting
     state_index : int
         The index of the state in the series to be plotted (Default: -1)
     fig_name : str
-        A name for the figure that is generated
+        A name for the figure that is generated (Default: 'corr_matrix')
     """
 
     X = series_to_pandas(state_series, input_features)
-    if state_index == -1:
-        state_index = X.index.get_level_values('state_index').max()
+
+    if state_index < 0:
+        max_index = X.index.get_level_values('state_index').max()
+        state_index = max_index + 1 + state_index
+
+    valid_indices = X.index.get_level_values('state_index').unique()
+    assert state_index in valid_indices, \
+        f"state_index {state_index} is out of bounds (valid: {valid_indices.min()} to {valid_indices.max()})"
 
     input_features = [col for col in X.columns if any(col == prefix or col.startswith(prefix) for prefix in input_features)]
 
