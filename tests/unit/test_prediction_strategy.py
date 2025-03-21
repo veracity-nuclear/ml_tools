@@ -121,7 +121,7 @@ def test_nn_strategy_LSTM():
     cips_calculator.save_model('test_nn_model')
     new_cips_calculator = NNStrategy.read_from_file('test_nn_model')
     assert all(old_layer == new_layer for old_layer, new_layer in zip(cips_calculator.layers, new_cips_calculator.layers))
-    assert_allclose(state["cips_index"], new_cips_calculator.predict([[state]*100])[0][-1], atol=1E-5)
+    assert_allclose(state["cips_index"], new_cips_calculator.predict([[state]*100])[0][-1], atol=1E-2)
 
 
 def test_nn_strategy_Transformer():

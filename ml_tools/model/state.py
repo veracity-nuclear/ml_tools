@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import List, Dict, Union
+from typing import List, Dict, Union, Optional
 import os
 import random
 from copy import deepcopy
@@ -66,12 +66,12 @@ class State():
         self._features[feature_name] = data_array
 
 
-    def to_dataframe(self, features: List[str]) -> pd.DataFrame:
+    def to_dataframe(self, features: Optional[List[str]] = None) -> pd.DataFrame:
         """ Convert the State into a Pandas DataFrame.
 
         Parameters
         ----------
-        features : List[str]
+        features : Optional[List[str]]
             List of features to extract to the dataframe, default is all features of the state
 
         Returns
@@ -93,6 +93,8 @@ class State():
                     flat_data[f"{feature_name}_{i}"] = v
 
         return pd.DataFrame([flat_data])
+
+
 
 
     @staticmethod
