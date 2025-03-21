@@ -108,7 +108,7 @@ class PredictionStrategy(ABC):
         with ProcessPoolExecutor(max_workers=num_procs) as executor:
             processed_inputs = list(executor.map(self._process_single_series, state_series, input_features))
 
-        return np.asarray(processed_inputs)
+        return self._pad_series(processed_inputs)
 
 
     @staticmethod
@@ -125,6 +125,31 @@ class PredictionStrategy(ABC):
             processed_inputs.append(processed_data)
         return np.hstack(processed_inputs)
 
+    @staticmethod
+    def _pad_series(state_series: List[np.ndarray], pad_value: float = 0.0) -> np.ndarray:
+        """ Pads state series data to have the same number of timesteps
+
+        Parameters
+        ----------
+        sequences : List[np.ndarray]
+            List of state series arrays (timesteps_i, num_features)
+        pad_value : float
+            The value used for padding
+
+        Returns
+        -------
+        np.ndarray
+            A padded array of shape (num_series, max_timesteps, num_features)
+        """
+
+        max_len = max(series.shape[0] for series in state_series)
+        num_features = state_series[0].shape[1]
+
+        padded = np.full((len(state_series), max_len, num_features), pad_value, dtype=np.float32)
+        for i, series in enumerate(state_series):
+            padded[i, :series.shape[0], :] = series
+
+        return padded
 
     def base_save_model(self, h5_file: h5py.File) -> None:
         """ A method for saving base-class data for a trained model
