@@ -134,7 +134,7 @@ class PredictionStrategy(ABC):
         sequences : List[np.ndarray]
             List of state series arrays (timesteps_i, num_features)
         pad_value : float
-            The value used for padding (Default : 0.0)
+            The value used for padding (Default: 0.0)
 
         Returns
         -------
