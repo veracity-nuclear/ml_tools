@@ -122,9 +122,9 @@ class State():
             else:
                 features[col] = df[col].values[0]
 
-        for key in features:
-            if isinstance(features[key], list):
-                features[key] = np.array(features[key]).flatten()
+        for key, feature in features.items():
+            if isinstance(feature, list):
+                features[key] = np.array(feature).flatten()
 
         return cls(features)
 
