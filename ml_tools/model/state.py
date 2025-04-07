@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import List, Dict, Union, Optional
 import os
 import random
+import re
 from copy import deepcopy
 from concurrent.futures import ProcessPoolExecutor
 import h5py
@@ -94,7 +95,38 @@ class State():
 
         return pd.DataFrame([flat_data])
 
+    @classmethod
+    def from_dataframe(cls, df: pd.DataFrame) -> State:
+        """ Convert a Pandas DataFrame into a State object.
+        Parameters
+        ----------
+        df : pd.DataFrame
+            The DataFrame to be converted, where each feature is a column,
+            and each row corresponds to an element in the feature arrays.
+        Returns
+        -------
+        State
+            The State object constructed from the dataframe.
+        """
 
+        assert not df.empty, "DataFrame is empty"
+
+        features = {}
+        for col in df.columns:
+            vector_feature = re.match(r"^(.*)_(\d+)$", col)
+            if vector_feature:
+                base_feature, index = vector_feature.groups()
+                if base_feature not in features:
+                    features[base_feature] = []
+                features[base_feature].append(df[col].values)
+            else:
+                features[col] = df[col].values[0]
+
+        for key, feature in features.items():
+            if isinstance(feature, list):
+                features[key] = np.array(feature).flatten()
+
+        return cls(features)
 
 
     @staticmethod
@@ -347,3 +379,35 @@ def series_to_pandas(state_series: List[StateSeries], features: List[str] = None
         series_dfs.append(df)
 
     return pd.concat(series_dfs)
+
+
+def pandas_to_series(df: pd.DataFrame) -> List[StateSeries]:
+    """ Convert a Pandas DataFrame into a List of StateSeries
+
+    "DataFrame index must be a MultiIndex with 'series_index' and 'state_index'"
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The DataFrame to be converted.
+
+    Returns
+    -------
+    List[StateSeries]
+        The list of state series
+    """
+    assert not df.empty, "DataFrame is empty"
+    assert isinstance(df.index, pd.MultiIndex), \
+        "DataFrame index must be a MultiIndex with 'series_index' and 'state_index'"
+
+    state_series_dict = {}
+
+    for (series_idx, state_idx), state_df in df.groupby(level=["series_index", "state_index"]):
+        state = State.from_dataframe(state_df.reset_index(drop=True))
+
+        if series_idx not in state_series_dict:
+            state_series_dict[series_idx] = []
+        state_series_dict[series_idx].append(state)
+
+    max_series_idx = max(state_series_dict.keys())
+    return [state_series_dict.get(i) for i in range(max_series_idx + 1)]
