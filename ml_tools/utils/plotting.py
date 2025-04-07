@@ -290,10 +290,10 @@ def plot_ice_pdp(models:          Dict[str, PredictionStrategy],
         The dictionary key will be the suffix of the figure file name
     state_series : List[StateSeries]
         The state series to use for plotting
-    input_feature : List[str]
+    input_feature : str
         The list of features to be included in SHAP analysis
     fig_name_prefix : str, optional
-        The prefix for the figure files that will be created
+        The prefix for the figure files that will be created (Default: 'ice_pdp')
     state_index : int, optional
         The index of the state in the series to be analyzed (Default: -1, last state)
     input_index : int
@@ -301,7 +301,7 @@ def plot_ice_pdp(models:          Dict[str, PredictionStrategy],
     output_index : int
         The index of the predicted value array to be plotted (Default: 0)
     num_points : int, optional
-        The number of sampled points for ICE and PDP curves.
+        The number of sampled points for ICE and PDP curves (Default: 50)
     predicted_feature_label : Optional[str]
         The label to use for the predicted feature (Default: predicted feature label from models)
     """
