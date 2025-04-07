@@ -1,8 +1,11 @@
 from typing import Dict, List, Optional
 import time
+from copy import deepcopy
+
 import pylab as plt
 import numpy as np
 import seaborn as sns
+import pandas as pd
 
 from ml_tools.model.state import State, StateSeries, series_to_pandas
 from ml_tools.model.prediction_strategy import PredictionStrategy
@@ -33,7 +36,7 @@ def plot_ref_vs_pred(models:                  Dict[str, PredictionStrategy],
     fig_name : str
         A name for the figure that is generated
     error_bands : List[float]
-        The Error (i.e.Tolerance) Bands to be plotted in terms of ±X% (Default: [2.5, 5.0])
+        The Error (i.e. Tolerance) Bands to be plotted in terms of ±X% (Default: [2.5, 5.0])
     title : bool
         Flag for whether or not a title should be included on the figure
     predicted_feature_label : Optional[str]
@@ -268,3 +271,82 @@ def plot_corr_matrix(input_features:  List[str],
     plt.tight_layout()
     plt.savefig(fig_name+'.png', dpi=600, bbox_inches='tight')
     plt.close()
+
+
+def plot_ice_pdp(models:          Dict[str, PredictionStrategy],
+                 state_series:    List[StateSeries],
+                 input_feature:   str,
+                 fig_name_prefix: str = 'ice_pdp',
+                 state_index:     int = -1,
+                 input_index:     int = 0,
+                 output_index:    int = 0,
+                 num_points:      int = 50,
+                 predicted_feature_label: Optional[str] = None) -> None:
+    """ Function to plot ICE/PDP feature analyses for a given set of models.
+    Parameters
+    ----------
+    models : Dict[str, PredictionStrategy]
+        The collection of models (i.e. prediction strategies) whose sensitivities are to be plotted.
+        The dictionary key will be the suffix of the figure file name
+    state_series : List[StateSeries]
+        The state series to use for plotting
+    input_feature : str
+        The list of features to be included in SHAP analysis
+    fig_name_prefix : str, optional
+        The prefix for the figure files that will be created (Default: 'ice_pdp')
+    state_index : int, optional
+        The index of the state in the series to be analyzed (Default: -1, last state)
+    input_index : int
+        The index of the input feature value array to be plotted (Default: 0)
+    output_index : int
+        The index of the predicted value array to be plotted (Default: 0)
+    num_points : int, optional
+        The number of sampled points for ICE and PDP curves (Default: 50)
+    predicted_feature_label : Optional[str]
+        The label to use for the predicted feature (Default: predicted feature label from models)
+    """
+
+    predicted_feature = next(iter(models.values())).predicted_feature
+
+    values = np.asarray([series[state_index][input_feature][input_index] for series in state_series])
+    values = np.unique(values)
+    values = np.random.choice(values, size=min(num_points, len(values)), replace=False)
+    values.sort()
+
+    for label, model in models.items():
+        assert model.isTrained, f"Model {label} must be trained before ICE/PDP analysis."
+
+        ice_data = []
+        for value in values:
+            state_series_perturbed = deepcopy(state_series)
+            for series in state_series_perturbed:
+                series[state_index][input_feature][input_index] = value
+
+            predictions = model.predict(state_series_perturbed)
+            for i, series in enumerate(predictions):
+                ice_data.append({'sample': i,
+                                 'value': value,
+                                 'prediction': series[state_index][output_index]})
+
+            ice_df = pd.DataFrame(ice_data)
+
+        # ICE Curves
+        plt.figure(figsize=(10, 6))
+        sns.lineplot(data=ice_df, x='value', y='prediction', hue='sample',
+                     estimator=None, alpha=0.3, legend=False, linewidth=1)
+
+        # PDP Curve
+        pdp_df = ice_df.groupby('value')['prediction'].mean().reset_index()
+        sns.lineplot(data=pdp_df, x='value', y='prediction', color='red', label='PDP', linewidth=2)
+
+        # Rug plot for original (unperturbed) values
+        sns.rugplot(x=values, height=0.03, color='black', alpha=0.3)
+
+        # Axis labels
+        predicted_feature_label = predicted_feature if predicted_feature_label is None else predicted_feature_label
+        plt.xlabel(input_feature)
+        plt.ylabel(predicted_feature_label)
+        plt.grid(True)
+        plt.tight_layout()
+        plt.savefig(f"{fig_name_prefix}_{label}_{input_feature}.png", dpi=600, bbox_inches='tight')
+        plt.close()
