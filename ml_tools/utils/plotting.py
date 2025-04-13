@@ -1,8 +1,12 @@
 from typing import Dict, List, Optional
+import random
 import time
+
 import pylab as plt
 import numpy as np
+import pandas as pd
 import seaborn as sns
+import shap
 
 from ml_tools.model.state import State, StateSeries, series_to_pandas
 from ml_tools.model.prediction_strategy import PredictionStrategy
@@ -268,3 +272,68 @@ def plot_corr_matrix(input_features:  List[str],
     plt.tight_layout()
     plt.savefig(fig_name+'.png', dpi=600, bbox_inches='tight')
     plt.close()
+
+
+def plot_shap(models:          Dict[str, PredictionStrategy],
+              state_series:    List[StateSeries],
+              input_features:  List[str],
+              fig_name_prefix: str = 'shap',
+              state_index:     int = -1,
+              array_index:     int = 0,
+              num_samples:     int = 50) -> None:
+    """ Function to plot SHAP feature importance summary for a given set of models.
+
+    Currently, this plot may not be used with time series data, but rather, only with single
+    state point data (i.e. time series of length 1).
+
+    Parameters
+    ----------
+    models : Dict[str, PredictionStrategy]
+        The collection of models (i.e. prediction strategies) whose sensitivities are to be plotted.
+        The dictionary key will be the suffix of the figure file name
+    state_series : List[StateSeries]
+        The state series to use for plotting
+    input_features : List[str]
+        The list of features to be included in SHAP analysis
+    fig_name_prefix : str, optional
+        The prefix for the figure files that will be created
+    state_index : int, optional
+        The index of the state in the series to be analyzed (Default: -1, last state).
+    array_index : int
+        The index of the predicted value array to be plotted (Default: 0)
+    num_samples : int, optional
+        The number of sampled points for assessing the SHAP values.
+    """
+
+    state_series = random.sample(state_series, min(num_samples, len(state_series)))
+    df           = series_to_pandas(state_series)
+
+    for label, model in models.items():
+        assert model.isTrained, f"Model {label} must be trained before SHAP analysis."
+
+        all_input_features = list(df.columns)
+
+        def shap_wrapper(X: np.ndarray) -> np.ndarray:
+            """ Wrapper method which is necessary due to shap.Explainer requiring np.ndarray inputs
+            """
+            index = pd.MultiIndex.from_tuples([(series_idx, 0) for series_idx in range(len(X))],
+                                               names=["series_index", "state_index"])
+
+            X = pd.DataFrame(X, columns=all_input_features, index=index)
+            return np.asarray([series[state_index][array_index]
+                              for series in model.predict(pandas_to_series(X))])
+
+        X = df.to_numpy(dtype=float)
+        explainer = shap.Explainer(shap_wrapper, X)
+        shap_values = explainer(X)
+
+        selected_input_feature_indeces = [i for i, feature in enumerate(all_input_features)
+                                          if any(feature == f or feature.startswith(f) for f in input_features)]
+        selected_shap_values = shap_values[:, selected_input_feature_indeces]
+        selected_feature_names = [all_input_features[i] for i in selected_input_feature_indeces]
+
+        plt.figure(figsize=(10, 6))
+        shap.summary_plot(selected_shap_values, features=selected_feature_names, show=False)
+
+        plt.savefig(fig_name_prefix+"_"+label+'.png', dpi=600, bbox_inches='tight')
+        plt.close()
