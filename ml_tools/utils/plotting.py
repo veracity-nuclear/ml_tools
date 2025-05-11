@@ -295,15 +295,15 @@ def plot_ice_pdp(models:          Dict[str, PredictionStrategy],
     ----------
     input_feature : str
         The input feature to generate ICE / PDP plots for
-    fig_name_prefix : str, optional
+    fig_name_prefix : str
         The prefix for the figure files that will be created (Default: 'ice_pdp')
-    state_index : int, optional
+    state_index : int
         The index of the state in the series to be analyzed (Default: -1, last state)
     input_index : int
         The index of the input feature value array to be plotted (Default: 0)
     output_index : int
         The index of the predicted value array to be plotted (Default: 0)
-    num_points : int, optional
+    num_points : int
         The number of sampled points for ICE and PDP curves (Default: 50)
     predicted_feature_label : Optional[str]
         The label to use for the predicted feature (Default: predicted feature label from models)
@@ -407,13 +407,13 @@ def plot_shap(models:          Dict[str, PredictionStrategy],
         set label for file naming, and the value the list of input features the corresponding plot will include
     algorithm : str
         The SHAP algorithm to use, either 'auto', 'permutation', or 'partition' (Default: 'auto')
-    fig_name_prefix : str, optional
+    fig_name_prefix : str
         The prefix for the figure files that will be created (Default: 'shap')
-    state_index : int, optional
+    state_index : int
         The index of the state in the series to be analyzed (Default: -1, last state).
     array_index : int
         The index of the predicted value array to be plotted (Default: 0)
-    num_samples : int, optional
+    num_samples : int
         The number of sampled points for assessing the SHAP values. (Default: 50)
     num_procs : int
         The number of parallel processors to use when performing the SHAP evaluation (Default: 1)
