@@ -1,10 +1,11 @@
 from typing import List, Union
 import os
-from concurrent.futures import ProcessPoolExecutor
-from functools import partial
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import h5py
 
-def get_groups_with_prefix(file_name: str, prefix: str, num_procs: int = 1) -> List[str]:
+from ml_tools.utils.status_bar import StatusBar
+
+def get_groups_with_prefix(file_name: str, prefix: str, num_procs: int = 1, silent: bool = False) -> List[str]:
     """ Helper function for getting the groups of an HDF5 file belonging to the set with a leading prefix
 
     Parameters
@@ -15,6 +16,8 @@ def get_groups_with_prefix(file_name: str, prefix: str, num_procs: int = 1) -> L
         The prefix of the set which the groups must match
     num_procs : int
         The number of parallel processors to use when reading data from the HDF5
+    silent : bool
+        A flag indicating whether or not to display the progress bar to the screen
 
     Returns
     -------
@@ -27,9 +30,27 @@ def get_groups_with_prefix(file_name: str, prefix: str, num_procs: int = 1) -> L
     with h5py.File(file_name, 'r') as h5_file:
         group_names = list(h5_file.keys())
 
-        with ProcessPoolExecutor(max_workers=num_procs) as executor:
-            results = list(executor.map(partial(_check_group, prefix=prefix), group_names))
-            groups = [group for group in results if group is not None]
+    groups = []
+
+
+    if not silent:
+        print(f"Retrieving groups with prefix: '{prefix}' from: '{file_name}'")
+        statusbar = StatusBar(len(group_names))
+
+    with ProcessPoolExecutor(max_workers=num_procs) as executor:
+        jobs = {executor.submit(_check_group, group, prefix=prefix): group for group in group_names}
+
+        completed = 0
+        for job in as_completed(jobs):
+            result = job.result()
+            if result is not None:
+                groups.append(result)
+            if not silent:
+                statusbar.update(completed)
+                completed += 1
+
+    if not silent:
+        statusbar.finalize()
 
     return groups
 

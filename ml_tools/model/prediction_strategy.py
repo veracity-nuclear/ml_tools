@@ -36,7 +36,6 @@ class PredictionStrategy(ABC):
         for feature, processor in input_features.items():
             assert feature is not self.predicted_feature, f"'{feature}' is also the predicted feature"
             self._input_features[feature] = processor
-        self._input_features = dict(sorted(self._input_features.items()))  # Ensure input features are in alphabetical order
 
     @property
     def predicted_feature(self) -> str:
@@ -101,7 +100,8 @@ class PredictionStrategy(ABC):
         Returns
         -------
         np.ndarray
-            The preprocessed collection of state series input features
+            The preprocessed collection of state series input features. All series are padded
+            with 0.0 to match the length of the longest series.
         """
         input_features = [self.input_features] * len(state_series) # input_features for each worker
 
@@ -197,7 +197,7 @@ class PredictionStrategy(ABC):
         raise NotImplementedError
 
 
-    def predict(self, state_series: List[StateSeries]) -> List[List[np.ndarray]]:
+    def predict(self, state_series: List[StateSeries]) -> np.ndarray:
         """ The method that approximates the predicted features corresponding to a list of state series
 
         Parameters
@@ -207,18 +207,21 @@ class PredictionStrategy(ABC):
 
         Returns
         -------
-        List[List[np.ndarray]]
-            The predicted features for each state in each series
+        np.ndarray
+            Predicted feature values for each state in each series, including any
+            padded timesteps. Users should take care to mask or ignore predictions
+            at padded positions, as they do not correspond to real input data.
         """
         assert self.isTrained
 
-        y = np.asarray(self._predict_all(state_series))
+        y = self._predict_all(self.preprocess_inputs(state_series))
+
         if self.hasBiasingModel:
-            y += np.asarray(self.biasing_model.predict(state_series))
-        return y.tolist()
+            y += self.biasing_model.predict(state_series)
+        return y
 
 
-    def _predict_all(self, state_series: List[StateSeries]) -> List[List[np.ndarray]]:
+    def _predict_all(self, state_series: np.ndarray) -> np.ndarray:
         """ The method that predicts the target values corresponding to the given state series
 
         Target value in this case refers either directly to the predicted feature if
@@ -227,15 +230,15 @@ class PredictionStrategy(ABC):
 
         Parameters
         ----------
-        state_series : List[StateSeries]
+        state_series : np.ndarray
             The input state series at which to predict the target value
 
         Returns
         -------
-        List[List[np.ndarray]]
+        np.ndarray
             The predicted target values for each state in each series
         """
-        return [self._predict_one(series) for series in state_series]
+        return np.asarray([self._predict_one(series) for series in state_series])
 
 
     def _get_targets(self, state_series: List[StateSeries]) -> np.ndarray:
@@ -264,7 +267,7 @@ class PredictionStrategy(ABC):
 
 
     @abstractmethod
-    def _predict_one(self, state_series: StateSeries) -> List[float]:
+    def _predict_one(self, state_series: np.ndarray) -> np.ndarray:
         """ The method that predicts the target values corresponding to the given state series
 
         Target value in this case refers either directly to the predicted feature if
@@ -273,7 +276,7 @@ class PredictionStrategy(ABC):
 
         Parameters
         ----------
-        state_series : StateSeries
+        state_series : np.ndarray
             The input state series for which to predict the target values
 
         Returns

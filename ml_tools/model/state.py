@@ -4,7 +4,7 @@ import os
 import random
 import re
 from copy import deepcopy
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import h5py
 import numpy as np
 import pandas as pd
@@ -88,7 +88,7 @@ class State():
             values = np.asarray(values)
 
             if len(values) == 1:
-                flat_data[feature_name] = values
+                flat_data[feature_name] = values[0]
             else:
                 for i, v in enumerate(values.flat):
                     flat_data[f"{feature_name}_{i}"] = v
@@ -120,11 +120,10 @@ class State():
                     features[base_feature] = []
                 features[base_feature].append(df[col].values)
             else:
-                features[col] = df[col].values[0]
+                features[col] = [df[col].values[0]]
 
         for key, feature in features.items():
-            if isinstance(feature, list):
-                features[key] = np.array(feature).flatten()
+            features[key] = np.array(feature).flatten()
 
         return cls(features)
 
@@ -213,6 +212,7 @@ class State():
             states = random.sample(states, random_sample_size)
 
         if not silent:
+            print(f"Reading state data from: '{file_name}'")
             statusbar = StatusBar(len(states))
         state_data = []
         i = 0
@@ -236,12 +236,14 @@ class State():
                 jobs = {executor.submit(State.read_states_from_hdf5, file_name, features, chunk, silent=True): \
                     chunk for chunk in chunks}
 
-                for i, job in enumerate(jobs):
-                    for state in job.result():
-                        state_data.append(state)
-                        if not silent:
-                            statusbar.update(i)
-                            i+=1
+                completed = 0
+                for job in as_completed(jobs):
+                    result = job.result()
+                    state_data.extend(result)
+                    if not silent:
+                        for _ in result:
+                            statusbar.update(completed)
+                            completed += 1
 
         if not silent:
             statusbar.finalize()
@@ -310,6 +312,7 @@ class State():
         states = [states] if isinstance(states, State) else states
 
         if not silent:
+            print("Perturbing state data")
             statusbar = StatusBar(len(states))
         state_data = []
         i = 0
@@ -332,12 +335,14 @@ class State():
             with ProcessPoolExecutor(max_workers=num_procs) as executor:
                 jobs = {executor.submit(State.perturb_state(perturbators, state)): chunk for chunk in chunks}
 
-                for i, job in enumerate(jobs):
-                    for state in job.result():
-                        state_data.append(state)
-                        if not silent:
-                            statusbar.update(i)
-                            i+=1
+                completed = 0
+                for job in as_completed(jobs):
+                    result = job.result()
+                    state_data.extend(result)
+                    if not silent:
+                        for _ in result:
+                            statusbar.update(completed)
+                            completed += 1
 
         if not silent:
             statusbar.finalize()

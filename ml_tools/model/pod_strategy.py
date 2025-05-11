@@ -154,35 +154,29 @@ class PODStrategy(PredictionStrategy):
             self._pod_mat[k] = np.matmul(u[:,:nvec],np.linalg.inv(theta))
 
 
-    def _predict_one(self, state_series: StateSeries) -> List[np.ndarray]:
+    def _predict_one(self, state_series: np.ndarray) -> np.ndarray:
         return self._predict_all([state_series])[0]
 
 
-    def _predict_all(self, state_series: List[StateSeries]) -> List[List[np.ndarray]]:
+    def _predict_all(self, state_series: np.ndarray) -> np.ndarray:
 
         assert self.isTrained
         assert not self.hasBiasingModel
-        assert all(len(series) == 1 for series in state_series), \
+        assert state_series.shape[1] == 1, \
             "All State Series must be static statepoints (i.e. len(series) == 1)"
 
+        X = state_series[:, 0, :]
+
         if self.nclusters > 1:
-            X      = self.preprocess_inputs(state_series)
-            X      = X.reshape(-1, X.shape[-1])
-            X      = X if self.ndims is None else self._pca.transform(X)
-            labels = self._kmeans.predict(X)
+            X_reduced = X if self.ndims is None else self._pca.transform(X)
+            labels    = self._kmeans.predict(X_reduced)
         else:
-            labels = [0]*len(state_series)
+            labels = np.zeros(X.shape[0], dtype=int)
 
-        results = []
-        index = 0
-        for series in state_series:
-            series_results = []
-            for state in series:
-                series_results.append(np.matmul(self._pod_mat[labels[index]], state[self.input_feature]))
-                index += 1
-            results.append(series_results)
+        results = np.array([np.matmul(self._pod_mat[label], vec)
+                            for label, vec in zip(labels, X)])
 
-        return results
+        return results[:, np.newaxis]
 
 
     def save_model(self, file_name: str) -> None:
