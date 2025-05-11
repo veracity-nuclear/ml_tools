@@ -3,17 +3,17 @@ name: ml_tools Testing
 on:
   push:
   schedule:
-    # Run every weekday at 7:00 AM UTC (3:00 AM EDT)
     - cron: '0 7 * * 1-5'
 
 jobs:
   build-linux:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-22.04   # Force older runner that TensorFlow supports
     strategy:
       max-parallel: 6
 
     steps:
     - uses: actions/checkout@v3
+
     - name: Set up Python 3.11
       uses: actions/setup-python@v3
       with:
@@ -21,27 +21,25 @@ jobs:
 
     - name: Add conda to system path
       run: |
-        # $CONDA is an environment variable pointing to the root of the miniconda directory
         echo $CONDA/bin >> $GITHUB_PATH
 
-    - name: Setup MPI
-      uses: mpi4py/setup-mpi@v1
-      with:
-        mpi: openmpi
-
-    - name: Install dependencies
+    - name: Create conda environment and install dependencies
       run: |
-        python -m pip install pylint pytest tensorflow-cpu keras numpy h5py scikit-learn scipy lightgbm matplotlib
-        conda install -c conda-forge mpi4py libarchive compilers -y
+        conda create -n mltools python=3.11 -y
+        source activate mltools
+        conda install -c conda-forge tensorflow keras numpy h5py scikit-learn scipy lightgbm matplotlib seaborn shap pylint pytest libarchive compilers mpi4py -y
 
     - name: Install ml_tools
       run: |
+        source activate mltools
         python -m pip install -e .
 
     - name: Test with pytest
       run: |
+        source activate mltools
         python -m pytest . --disable-warnings
 
     - name: Lint with pylint
       run: |
+        source activate mltools
         python -m pylint ./ml_tools
