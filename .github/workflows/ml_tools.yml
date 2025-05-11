@@ -7,7 +7,7 @@ on:
 
 jobs:
   build-linux:
-    runs-on: ubuntu-22.04   # Force older runner that TensorFlow supports
+    runs-on: ubuntu-latest
     strategy:
       max-parallel: 6
 
