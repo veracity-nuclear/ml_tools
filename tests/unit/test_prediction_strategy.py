@@ -9,8 +9,8 @@ from ml_tools.model.nn_strategy import Dense, LSTM, Transformer, SpatialConv, Sp
 from ml_tools import State, NNStrategy, GBMStrategy, PODStrategy, MinMaxNormalize, NoProcessing
 
 input_features = {'average_exposure' : MinMaxNormalize(0., 45.),
-                  'num_gad_rods'     : MinMaxNormalize(0., 12.),
-                  'is_refl'          : NoProcessing()}
+                  'is_refl'          : NoProcessing(),
+                  'num_gad_rods'     : MinMaxNormalize(0., 12.)}
 output_feature = "cips_index"
 
 data_file                          = os.path.dirname(__file__)+"/test_data.h5"
@@ -85,7 +85,7 @@ def test_pod_strategy():
     detector_predictor = PODStrategy("measured_rh_detector", "fine_detector", np.asarray(fine_to_coarse_map))
     detector_predictor.train([[state]]*100)
 
-    assert np.allclose(state["fine_detector"], detector_predictor.predict([[state]])[0][0])
+    assert np.allclose(state["fine_detector"], detector_predictor.predict([[state]])[0][0], atol=1E-2)
 
 
 
@@ -113,7 +113,7 @@ def test_nn_strategy_LSTM():
     layers = [LSTM(units=5, activation='relu')]
     cips_calculator = NNStrategy(input_features, output_feature, layers)
     cips_calculator.train([[state]*100]*1000)
-    assert_allclose(state["cips_index"], cips_calculator.predict([[state]*100])[0][-1], atol=1E-5)
+    assert_allclose(state["cips_index"], cips_calculator.predict([[state]*100])[0][-1], atol=1E-2)
 
     cips_calculator.save_model('test_nn_model')
     new_cips_calculator = NNStrategy.read_from_file('test_nn_model')

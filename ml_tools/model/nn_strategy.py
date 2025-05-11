@@ -1370,21 +1370,19 @@ class NNStrategy(PredictionStrategy):
         dataset    = dataset.batch(self.batch_size, drop_remainder=True)
         self._model.fit(dataset, epochs=self.epoch_limit, batch_size=self.batch_size, callbacks=[early_stop])
 
-    def _predict_one(self, state_series: StateSeries) -> List[np.ndarray]:
+    def _predict_one(self, state_series: np.ndarray) -> np.ndarray:
         return self._predict_all([state_series])[0]
 
-    def _predict_all(self, state_series: List[StateSeries]) -> List[List[np.ndarray]]:
+    def _predict_all(self, state_series: np.ndarray) -> np.ndarray:
         """ Doing predictions as a padded `_predict_all` allows for much more optimal parallelization
             as opposed to doing a for-loop of `_predict_one` calls over all series individually.
         """
         assert self.isTrained
 
-        X = self.preprocess_inputs(state_series)
-        true_lengths = [series.shape[0] for series in X]
-        tf.convert_to_tensor(X, dtype=tf.float32)
+        X = tf.convert_to_tensor(state_series, dtype=tf.float32)
 
-        predictions = self._model.predict(X)
-        return [list(series[:length]) for series, length in zip(predictions, true_lengths)]
+        return self._model.predict(X)
+
 
     def save_model(self, file_name: str) -> None:
         """ A method for saving a trained model

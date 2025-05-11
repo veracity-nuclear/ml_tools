@@ -1,6 +1,9 @@
 from typing import Dict, List, Optional
 import random
 import time
+from copy import deepcopy
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import os
 
 import pylab as plt
 import numpy as np
@@ -8,9 +11,10 @@ import pandas as pd
 import seaborn as sns
 import shap
 
-from ml_tools.model.state import State, StateSeries, series_to_pandas
+from ml_tools.model.state import State, StateSeries, series_to_pandas, pandas_to_series
 from ml_tools.model.prediction_strategy import PredictionStrategy
 from ml_tools.model.feature_perturbator import FeaturePerturbator
+from ml_tools.utils.status_bar import StatusBar
 
 
 def plot_ref_vs_pred(models:                  Dict[str, PredictionStrategy],
@@ -35,9 +39,9 @@ def plot_ref_vs_pred(models:                  Dict[str, PredictionStrategy],
     array_index : int
         The index of the predicted value array to be plotted (Default: 0)
     fig_name : str
-        A name for the figure that is generated
+        A name for the figure that is generated (Default: 'ref_vs_pred')
     error_bands : List[float]
-        The Error (i.e.Tolerance) Bands to be plotted in terms of ±X% (Default: [2.5, 5.0])
+        The Error (i.e. Tolerance) Bands to be plotted in terms of ±X% (Default: [2.5, 5.0])
     title : bool
         Flag for whether or not a title should be included on the figure
     predicted_feature_label : Optional[str]
@@ -100,7 +104,7 @@ def plot_hist(models:       Dict[str, PredictionStrategy],
     array_index : int
         The index of the predicted value array to be plotted (Default: 0)
     fig_name : str
-        A name for the figure that is generated
+        A name for the figure that is generated (Default: 'hist')
     predicted_feature_label : Optional[str]
         The label to use for the predicted feature (Default: predicted feature label from models)
     """
@@ -159,7 +163,7 @@ def plot_sensitivities(models:                  Dict[str, PredictionStrategy],
     array_index : int
         The index of the predicted value array to be plotted (Default: 0)
     fig_name_prefix : str
-        The prefix for the figure files that will be created
+        The prefix for the figure files that will be created (Default: 'box_plot')
     num_procs : int
         The number of parallel processors to use when perturbing states
     """
@@ -274,17 +278,122 @@ def plot_corr_matrix(input_features:  List[str],
     plt.close()
 
 
+def plot_ice_pdp(models:          Dict[str, PredictionStrategy],
+                 state_series:    List[StateSeries],
+                 input_feature:   str,
+                 fig_name_prefix: str = 'ice_pdp',
+                 state_index:     int = -1,
+                 input_index:     int = 0,
+                 output_index:    int = 0,
+                 num_points:      int = 50,
+                 silent:          bool = False,
+                 num_procs:       int = 1,
+                 predicted_feature_label: Optional[str] = None) -> None:
+    """ Function to plot ICE/PDP feature analyses for a given set of models.
+
+    Parameters
+    ----------
+    input_feature : str
+        The input feature to generate ICE / PDP plots for
+    fig_name_prefix : str, optional
+        The prefix for the figure files that will be created (Default: 'ice_pdp')
+    state_index : int, optional
+        The index of the state in the series to be analyzed (Default: -1, last state)
+    input_index : int
+        The index of the input feature value array to be plotted (Default: 0)
+    output_index : int
+        The index of the predicted value array to be plotted (Default: 0)
+    num_points : int, optional
+        The number of sampled points for ICE and PDP curves (Default: 50)
+    predicted_feature_label : Optional[str]
+        The label to use for the predicted feature (Default: predicted feature label from models)
+    silent : bool
+        A flag indicating whether or not to display the progress bar to the screen
+    num_procs : int
+        The number of parallel processors to use (Default: 1)
+    """
+
+    predicted_feature = next(iter(models.values())).predicted_feature
+
+    values = np.asarray([series[state_index][input_feature][input_index] for series in state_series])
+    values = np.unique(values)
+    values = np.random.choice(values, size=min(num_points, len(values)), replace=False)
+    values.sort()
+
+    chunk_size = max(1, len(values) // num_procs)
+    batches    = [values[i:i + chunk_size] for i in range(0, len(values), chunk_size)]
+
+    def process_batch(batch):
+        batch_results = []
+        for value in batch:
+            state_series_perturbed = deepcopy(state_series)
+            for series in state_series_perturbed:
+                series[state_index][input_feature][input_index] = value
+
+            predictions = model.predict(state_series_perturbed)
+
+            batch_results.extend([
+                {'sample': i, 'value': value, 'prediction': series[state_index][output_index]}
+                for i, series in enumerate(predictions)
+            ])
+        return batch_results
+
+
+    for label, model in models.items():
+        assert model.isTrained, f"Model {label} must be trained before ICE/PDP analysis."
+
+        if not silent:
+            print(f"Generating ICE/PDP plot: {fig_name_prefix}_{label}_{input_feature}.png")
+            statusbar = StatusBar(len(values))
+
+        ice_data = []
+        with ThreadPoolExecutor(max_workers=num_procs) as executor:
+            jobs = {executor.submit(process_batch, batch): batch for batch in batches}
+
+            completed = 0
+            for job in as_completed(jobs):
+                result = job.result()
+                ice_data.extend(result)
+                if not silent:
+                    batch_size = len(jobs[job])
+                    for _ in range(batch_size):
+                        statusbar.update(completed)
+                        completed += 1
+
+        if not silent:
+            statusbar.finalize()
+
+        ice_df = pd.DataFrame(ice_data)
+
+        plt.figure(figsize=(10, 6))
+        sns.lineplot(data=ice_df, x='value', y='prediction', hue='sample',
+                     estimator=None, alpha=0.3, legend=False, linewidth=1)
+
+        pdp_df = ice_df.groupby('value')['prediction'].mean().reset_index()
+        sns.lineplot(data=pdp_df, x='value', y='prediction', color='red', label='PDP', linewidth=2)
+
+        sns.rugplot(x=values, height=0.03, color='black', alpha=0.3)
+
+        predicted_feature_label = predicted_feature if predicted_feature_label is None else predicted_feature_label
+        plt.xlabel(input_feature)
+        plt.ylabel(predicted_feature_label)
+        plt.grid(True)
+        plt.tight_layout()
+        plt.savefig(f"{fig_name_prefix}_{label}_{input_feature}.png", dpi=600, bbox_inches='tight')
+        plt.close()
+
+
+
 def plot_shap(models:          Dict[str, PredictionStrategy],
               state_series:    List[StateSeries],
-              input_features:  List[str],
+              feature_plots:   Dict[str, List[str]],
+              algorithm:       str = 'auto',
               fig_name_prefix: str = 'shap',
               state_index:     int = -1,
               array_index:     int = 0,
-              num_samples:     int = 50) -> None:
+              num_samples:     int = 50,
+              num_procs:       int = 1) -> None:
     """ Function to plot SHAP feature importance summary for a given set of models.
-
-    Currently, this plot may not be used with time series data, but rather, only with single
-    state point data (i.e. time series of length 1).
 
     Parameters
     ----------
@@ -293,47 +402,72 @@ def plot_shap(models:          Dict[str, PredictionStrategy],
         The dictionary key will be the suffix of the figure file name
     state_series : List[StateSeries]
         The state series to use for plotting
-    input_features : List[str]
-        The list of features to be included in SHAP analysis
+    feature_plots : Dict[str, List[str]]
+        Specification for what sets of input features to make SHAP plots for. The key corresponds to the
+        set label for file naming, and the value the list of input features the corresponding plot will include
+    algorithm : str
+        The SHAP algorithm to use, either 'auto', 'permutation', or 'partition' (Default: 'auto')
     fig_name_prefix : str, optional
-        The prefix for the figure files that will be created
+        The prefix for the figure files that will be created (Default: 'shap')
     state_index : int, optional
         The index of the state in the series to be analyzed (Default: -1, last state).
     array_index : int
         The index of the predicted value array to be plotted (Default: 0)
     num_samples : int, optional
-        The number of sampled points for assessing the SHAP values.
+        The number of sampled points for assessing the SHAP values. (Default: 50)
+    num_procs : int
+        The number of parallel processors to use when performing the SHAP evaluation (Default: 1)
     """
 
-    state_series = random.sample(state_series, min(num_samples, len(state_series)))
-    df           = series_to_pandas(state_series)
+    state_series       = random.sample(state_series, min(num_samples, len(state_series)))
+    df                 = series_to_pandas(state_series)
+    all_input_features = list(df.columns)
+    X                  = df.to_numpy(dtype=float)
 
-    for label, model in models.items():
-        assert model.isTrained, f"Model {label} must be trained before SHAP analysis."
+    def compute_shap(args) -> np.ndarray:
+        """ Function for computing shap values in parallel.
+        """
+        X_batch, model = args
 
-        all_input_features = list(df.columns)
-
-        def shap_wrapper(X: np.ndarray) -> np.ndarray:
-            """ Wrapper method which is necessary due to shap.Explainer requiring np.ndarray inputs
+        def shap_wrapper(X_array: np.ndarray) -> np.ndarray:
+            """ Wrapper function which is necessary due to shap.Explainer requiring np.ndarray inputs
             """
-            index = pd.MultiIndex.from_tuples([(series_idx, 0) for series_idx in range(len(X))],
-                                               names=["series_index", "state_index"])
+            index       = pd.MultiIndex.from_tuples([(i, 0) for i in range(len(X_array))],
+                                                    names=["series_index", "state_index"])
 
-            X = pd.DataFrame(X, columns=all_input_features, index=index)
-            return np.asarray([series[state_index][array_index]
-                              for series in model.predict(pandas_to_series(X))])
+            X_df        = pd.DataFrame(X_array, columns=all_input_features, index=index)
+            predictions = model.predict(pandas_to_series(X_df))
 
-        X = df.to_numpy(dtype=float)
-        explainer = shap.Explainer(shap_wrapper, X)
-        shap_values = explainer(X)
+            return np.asarray([series[state_index][array_index] for series in predictions])
 
-        selected_input_feature_indeces = [i for i, feature in enumerate(all_input_features)
-                                          if any(feature == f or feature.startswith(f) for f in input_features)]
-        selected_shap_values = shap_values[:, selected_input_feature_indeces]
-        selected_feature_names = [all_input_features[i] for i in selected_input_feature_indeces]
+        explainer = shap.Explainer(shap_wrapper, X_batch, algorithm=algorithm)
+        return explainer(X_batch)
 
-        plt.figure(figsize=(10, 6))
-        shap.summary_plot(selected_shap_values, features=selected_feature_names, show=False)
+    for model_label, model in models.items():
+        assert model.isTrained, f"Model {model_label} must be trained before SHAP analysis."
 
-        plt.savefig(fig_name_prefix+"_"+label+'.png', dpi=600, bbox_inches='tight')
-        plt.close()
+        min_samples_per_batch = 5 # This is needed to allow SHAP to correctly perform clustering
+        max_num_batches       = max(1, len(X) // min_samples_per_batch)
+        num_procs             = min(num_procs, max_num_batches, os.cpu_count() or 1)
+        batches               = np.array_split(X, num_procs)
+        batches               = [b for b in batches if len(b) > 0]
+
+        with ThreadPoolExecutor(max_workers=num_procs) as executor:
+            shap_chunks = list(executor.map(compute_shap, [(b, model) for b in batches]))
+        shap_values = np.concatenate([chunk.values for chunk in shap_chunks], axis=0)
+
+        for feature_set, features in feature_plots.items():
+            selected_input_feature_indices = [i for i, feature in enumerate(all_input_features)
+                                              if any(feature == f or feature.startswith(f) for f in features)]
+            selected_feature_names         = [all_input_features[i] for i in selected_input_feature_indices]
+            selected_shap_values           = shap_values[:, selected_input_feature_indices]
+            selected_feature_values        = df.iloc[:, selected_input_feature_indices]
+
+            plt.figure(figsize=(10, 6))
+            shap.summary_plot(selected_shap_values,
+                              feature_names = selected_feature_names,
+                              features      = selected_feature_values,
+                              show          = False)
+
+            plt.savefig(fig_name_prefix+"_"+feature_set+"_"+model_label+'.png', dpi=600, bbox_inches='tight')
+            plt.close()

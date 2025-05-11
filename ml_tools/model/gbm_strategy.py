@@ -326,30 +326,25 @@ class GBMStrategy(PredictionStrategy):
         plt.show()
 
 
-    def _predict_one(self, state_series: StateSeries) -> List[np.ndarray]:
+    def _predict_one(self, state_series: np.ndarray) -> np.ndarray:
 
         return self._predict_all([state_series])[0]
 
 
-    def _predict_all(self, state_series: List[StateSeries]) -> List[List[np.ndarray]]:
+    def _predict_all(self, state_series: np.ndarray) -> np.ndarray:
 
         assert self.isTrained
 
-        X = self.preprocess_inputs(state_series)
-        X = X.reshape(-1, X.shape[-1])
+        n_series, n_timesteps, n_features = state_series.shape
+
+        X = state_series.reshape(-1, n_features)
         y = self._gbm.predict(X, num_iteration=self._gbm.best_iteration)
 
-        results = []
-        index = 0
-        for series in state_series:
-            num_timesteps = len(series)
-            predictions   = y[index: index + num_timesteps]
-            predictions   = [np.asarray([result]) if isinstance(result, float) else np.asarray(result)
-                             for result in predictions]
-            results.append(predictions)
-            index += num_timesteps
+        y = np.asarray(y)
+        if y.ndim == 1:
+            y = y[:, np.newaxis]
 
-        return results
+        return y.reshape(n_series, n_timesteps, -1)
 
 
     def save_model(self, file_name: str) -> None:
