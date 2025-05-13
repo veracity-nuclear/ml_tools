@@ -276,7 +276,7 @@ class State():
 
         return state_data
 
-    
+
     @staticmethod
     def read_series_from_csv(file_name: str, features: Dict[str, FeaturePerturbator]) -> State:
         """ A factory method for extracting state feature data from a CSV file
@@ -460,8 +460,12 @@ def pandas_to_series(df: pd.DataFrame) -> List[StateSeries]:
     return [state_series_dict.get(i) for i in range(max_series_idx + 1)]
 
 
-def build_temporal_dataset(state_series_list: List[StateSeries], window_size: int, predicted_feature: str) -> Tuple[np.ndarray, np.ndarray]:
-    """Create an X, y dataset for time series predictive modeling. If the 
+def build_temporal_dataset(
+        state_series_list: List[StateSeries],
+        window_size: int,
+        predicted_feature: str
+    ) -> Tuple[np.ndarray, np.ndarray]:
+    """Create an X, y dataset for time series predictive modeling. If the
     predicted feature is not found in the state series, the y dataset will
     be returned as an empty array.
 
@@ -472,7 +476,7 @@ def build_temporal_dataset(state_series_list: List[StateSeries], window_size: in
     window_size : int
         The size of the time window to be used for the temporal datasets
     predicted_feature : str
-        The name of the feature to be predicted (must match a column in 
+        The name of the feature to be predicted (must match a column in
         the DataFrame)
 
     Returns

@@ -4,9 +4,9 @@ from typing import List, Dict, Literal, Type, Tuple, Optional, Union, Any
 import os
 from math import isclose
 from decimal import Decimal
+from copy import deepcopy
 import h5py
 import numpy as np
-from copy import deepcopy
 
 # Pylint appears to not be handling the tensorflow imports correctly
 # pylint: disable=import-error, no-name-in-module
@@ -1458,7 +1458,7 @@ class NNStrategy(PredictionStrategy):
 
 
 class NNTemporalStrategy(NNStrategy):
-    """ A neural network strategy for time series forecasting. This class 
+    """ A neural network strategy for time series forecasting. This class
     takes temporal data with a certain window size and predicts the value of
     the predicted feature at the next time step.
 
@@ -1501,7 +1501,7 @@ class NNTemporalStrategy(NNStrategy):
     @property
     def window_size(self) -> int:
         return self._window_size
-    
+
     @window_size.setter
     def window_size(self, window_size: int) -> None:
         assert window_size > 0, f"window_size = {window_size}"
@@ -1519,23 +1519,24 @@ class NNTemporalStrategy(NNStrategy):
                  batch_size            : int=32,
                  window_size           : int=1) -> None:
         super().__init__(
-            input_features, 
-            predicted_feature, 
-            layers, 
-            initial_learning_rate, 
-            learning_decay_rate, 
-            epoch_limit, 
-            convergence_criteria, 
+            input_features,
+            predicted_feature,
+            layers,
+            initial_learning_rate,
+            learning_decay_rate,
+            epoch_limit,
+            convergence_criteria,
             convergence_patience,
             batch_size
         )
-        self.window_size = window_size  
+        self.window_size = window_size
 
-    
+    # this is a temporal strategy, so we need to override the train method with different parameters
+    # pylint: disable=arguments-differ
     def train(self, train_series_list: List[StateSeries]) -> None:
-        """ Trains the model from a temporal dataset that is created from a 
+        """ Trains the model from a temporal dataset that is created from a
         list of time series datasets.
-        
+
         Parameters
         ----------
         train_series_list : List[StateSeries]
@@ -1544,8 +1545,8 @@ class NNTemporalStrategy(NNStrategy):
 
         # X.shape = (N_SAMPLES, WINDOW_SIZE, N_FEATURES), y.shape = (N_SAMPLES, N_PRED_FEATURES)
         X, y = build_temporal_dataset(
-            train_series_list, 
-            window_size=self.window_size, 
+            train_series_list,
+            window_size=self.window_size,
             predicted_feature=self.predicted_feature
         )
 
@@ -1573,23 +1574,23 @@ class NNTemporalStrategy(NNStrategy):
                                    verbose              = 1,
                                    mode                 = 'auto',
                                    restore_best_weights = True)
-        
+
         self._model.fit(
-            X_train, y_train, 
-            validation_data=(X_val, y_val), 
-            epochs=self.epoch_limit, 
-            batch_size=self.batch_size, 
-            callbacks=[early_stop], 
+            X_train, y_train,
+            validation_data=(X_val, y_val),
+            epochs=self.epoch_limit,
+            batch_size=self.batch_size,
+            callbacks=[early_stop],
             verbose=1
         )
 
 
-    def predict(self, series: StateSeries, preprocess_inputs: bool = True) -> np.ndarray:
+    def predict(self, state_series: StateSeries, preprocess_inputs: bool = True) -> np.ndarray:
         """ Predicts the value of the predicted feature for a given series
 
         Parameters
         ----------
-        series : StateSeries
+        state_series : StateSeries
             The series to predict the value of the predicted feature for
         preprocess_inputs : bool
             Whether or not to preprocess the inputs before prediction
@@ -1600,8 +1601,8 @@ class NNTemporalStrategy(NNStrategy):
             The predicted value of the predicted feature for the given series
         """
         assert self.isTrained, "The model has not been trained yet"
-        
-        pred_series = deepcopy(series)
+
+        pred_series = deepcopy(state_series)
         if preprocess_inputs:
             for state in pred_series:
                 for feature, processor in self.input_features.items():
@@ -1612,7 +1613,7 @@ class NNTemporalStrategy(NNStrategy):
             X = df.to_numpy(dtype=np.float32)
             X = np.expand_dims(X, axis=0)
             return self._model.predict(X, verbose=0).squeeze()
-        
+
         # X.shape = (N_SAMPLES, WINDOW_SIZE, N_FEATURES)
         X, _ = build_temporal_dataset(
             state_series_list=[pred_series],
@@ -1645,8 +1646,9 @@ class NNTemporalStrategy(NNStrategy):
 
 
     @classmethod
-    def read_from_file(cls: NNStrategy, file_name: str) -> Type[NNStrategy]:
-        """ A basic factory method for building NN Strategy from an HDF5 file
+    def read_from_file(cls: NNTemporalStrategy, file_name: str) -> Type[NNTemporalStrategy]:
+        """ A basic factory method for building NN Temporal Strategy from
+        an HDF5 file.
 
         Parameters
         ----------
@@ -1655,25 +1657,29 @@ class NNTemporalStrategy(NNStrategy):
 
         Returns
         -------
-        NNStrategy:
+        NNTemporalStrategy:
             The model from the hdf5 file
         """
 
         new_model = cls({}, None)
 
-        assert os.path.exists(file_name + ".keras"), f"file name = {file_name + '.keras'}"
-        assert os.path.exists(file_name + ".h5"), f"file name = {file_name + '.h5'}"
+        file_name = file_name if file_name.endswith(".h5") else file_name + ".h5"
+        keras_name = file_name[:-3] + ".keras"
+        assert os.path.exists(keras_name), f"file name = {keras_name}"
+        assert os.path.exists(file_name), f"file name = {file_name}"
 
-        with h5py.File(file_name + ".h5", 'r') as h5_file:
+        with h5py.File(file_name, 'r') as h5_file:
             new_model.base_load_model(h5_file)
             new_model.initial_learning_rate = float( h5_file['initial_learning_rate'][()] )
             new_model.learning_decay_rate   = float( h5_file['learning_decay_rate'][()]   )
             new_model.epoch_limit           = int(   h5_file['epoch_limit'][()]           )
             new_model.convergence_criteria  = float( h5_file['convergence_criteria'][()]  )
             new_model.batch_size            = int(   h5_file['batch_size'][()]            )
-            new_model._layer_sequence       = LayerSequence.from_h5(h5_file['neural_network'])
             new_model.window_size           = int(   h5_file['window_size'][()]           )
 
-        new_model._model = load_model(file_name + ".keras")
+            # pylint:disable=attribute-defined-outside-init
+            new_model._layer_sequence       = LayerSequence.from_h5(h5_file['neural_network'])
+
+        new_model._model = load_model(keras_name)
 
         return new_model
