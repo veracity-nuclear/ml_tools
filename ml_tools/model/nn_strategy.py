@@ -1438,10 +1438,12 @@ class NNStrategy(PredictionStrategy):
 
         new_model = cls({}, None)
 
-        assert os.path.exists(file_name + ".keras"), f"file name = {file_name + '.keras'}"
-        assert os.path.exists(file_name + ".h5"), f"file name = {file_name + '.h5'}"
+        file_name = file_name if file_name.endswith(".h5") else file_name + ".h5"
+        keras_name = file_name[:-3] + ".keras"
+        assert os.path.exists(keras_name), f"file name = {keras_name}"
+        assert os.path.exists(file_name), f"file name = {file_name}"
 
-        with h5py.File(file_name + ".h5", 'r') as h5_file:
+        with h5py.File(file_name, 'r') as h5_file:
             new_model.base_load_model(h5_file)
             new_model.initial_learning_rate = float( h5_file['initial_learning_rate'][()] )
             new_model.learning_decay_rate   = float( h5_file['learning_decay_rate'][()]   )
@@ -1450,7 +1452,7 @@ class NNStrategy(PredictionStrategy):
             new_model.batch_size            = int(   h5_file['batch_size'][()]            )
             new_model._layer_sequence       = LayerSequence.from_h5(h5_file['neural_network'])
 
-        new_model._model = load_model(file_name + ".keras")
+        new_model._model = load_model(keras_name)
 
         return new_model
 
