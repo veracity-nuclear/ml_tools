@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import List, Dict, Union, Optional
+from typing import List, Dict, Union, Optional, Tuple
 import os
 import random
 import re
@@ -129,6 +129,32 @@ class State():
 
 
     @staticmethod
+    def read_states_from_dataframe(df: pd.DataFrame, features: List[str] = None) -> List[State]:
+        """ Convert a Pandas DataFrame into a list of State objects.
+
+        Parameters
+        ----------
+        df : pd.DataFrame
+            The DataFrame to be converted, where each feature is a column,
+            and each row corresponds to an element in the feature arrays.
+
+        Returns
+        -------
+        List[State]
+            A list of State objects constructed from the dataframe.
+        """
+
+        assert not df.empty, "DataFrame is empty"
+
+        state_series = []
+        for _, group in df.groupby(level=0):
+            filtered_group = group[features] if features else group
+            state_series.append(State.from_dataframe(filtered_group))
+
+        return state_series
+
+
+    @staticmethod
     def read_state_from_hdf5(file_name: str, state: str, features: List[str]) -> State:
         """ A factory method for extracting state feature data from an HDF5 file
             file_name : str
@@ -249,6 +275,22 @@ class State():
             statusbar.finalize()
 
         return state_data
+
+    
+    @staticmethod
+    def read_series_from_csv(file_name: str, features: Dict[str, FeaturePerturbator]) -> State:
+        """ A factory method for extracting state feature data from a CSV file
+            file_name : str
+                The name of the CSV file from which to read and build the state from
+            features : Dict[str, FeaturePerturbator]
+                The dictionary of features to be read in for each state
+        """
+
+        assert os.path.exists(file_name), f"File does not exist: {file_name}"
+        assert len(features) > 0, f"'len(features) = {len(features)}'"
+
+        df = pd.read_csv(file_name)
+        return State.read_states_from_dataframe(df, features)
 
 
     @staticmethod
@@ -416,3 +458,49 @@ def pandas_to_series(df: pd.DataFrame) -> List[StateSeries]:
 
     max_series_idx = max(state_series_dict.keys())
     return [state_series_dict.get(i) for i in range(max_series_idx + 1)]
+
+
+def build_temporal_dataset(state_series_list: List[StateSeries], window_size: int, predicted_feature: str) -> Tuple[np.ndarray, np.ndarray]:
+    """Create an X, y dataset for time series predictive modeling. If the 
+    predicted feature is not found in the state series, the y dataset will
+    be returned as an empty array.
+
+    Parameters
+    ----------
+    state_series_list : List[StateSeries]
+        The list of state series to be converted
+    window_size : int
+        The size of the time window to be used for the temporal datasets
+    predicted_feature : str
+        The name of the feature to be predicted (must match a column in 
+        the DataFrame)
+
+    Returns
+    -------
+    Tuple[np.ndarray, np.ndarray]
+        The created X (input) and y (target) arrays
+    """
+    df = series_to_pandas(state_series_list)
+    X = []
+    y = []
+
+    if predicted_feature in df.columns:
+        pred_idx = df.columns.get_loc(predicted_feature)
+
+    for series_idx, series_group in df.groupby(level="series_index"):
+        series_np = series_group.to_numpy()
+
+        if len(series_np) < window_size:
+            continue
+
+        for i in range(len(series_np) - window_size):
+            window = series_np[i:i + window_size]
+            X.append(window)
+
+            if predicted_feature in df.columns:
+                label = float(series_np[i + window_size][pred_idx])
+                y.append(label)
+
+    if predicted_feature in df.columns:
+        X = np.delete(X, pred_idx, axis=2)
+    return np.array(X, dtype=np.float32), np.array(y, dtype=np.float32).reshape(-1, 1)

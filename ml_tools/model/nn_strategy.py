@@ -6,6 +6,7 @@ from math import isclose
 from decimal import Decimal
 import h5py
 import numpy as np
+from copy import deepcopy
 
 # Pylint appears to not be handling the tensorflow imports correctly
 # pylint: disable=import-error, no-name-in-module
@@ -19,8 +20,9 @@ from tensorflow.keras.optimizers.schedules import ExponentialDecay
 from tensorflow.keras.losses import MeanSquaredError
 from tensorflow.keras.metrics import MeanAbsoluteError
 from tensorflow.keras.callbacks import EarlyStopping
+from sklearn.model_selection import train_test_split
 
-from ml_tools.model.state import StateSeries
+from ml_tools.model.state import StateSeries, build_temporal_dataset, series_to_pandas
 from ml_tools.model.prediction_strategy import PredictionStrategy
 from ml_tools.model.feature_processor import FeatureProcessor
 
@@ -136,6 +138,9 @@ class Layer(ABC):
         -----
         Hash generation is consistent with the 1e-9 float comparison equality relative tolerance
         """
+
+    def __call__(self, input_tensor: KerasTensor) -> KerasTensor:
+        return self.build(input_tensor)
 
     def build(self, input_tensor: KerasTensor) -> KerasTensor:
         """ Method for constructing the layer
@@ -268,7 +273,7 @@ class LayerSequence(Layer):
     def _build(self, input_tensor: KerasTensor) -> KerasTensor:
         x = input_tensor
         for layer in self.layers:
-            x = layer.build(x)
+            x = layer(x)
         return x
 
     def save(self, group: h5py.Group) -> None:
@@ -535,7 +540,12 @@ class Dense(Layer):
                    )
 
     def _build(self, input_tensor: KerasTensor) -> KerasTensor:
-        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(units=self.units, activation=self.activation))(input_tensor)
+        if len(input_tensor.shape) == 3:
+            x = tf.keras.layers.TimeDistributed(
+                    tf.keras.layers.Dense(units=self.units, activation=self.activation)
+                )(input_tensor)
+        else:
+            x = tf.keras.layers.Dense(units=self.units, activation=self.activation)(input_tensor)
         return x
 
     def save(self, group: h5py.Group) -> None:
@@ -630,12 +640,14 @@ class LSTM(Layer):
                  recurrent_dropout_rate: float = 0.,
                  dropout_rate:           float = 0.,
                  batch_normalize:        bool = False,
-                 layer_normalize:        bool = False):
+                 layer_normalize:        bool = False,
+                 return_sequences:       bool = False):
         super().__init__(dropout_rate, batch_normalize, layer_normalize)
         self.units                  = units
         self.activation             = activation
         self.recurrent_activation   = recurrent_activation
         self.recurrent_dropout_rate = recurrent_dropout_rate
+        self.return_sequences       = return_sequences
 
     def __eq__(self, other: Any) -> bool:
         return (self is other or
@@ -646,7 +658,8 @@ class LSTM(Layer):
                   isclose(self.recurrent_dropout_rate, other.recurrent_dropout_rate, rel_tol=1e-9) and
                   isclose(self.dropout_rate, other.dropout_rate, rel_tol=1e-9) and
                   self.batch_normalize == other.batch_normalize and
-                  self.layer_normalize == other.layer_normalize)
+                  self.layer_normalize == other.layer_normalize,
+                  self.return_sequences == other.return_sequences)
         )
 
 
@@ -657,13 +670,14 @@ class LSTM(Layer):
                           Decimal(self.recurrent_dropout_rate).quantize(Decimal('1e-9')),
                           Decimal(self.dropout_rate).quantize(Decimal('1e-9'))),
                           self.batch_normalize,
-                          self.layer_normalize
+                          self.layer_normalize,
+                          self.return_sequences
                    )
 
     def _build(self, input_tensor: KerasTensor) -> KerasTensor:
         x = tf.keras.layers.LSTM(units                = self.units,
                                  activation           = self.activation,
-                                 return_sequences     = True,
+                                 return_sequences     = self.return_sequences,
                                  recurrent_activation = self.recurrent_activation,
                                  recurrent_dropout    = self.recurrent_dropout_rate)(input_tensor)
         return x
@@ -677,6 +691,7 @@ class LSTM(Layer):
         group.create_dataset('dropout_rate',                  data=self.dropout_rate)
         group.create_dataset('batch_normalize',               data=self.batch_normalize)
         group.create_dataset('layer_normalize',               data=self.layer_normalize)
+        group.create_dataset('return_sequences',              data=self.return_sequences)
 
     @classmethod
     def from_h5(cls, group: h5py.Group) -> LSTM:
@@ -686,7 +701,8 @@ class LSTM(Layer):
                    recurrent_dropout_rate = float(group["recurrent_dropout_rate"       ][()]),
                    dropout_rate           = float(group["dropout_rate"                 ][()]),
                    batch_normalize        =  bool(group["batch_normalize"              ][()]),
-                   layer_normalize        =  bool(group["layer_normalize"              ][()]))
+                   layer_normalize        =  bool(group["layer_normalize"              ][()]),
+                   return_sequences       =  bool(group["return_sequences"             ][()]))
 
 
 ShapeType = Union[
@@ -1433,6 +1449,228 @@ class NNStrategy(PredictionStrategy):
             new_model.convergence_criteria  = float( h5_file['convergence_criteria'][()]  )
             new_model.batch_size            = int(   h5_file['batch_size'][()]            )
             new_model._layer_sequence       = LayerSequence.from_h5(h5_file['neural_network'])
+
+        new_model._model = load_model(file_name + ".keras")
+
+        return new_model
+
+
+class NNTemporalStrategy(NNStrategy):
+    """ A neural network strategy for time series forecasting. This class 
+    takes temporal data with a certain window size and predicts the value of
+    the predicted feature at the next time step.
+
+    Parameters
+    ----------
+    input_features : Dict[str, FeatureProcessor]
+        A dictionary specifying the input features of this model and their corresponding feature processing strategy
+    predicted_feature : str
+        The string specifying the feature to be predicted
+    layers : List[Layer]
+        The hidden layers of the neural network
+    initial_learning_rate : float
+        The initial learning rate of the training
+    learning_decay_rate : float
+        The decay rate of the learning using Exponential Decay
+    epoch_limit : int
+        The limit on the number of training epochs conducted during training
+    convergence_criteria : float
+        The convergence criteria for training
+    convergence_patience : int
+        Number of epochs with no improvement
+    batch_size : int
+        The training batch sizes
+    window_size : int
+        The size of the window to use for the temporal dataset. This is
+        the number of time steps to use for the input data. The default
+        is 1, which means that the model will use the previous time step
+        to predict the next time step.
+    """
+
+    @property
+    def predicted_feature(self) -> str:
+        return self._predicted_feature
+
+    # override predicted_feature property setter due to some differences with temporal strategy
+    @predicted_feature.setter
+    def predicted_feature(self, predicted_feature: str) -> None:
+        self._predicted_feature = predicted_feature
+
+    @property
+    def window_size(self) -> int:
+        return self._window_size
+    
+    @window_size.setter
+    def window_size(self, window_size: int) -> None:
+        assert window_size > 0, f"window_size = {window_size}"
+        self._window_size = window_size
+
+    def __init__(self,
+                 input_features        : Dict[str, FeatureProcessor],
+                 predicted_feature     : str,
+                 layers                : List[Layer]=None,
+                 initial_learning_rate : float=0.01,
+                 learning_decay_rate   : float=1.,
+                 epoch_limit           : int=1000,
+                 convergence_criteria  : float=1E-14,
+                 convergence_patience  : int=100,
+                 batch_size            : int=32,
+                 window_size           : int=1) -> None:
+        super().__init__(
+            input_features, 
+            predicted_feature, 
+            layers, 
+            initial_learning_rate, 
+            learning_decay_rate, 
+            epoch_limit, 
+            convergence_criteria, 
+            convergence_patience,
+            batch_size
+        )
+        self.window_size = window_size  
+
+    
+    def train(self, train_series_list: List[StateSeries]) -> None:
+        """ Trains the model from a temporal dataset that is created from a 
+        list of time series datasets.
+        
+        Parameters
+        ----------
+        train_series_list : List[StateSeries]
+            A list of time series datasets to train the model on
+        """
+
+        # X.shape = (N_SAMPLES, WINDOW_SIZE, N_FEATURES), y.shape = (N_SAMPLES, N_PRED_FEATURES)
+        X, y = build_temporal_dataset(
+            train_series_list, 
+            window_size=self.window_size, 
+            predicted_feature=self.predicted_feature
+        )
+
+        # Split the data into training, validation and testing sets (80% train, 20% val)
+        X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
+
+        input_tensor = tf.keras.layers.Input(shape=(X_train.shape[1], X_train.shape[2]))
+
+        x = self._layer_sequence(input_tensor)
+        output = tf.keras.layers.Dense(y_train.shape[1])(x)
+
+        self._model = tf.keras.Model(inputs=input_tensor, outputs=output)
+
+        learning_rate_schedule = ExponentialDecay(initial_learning_rate = self.initial_learning_rate,
+                                                  decay_steps           = self.epoch_limit,
+                                                  decay_rate            = self.learning_decay_rate, staircase=True)
+
+        self._model.compile(optimizer=Adam(learning_rate = learning_rate_schedule),
+                                           loss          = MeanSquaredError(),
+                                           metrics       = [MeanAbsoluteError()])
+
+        early_stop = EarlyStopping(monitor              = 'mean_absolute_error',
+                                   min_delta            = self.convergence_criteria,
+                                   patience             = self.convergence_patience,
+                                   verbose              = 1,
+                                   mode                 = 'auto',
+                                   restore_best_weights = True)
+        
+        self._model.fit(
+            X_train, y_train, 
+            validation_data=(X_val, y_val), 
+            epochs=self.epoch_limit, 
+            batch_size=self.batch_size, 
+            callbacks=[early_stop], 
+            verbose=1
+        )
+
+
+    def predict(self, series: StateSeries, preprocess_inputs: bool = True) -> np.ndarray:
+        """ Predicts the value of the predicted feature for a given series
+
+        Parameters
+        ----------
+        series : StateSeries
+            The series to predict the value of the predicted feature for
+        preprocess_inputs : bool
+            Whether or not to preprocess the inputs before prediction
+
+        Returns
+        -------
+        np.ndarray
+            The predicted value of the predicted feature for the given series
+        """
+        assert self.isTrained, "The model has not been trained yet"
+        
+        pred_series = deepcopy(series)
+        if preprocess_inputs:
+            for state in pred_series:
+                for feature, processor in self.input_features.items():
+                    state[feature] = processor.preprocess(state[feature])
+
+        if len(pred_series) == self.window_size:
+            df = series_to_pandas([pred_series])
+            X = df.to_numpy(dtype=np.float32)
+            X = np.expand_dims(X, axis=0)
+            return self._model.predict(X, verbose=0).squeeze()
+        
+        # X.shape = (N_SAMPLES, WINDOW_SIZE, N_FEATURES)
+        X, _ = build_temporal_dataset(
+            state_series_list=[pred_series],
+            window_size=self.window_size,
+            predicted_feature=self.predicted_feature,
+        )
+        return self._model.predict(X, verbose=0).squeeze()[-1]
+
+
+    def save_model(self, file_name: str) -> None:
+        """ A method for saving a trained model
+
+        Parameters
+        ----------
+        file_name : str
+            The name of the file to export the model to
+        """
+
+        self._model.save(file_name + ".keras")
+
+        with h5py.File(file_name + ".h5", 'w') as h5_file:
+            self.base_save_model(h5_file)
+            h5_file.create_dataset('initial_learning_rate', data=self.initial_learning_rate)
+            h5_file.create_dataset('learning_decay_rate',   data=self.learning_decay_rate)
+            h5_file.create_dataset('epoch_limit',           data=self.epoch_limit)
+            h5_file.create_dataset('convergence_criteria',  data=self.convergence_criteria)
+            h5_file.create_dataset('batch_size',            data=self.batch_size)
+            h5_file.create_dataset('window_size',           data=self.window_size)
+            self._layer_sequence.save(h5_file.create_group('neural_network'))
+
+
+    @classmethod
+    def read_from_file(cls: NNStrategy, file_name: str) -> Type[NNStrategy]:
+        """ A basic factory method for building NN Strategy from an HDF5 file
+
+        Parameters
+        ----------
+        file_name : str
+            The name of the file from which to read and build the model
+
+        Returns
+        -------
+        NNStrategy:
+            The model from the hdf5 file
+        """
+
+        new_model = cls({}, None)
+
+        assert os.path.exists(file_name + ".keras"), f"file name = {file_name + '.keras'}"
+        assert os.path.exists(file_name + ".h5"), f"file name = {file_name + '.h5'}"
+
+        with h5py.File(file_name + ".h5", 'r') as h5_file:
+            new_model.base_load_model(h5_file)
+            new_model.initial_learning_rate = float( h5_file['initial_learning_rate'][()] )
+            new_model.learning_decay_rate   = float( h5_file['learning_decay_rate'][()]   )
+            new_model.epoch_limit           = int(   h5_file['epoch_limit'][()]           )
+            new_model.convergence_criteria  = float( h5_file['convergence_criteria'][()]  )
+            new_model.batch_size            = int(   h5_file['batch_size'][()]            )
+            new_model._layer_sequence       = LayerSequence.from_h5(h5_file['neural_network'])
+            new_model.window_size           = int(   h5_file['window_size'][()]           )
 
         new_model._model = load_model(file_name + ".keras")
 
