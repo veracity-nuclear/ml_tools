@@ -1612,7 +1612,7 @@ class NNTemporalStrategy(NNStrategy):
             df = series_to_pandas([pred_series])
             X = df.to_numpy(dtype=np.float32)
             X = np.expand_dims(X, axis=0)
-            return self._model.predict(X, verbose=0).squeeze()
+            return np.asarray([self._model.predict(X, verbose=0).squeeze()])
 
         # X.shape = (N_SAMPLES, WINDOW_SIZE, N_FEATURES)
         X, _ = build_temporal_dataset(
@@ -1620,7 +1620,7 @@ class NNTemporalStrategy(NNStrategy):
             window_size=self.window_size,
             predicted_feature=self.predicted_feature,
         )
-        return self._model.predict(X, verbose=0).squeeze()[-1]
+        return self._model.predict(X, verbose=0).squeeze()
 
 
     def save_model(self, file_name: str) -> None:
