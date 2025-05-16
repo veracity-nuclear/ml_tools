@@ -663,6 +663,7 @@ class LSTM(Layer):
     def _build(self, input_tensor: KerasTensor) -> KerasTensor:
         x = tf.keras.layers.LSTM(units                = self.units,
                                  activation           = self.activation,
+                                 return_sequences     = True,
                                  recurrent_activation = self.recurrent_activation,
                                  recurrent_dropout    = self.recurrent_dropout_rate)(input_tensor)
         return x
