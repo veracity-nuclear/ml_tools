@@ -20,7 +20,7 @@ from tensorflow.keras.losses import MeanSquaredError
 from tensorflow.keras.metrics import MeanAbsoluteError
 from tensorflow.keras.callbacks import EarlyStopping
 
-from ml_tools.model.state import StateSeries, series_to_pandas
+from ml_tools.model.state import StateSeries
 from ml_tools.model.prediction_strategy import PredictionStrategy
 from ml_tools.model.feature_processor import FeatureProcessor
 
@@ -136,9 +136,6 @@ class Layer(ABC):
         -----
         Hash generation is consistent with the 1e-9 float comparison equality relative tolerance
         """
-
-    def __call__(self, input_tensor: KerasTensor) -> KerasTensor:
-        return self.build(input_tensor)
 
     def build(self, input_tensor: KerasTensor) -> KerasTensor:
         """ Method for constructing the layer
@@ -271,7 +268,7 @@ class LayerSequence(Layer):
     def _build(self, input_tensor: KerasTensor) -> KerasTensor:
         x = input_tensor
         for layer in self.layers:
-            x = layer(x)
+            x = layer.build(x)
         return x
 
     def save(self, group: h5py.Group) -> None:

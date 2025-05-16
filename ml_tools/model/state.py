@@ -200,10 +200,9 @@ class State():
 
         if states is None:
             with h5py.File(file_name, 'r') as h5_file:
-                states = list(h5_file.keys())
+                states = h5_file.keys()
         elif isinstance(states, str):
             states = [states]
-
 
         if random_sample_size:
             assert random_sample_size > 0, f"'random_sample_size = {random_sample_size}'"
