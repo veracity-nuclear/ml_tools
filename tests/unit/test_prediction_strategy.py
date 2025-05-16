@@ -1,4 +1,3 @@
-import re
 import pytest
 import os
 import glob
@@ -111,7 +110,7 @@ def test_nn_strategy_Dense():
 
 def test_nn_strategy_LSTM():
 
-    layers = [LSTM(units=5, activation='relu', return_sequences=True),]
+    layers = [LSTM(units=5, activation='relu')]
     cips_calculator = NNStrategy(input_features, output_feature, layers)
     cips_calculator.train([[state]*100]*1000)
     assert_allclose(state["cips_index"], cips_calculator.predict([[state]*100])[0][-1], atol=1E-2)

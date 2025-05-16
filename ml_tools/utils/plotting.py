@@ -75,6 +75,7 @@ def plot_ref_vs_pred(models:                  Dict[str, PredictionStrategy],
     plt.ylabel('Predicted ' + predicted_feature_label, fontsize=14)
     if title:
         plt.title('Reference vs. Predicted ' + predicted_feature_label, fontsize=16)
+    plt.gca().set_aspect('equal', adjustable='box')
     plt.xticks(fontsize=12)
     plt.yticks(fontsize=12)
     plt.legend(fontsize=14)
