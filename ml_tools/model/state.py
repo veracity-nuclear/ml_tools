@@ -78,20 +78,21 @@ class State:
             s += f"  {feature_name}: {values}\n"
         return s
 
-    def to_dataframe(self, features: Optional[List[str]] = None) -> pd.DataFrame:
+    def to_dataframe(self, features: Optional[Dict[str, np.ndarray]] = None) -> pd.DataFrame:
         """Convert the State into a Pandas DataFrame.
 
         Parameters
         ----------
-        features : Optional[List[str]]
-            List of features to extract to the dataframe, default is all features of the state
+        features : Optional[Dict[str, np.ndarray]]
+            Dictionary of features to extract to the dataframe, default is all
+            features of the state
 
         Returns
         -------
         pd.DataFrame
-            A DataFrame where each feature is a column, and each row corresponds to an element in the feature arrays.
+            A DataFrame where each feature is a column, and each row
+            corresponds to an element in the feature arrays.
         """
-
         features = self.features if features is None else {k: self.features[k] for k in features}
 
         flat_data = {}
@@ -666,7 +667,9 @@ class StateSeries:
         pd.DataFrame
             A DataFrame where each feature is a column, and each row corresponds to an element in the feature arrays.
         """
-        features = self.features if features is None else {k: self.features[k] for k in features}
+        if features is None:
+            features = self.features
+
         series_np = self.to_numpy(features)
         return pd.DataFrame(series_np, columns=features.keys(), index=None)
 
@@ -842,7 +845,8 @@ class StateSeriesList:
         pd.DataFrame
             The created Pandas Dataframe
         """
-        features = self.features if features is None else {k: self.features[k] for k in features}
+        if features is None:
+            features = self.features
         series_dfs = []
 
         for series_idx, series in enumerate(self.state_series_list):
