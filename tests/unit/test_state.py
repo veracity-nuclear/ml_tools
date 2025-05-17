@@ -5,7 +5,7 @@ from numpy.testing import assert_allclose
 import numpy as np
 import pandas as pd
 import pandas.testing as pdt
-from ml_tools.model.state import series_to_pandas, pandas_to_series
+from ml_tools import State, StateSeries, StateSeriesList
 from ml_tools.utils.h5_utils import get_groups_with_prefix
 from ml_tools import State, RelativeNormalPerturbator
 
@@ -14,7 +14,7 @@ def test_state():
     data_file    = os.path.dirname(__file__)+"/test_data.h5"
     state_groups = get_groups_with_prefix(data_file, "set_", 1)
     features     = ["average_enrichment", "boron_concentration", "measured_fixed_detector"]
-    states       = State.read_states_from_hdf5(data_file, features, state_groups)
+    states       = StateSeries.from_hdf5(data_file, features, state_groups)
 
     assert len(states) == 1
 
@@ -37,7 +37,7 @@ def test_state():
     assert_allclose(actual_boron_concentration,     expected_boron_concentration)
     assert_allclose(actual_measured_fixed_detector, expected_measured_fixed_detector)
 
-    actual_df   = series_to_pandas([[state]], ["average_enrichment", "boron_concentration"])
+    actual_df   = StateSeriesList([StateSeries([state])]).to_dataframe(["average_enrichment", "boron_concentration"])
     expected_df = pd.DataFrame({"series_index": [0], "state_index": [0],
                                 "average_enrichment_0": [   0], "average_enrichment_1": [   0], "average_enrichment_2": [   0],
                                 "average_enrichment_3": [   0], "average_enrichment_4": [4.37], "average_enrichment_5": [4.59],
@@ -46,7 +46,7 @@ def test_state():
     }).set_index(["series_index", "state_index"])
     pdt.assert_frame_equal(actual_df, expected_df, check_dtype=False)
 
-    state                          = pandas_to_series(series_to_pandas([[state]]))[0][0]
+    state = StateSeriesList.from_dataframe(StateSeriesList([StateSeries([state])]).to_dataframe(features))[0][0]
     actual_average_enrichment      = state["average_enrichment"]
     actual_boron_concentration     = state["boron_concentration"]
     actual_measured_fixed_detector = state["measured_fixed_detector"]

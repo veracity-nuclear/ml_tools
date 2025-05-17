@@ -11,7 +11,7 @@ import pandas as pd
 import seaborn as sns
 import shap
 
-from ml_tools.model.state import State, StateSeries, series_to_pandas, pandas_to_series
+from ml_tools.model.state import State, StateSeries, StateSeriesList
 from ml_tools.model.prediction_strategy import PredictionStrategy
 from ml_tools.model.feature_perturbator import FeaturePerturbator
 from ml_tools.utils.status_bar import StatusBar
@@ -255,7 +255,7 @@ def plot_corr_matrix(input_features:  List[str],
         A name for the figure that is generated (Default: 'corr_matrix')
     """
 
-    X = series_to_pandas(state_series, input_features)
+    X = StateSeriesList.to_dataframe(state_series, input_features)
 
     if state_index < 0:
         max_index = X.index.get_level_values('state_index').max()
@@ -421,7 +421,7 @@ def plot_shap(models:          Dict[str, PredictionStrategy],
     """
 
     state_series       = random.sample(state_series, min(num_samples, len(state_series)))
-    df                 = series_to_pandas(state_series)
+    df                 = StateSeriesList.to_dataframe(state_series)
     all_input_features = list(df.columns)
     X                  = df.to_numpy(dtype=float)
 
@@ -437,7 +437,7 @@ def plot_shap(models:          Dict[str, PredictionStrategy],
                                                     names=["series_index", "state_index"])
 
             X_df        = pd.DataFrame(X_array, columns=all_input_features, index=index)
-            predictions = model.predict(pandas_to_series(X_df))
+            predictions = model.predict(StateSeries.from_dataframe(X_df))
 
             return np.asarray([series[state_index][array_index] for series in predictions])
 
