@@ -123,6 +123,8 @@ class PredictionStrategy(ABC):
             feature_data = np.array([state[feature] for state in series])
             processed_data = processor.preprocess(feature_data)
             processed_inputs.append(processed_data)
+        if len(processed_inputs[0].shape) == 1:
+            return np.vstack(processed_inputs).T
         return np.hstack(processed_inputs)
 
     @staticmethod
