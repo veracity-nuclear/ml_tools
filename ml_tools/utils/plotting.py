@@ -3,7 +3,6 @@ import random
 import time
 from copy import deepcopy
 import os
-from functools import partial
 
 import pylab as plt
 import numpy as np
@@ -377,7 +376,13 @@ def plot_ice_pdp(models:          Dict[str, PredictionStrategy],
             plt.close()
 
 @ray.remote
-def _process_ice_pdp_batch(model, batch, state_series, input_feature, state_index, input_index, output_index) -> List[Dict[str, Any]]:
+def _process_ice_pdp_batch(model:         PredictionStrategy,
+                           batch:         np.ndarray,
+                           state_series:  List[StateSeries],
+                           input_feature: str,
+                           state_index:   int,
+                           input_index:   int,
+                           output_index:  int) -> List[Dict[str, Any]]:
     """ Private helper function used by `plot_ice_pdp` for parallel batch processing.
 
     This function is not intended to be called directly. For an understanding of the parameters
