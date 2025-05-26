@@ -27,7 +27,7 @@ jobs:
       run: |
         conda create -n mltools python=3.11 -y
         source activate mltools
-        conda install -c conda-forge tensorflow keras numpy h5py scikit-learn scipy lightgbm matplotlib seaborn shap pylint pytest libarchive compilers mpi4py -y
+        conda install -c conda-forge tensorflow keras numpy h5py scikit-learn scipy lightgbm matplotlib seaborn shap pathos pylint pytest libarchive compilers mpi4py -y
 
     - name: Install ml_tools
       run: |

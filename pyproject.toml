@@ -33,7 +33,8 @@ dependencies = [
     'lightgbm',
     'matplotlib',
     'seaborn',
-    'shap'
+    'shap',
+    'pathos'
 ]
 
 [project.optional-dependencies]
