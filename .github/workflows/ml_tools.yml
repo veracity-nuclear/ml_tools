@@ -29,8 +29,8 @@ jobs:
         source activate mltools
         conda install -y \
           -c conda-forge \
-          -c rayproject \
-          tensorflow keras numpy h5py scikit-learn scipy lightgbm matplotlib seaborn shap pylint pytest libarchive compilers mpi4py ray
+          tensorflow keras numpy h5py scikit-learn scipy lightgbm matplotlib seaborn shap pylint pytest libarchive compilers mpi4py
+        pip install "ray[default]"
 
     - name: Install ml_tools
       run: |
