@@ -22,8 +22,8 @@ from ml_tools.model.nn_strategy import Dense
 from cips_index.model.simple_strategy import SimpleCIPSIndexStrategy
 from data_reader import DataReader
 from optimizer import Optimizer
-from dnn_optimizer import DNNOptunaOptimzer
-from cnn_optimizer import CNNOptunaOptimzer
+from dnn_optimizer import DNNOptunaOptimizer
+from cnn_optimizer import CNNOptunaOptimizer
 
 
 input_features = {'average_exposure'         : MinMaxNormalize(0., 60.),
