@@ -29,6 +29,30 @@ LayerType  = Literal['Dense', 'PassThrough', 'LSTM', 'LayerSequence', 'CompoundL
 Activation = Literal['elu', 'exponential', 'gelu', 'hard_sigmoid', 'linear', 'mish',
                      'relu', 'selu', 'sigmoid', 'softmax', 'softplus', 'softsign', 'swish', 'tanh']
 
+@register_keras_serializable()
+def gather_indices(x, indices):
+    """
+    Gathers specified indices along the last axis of the input tensor.
+
+    This must be defined as a top-level (free) function and
+    decorated with `@register_keras_serializable()` to ensure it can be
+    serialized and deserialized correctly by TensorFlow, especially when used
+    in distributed or parallel execution contexts.
+
+    Parameters
+    ----------
+    x : tf.Tensor
+        The input tensor.
+    indices : List[int]
+        The list of indices to gather from the last dimension of the tensor.
+
+    Returns
+    -------
+    tf.Tensor
+        A tensor with values gathered from the specified indices.
+    """
+    return tf.gather(x, indices, axis=-1)
+
 # Pylint mistakenly interpretting layer_group["activation_function"][()] as an HDF5 Group
 # and subsequently complaining that it has no "decode" member
 # pylint: disable=no-member
@@ -376,10 +400,6 @@ class CompoundLayer(Layer):
                     self.layer_normalize)
 
     def _build(self, input_tensor: KerasTensor) -> KerasTensor:
-        @register_keras_serializable()
-        def gather_indices(x, indices):
-            return tf.gather(x, indices, axis=-1)
-
         assert all(index < input_tensor.shape[2] for spec in self.input_specifications for index in spec), \
             "input specification index greater than input feature vector length"
         split_inputs = [tensorflow.keras.layers.TimeDistributed(
@@ -1436,6 +1456,6 @@ class NNStrategy(PredictionStrategy):
             new_model.batch_size            = int(   h5_file['batch_size'][()]            )
             new_model._layer_sequence       = LayerSequence.from_h5(h5_file['neural_network'])
 
-        new_model._model = load_model(keras_name)
+        new_model._model = load_model(keras_name, custom_objects={"gather_indices": gather_indices})
 
         return new_model
