@@ -32,7 +32,7 @@ class DataReader():
             list of series with length 1 (i.e., list of single state points)
         """
 
-        features_to_read = [    "2d_assembly_exposure", "average_enrichment", "base_vera_fixed_detector",
+        features_to_read = [    "2d_assembly_exposure", "average_enrichment",
                                  "boron_concentration", "measured_fixed_detector","cycle_exposure"]
 
         state_groups = get_groups_with_prefix(file_name = file_name, prefix = "set_", num_procs = num_procs)

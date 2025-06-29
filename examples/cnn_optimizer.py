@@ -89,7 +89,7 @@ class CNNOptimizer(Optimizer):
         assembly_inputs     = list(set(["average_exposure", "assembly_enrichment"]) &
                                    set(self.input_features.keys()))
 
-        detector_inputs     = list(set(["measured_fixed_detector", "base_vera_fixed_detector"]) &
+        detector_inputs     = list(set(["measured_fixed_detector"]) &
                                    set(self.input_features.keys()))
 
         # This section assumes all 3x3 assembly inputs are listed first as the input_features of the models

@@ -28,13 +28,12 @@ from cnn_optimizer import CNNOptunaOptimizer
 input_features = {'average_exposure'         : MinMaxNormalize(0., 60.),
                   'assembly_enrichment'      : MinMaxNormalize(0., 5.),
                   'measured_fixed_detector'  : MinMaxNormalize(0., 1.3),
-                  'base_vera_fixed_detector' : MinMaxNormalize(0., 1.3),
                   'boron_concentration'      : MinMaxNormalize(0., 1500.)}
 
 
 assembly_features = ["average_exposure", "assembly_enrichment"]
 
-detector_features = ['measured_fixed_detector', 'base_vera_fixed_detector']
+detector_features = ['measured_fixed_detector']
 
 scalar_features = [feature for feature in input_features if feature not in assembly_features and
                                                             feature not in detector_features]
@@ -45,10 +44,6 @@ predicted_feature = 'cycle_exposure'
 def main() -> None:
     """ Example code for doing a model optimization followed by comparison to other models
     """
-
-    h5f = h5.File("sample.h5", 'r')
-    coarse_mesh = h5f['mesh']['rhodium_mesh'][:]
-    h5f.close()
 
     state_series = DataReader.read_data(file_name = "sample.h5", num_procs = 20)
 
@@ -195,16 +190,12 @@ def evaluate(models: Dict[str, PredictionStrategy], valid_series: List[StateSeri
 
     print('Plotting ICE/PDP Plots...')
     plot_ice_pdp(gbm_informed_models, valid_series, "boron_concentration", num_points=1000, fig_name_prefix = "ice_pdp_boron"    , num_procs=20)
-    plot_ice_pdp(gbm_informed_models, valid_series, "core_exposure",       num_points=1000, fig_name_prefix = "ice_pdp_core_exp" , num_procs=20)
-    plot_ice_pdp(gbm_informed_models, valid_series, "cycle_exposure",      num_points=1000, fig_name_prefix = "ice_pdp_cycle_exp", num_procs=20)
-    plot_ice_pdp(gbm_informed_models, valid_series, "apsrbank",            num_points=1000, fig_name_prefix = "ice_pdp_apsrbank" , num_procs=20)
 
     print('Plotting SHAP Plots...')
     feature_plots = {"scalars"         : scalar_features,
-                      "avg_exp"        : ["average_exposure"],
-                      "assem_enr"      : ["assembly_enrichment"],
-                      "crud_signal"    : ["measured_fixed_detector"],
-                      "no_crud_signal" : ["base_vera_fixed_detector"]}
+                     "avg_exp"         : ["average_exposure"],
+                     "assem_enr"       : ["assembly_enrichment"],
+                     "incore_det"      : ["measured_fixed_detector"]}
     plot_shap(gbm_informed_models, valid_series, feature_plots, num_samples=1000, num_procs=20)
 
     print_metrics(models, valid_series)
