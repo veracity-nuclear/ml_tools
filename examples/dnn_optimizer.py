@@ -15,7 +15,7 @@ from optimizer import Optimizer
 
 
 class DNNOptimizer(Optimizer):
-    """ An abstract class for DNN CIPS model optimizers
+    """ An abstract class for DNN model optimizers
     """
 
     def _build_model(self,

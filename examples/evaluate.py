@@ -19,7 +19,6 @@ from ml_tools.utils.plotting import plot_ref_vs_pred, plot_hist, plot_sensitivit
                                     plot_ice_pdp, plot_shap
 from ml_tools.model.nn_strategy import Dense
 
-from cips_index.model.simple_strategy import SimpleCIPSIndexStrategy
 from data_reader import DataReader
 from optimizer import Optimizer
 from dnn_optimizer import DNNOptunaOptimzer
@@ -40,7 +39,7 @@ detector_features = ['measured_fixed_detector', 'base_vera_fixed_detector']
 scalar_features = [feature for feature in input_features if feature not in assembly_features and
                                                             feature not in detector_features]
 
-predicted_feature = 'cips_index'
+predicted_feature = 'cycle_exposure'
 
 
 def main() -> None:
@@ -49,7 +48,6 @@ def main() -> None:
 
     h5f = h5.File("sample.h5", 'r')
     coarse_mesh = h5f['mesh']['rhodium_mesh'][:]
-    cips_mesh   = h5f['mesh']['cips_index_mesh'][:]
     h5f.close()
 
     state_series = DataReader.read_data(file_name = "sample.h5", num_procs = 20)

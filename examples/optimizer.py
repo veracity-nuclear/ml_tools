@@ -8,7 +8,7 @@ from ml_tools.model.nn_strategy import Activation
 
 
 class Optimizer(ABC):
-    """ An abstract class for CIPS model optimizers
+    """ An abstract class for model optimizers
 
     Attributes
     ----------

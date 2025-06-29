@@ -33,7 +33,7 @@ class DataReader():
         """
 
         features_to_read = [    "2d_assembly_exposure", "average_enrichment", "base_vera_fixed_detector",
-                                 "boron_concentration", "measured_fixed_detector","outputs/cips_index"]
+                                 "boron_concentration", "measured_fixed_detector","cycle_exposure"]
 
         state_groups = get_groups_with_prefix(file_name = file_name, prefix = "set_", num_procs = num_procs)
         states       = State.read_states_from_hdf5(file_name          = file_name,

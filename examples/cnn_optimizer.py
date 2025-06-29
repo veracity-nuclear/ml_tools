@@ -15,7 +15,7 @@ from optimizer import Optimizer
 
 
 class CNNOptimizer(Optimizer):
-    """ An abstract class for CNN CIPS model optimizers
+    """ An abstract class for CNN model optimizers
     """
 
     @dataclass
