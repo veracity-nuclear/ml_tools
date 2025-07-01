@@ -343,7 +343,9 @@ class StateSeries:
         return s
 
     def __add__(self, other: StateSeries) -> StateSeries:
-        assert self.features == other.features, f"Features of the two StateSeries do not match: {self.features} != {other.features}"
+        assert (
+            self.features == other.features
+        ), f"Features of the two StateSeries do not match: {self.features} != {other.features}"
         assert isinstance(other, StateSeries), f"'{other}' is not a StateSeries object"
         return StateSeries(self.states + other.states)
 
@@ -376,7 +378,6 @@ class StateSeries:
         assert isinstance(state, State), f"'{state}' is not a State object"
         self.states.append(state)
 
-
     def extend(self, other: StateSeries) -> None:
         """Extend the current series with another StateSeries.
 
@@ -386,10 +387,11 @@ class StateSeries:
             The StateSeries to extend the current series with
         """
 
-        assert self.features == other.features, f"Features of the two StateSeries do not match: {self.features} != {other.features}"
+        assert (
+            self.features == other.features
+        ), f"Features of the two StateSeries do not match: {self.features} != {other.features}"
         assert isinstance(other, StateSeries), f"'{other}' is not a StateSeries object"
         self.states.extend(other.states)
-
 
     def pop(self) -> State:
         """Pop a state from the series
@@ -557,6 +559,7 @@ class StateSeries:
                     statusbar.update(i)
 
         else:
+
             def chunkify(states: List[str], chunk_size: int):
                 for i in range(0, len(states), chunk_size):
                     yield states[i : i + chunk_size]
@@ -566,8 +569,7 @@ class StateSeries:
 
             with ProcessPoolExecutor(max_workers=num_procs) as executor:
                 jobs = {
-                    executor.submit(StateSeries.from_hdf5, file_name, features, chunk, silent=True): chunk
-                    for chunk in chunks
+                    executor.submit(StateSeries.from_hdf5, file_name, features, chunk, silent=True): chunk for chunk in chunks
                 }
 
                 completed = 0
@@ -656,7 +658,7 @@ class StateSeries:
         """
         assert not df.empty, "DataFrame is empty"
 
-        state_series = cls()
+        state_series = cls([])
         for _, group in df.groupby(level=0):
             filtered_group = group[features] if features else group
             state_series.append(State.from_dataframe(filtered_group))
@@ -724,7 +726,9 @@ class SeriesCollection:
         return s
 
     def __add__(self, other: SeriesCollection) -> SeriesCollection:
-        assert self.features == other.features, f"Features of the two StateSeriesLists do not match: {self.features} != {other.features}"
+        assert (
+            self.features == other.features
+        ), f"Features of the two StateSeriesLists do not match: {self.features} != {other.features}"
         assert isinstance(other, SeriesCollection), f"'{other}' is not a StateSeriesList object"
         return SeriesCollection(self.state_series_list + other.state_series_list)
 
@@ -744,7 +748,9 @@ class SeriesCollection:
             The state series to be appended to the list
         """
 
-        assert state_series.features == self.features, f"StateSeries features do not match: {state_series.features} != {self.features}"
+        assert (
+            state_series.features == self.features
+        ), f"StateSeries features do not match: {state_series.features} != {self.features}"
         assert isinstance(state_series, StateSeries), f"'{state_series}' is not a StateSeries object"
         self.state_series_list.append(state_series)
 
@@ -757,7 +763,9 @@ class SeriesCollection:
             The StateSeriesList to extend the current list with
         """
 
-        assert self.features == other.features, f"Features of the two StateSeriesLists do not match: {self.features} != {other.features}"
+        assert (
+            self.features == other.features
+        ), f"Features of the two StateSeriesLists do not match: {self.features} != {other.features}"
         assert isinstance(other, SeriesCollection), f"'{other}' is not a StateSeriesList object"
         self.state_series_list.extend(other.state_series_list)
 
