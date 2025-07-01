@@ -137,7 +137,7 @@ def plot_hist(models:       Dict[str, PredictionStrategy],
 
 def plot_sensitivities(models:                  Dict[str, PredictionStrategy],
                        state_series:            List[StateSeries],
-                       perturbators:            List[FeaturePerturbator],
+                       perturbators:            Dict[str, FeaturePerturbator],
                        number_of_perturbations: int,
                        state_index:             int = -1,
                        array_index:             int = 0,
@@ -155,7 +155,7 @@ def plot_sensitivities(models:                  Dict[str, PredictionStrategy],
         The dictionary key will be the suffix of the figure file name
     state_series : List[StateSeries]
         The collection of state series to use for evaluating the sensitivities
-    perturbators : List[FeaturePerturbator]
+    perturbators : Dict[str, FeaturePerturbator]
         The perturbators to use for perturbing the state features
     number_of_perturbations : int
         The number of perturbation realizations to perform
