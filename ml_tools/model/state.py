@@ -665,13 +665,13 @@ class StateSeries:
 
         return state_series
 
-    def to_dataframe(self, features: Optional[Dict[str, Any]] = None) -> pd.DataFrame:
+    def to_dataframe(self, features: Optional[List[str]] = None) -> pd.DataFrame:
         """Convert the State into a Pandas DataFrame.
 
         Parameters
         ----------
-        features : Optional[Dict[str, Any]]
-            Dict of features to extract to the dataframe, default is all features of the state
+        features : Optional[List[str]]
+            List of features to extract to the dataframe, default is all features of the state
 
         Returns
         -------
@@ -682,7 +682,7 @@ class StateSeries:
             features = self.features
 
         series_np = self.to_numpy(features)
-        return pd.DataFrame(series_np, columns=features.keys(), index=None)
+        return pd.DataFrame(series_np, columns=features, index=None)
 
 
 class SeriesCollection:
