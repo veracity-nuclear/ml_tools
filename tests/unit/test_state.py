@@ -1,11 +1,11 @@
 import pytest
 import os
 import h5py
-from numpy.testing import assert_allclose
+from numpy.testing import assert_allclose, assert_almost_equal
 import numpy as np
 import pandas as pd
 import pandas.testing as pdt
-from ml_tools import State, StateSeries, StateSeriesList
+from ml_tools import State, StateSeries, SeriesCollection
 from ml_tools.utils.h5_utils import get_groups_with_prefix
 from ml_tools import State, RelativeNormalPerturbator
 
@@ -37,7 +37,7 @@ def test_state():
     assert_allclose(actual_boron_concentration,     expected_boron_concentration)
     assert_allclose(actual_measured_fixed_detector, expected_measured_fixed_detector)
 
-    actual_df   = StateSeriesList([StateSeries([state])]).to_dataframe(["average_enrichment", "boron_concentration"])
+    actual_df   = SeriesCollection([StateSeries([state])]).to_dataframe(["average_enrichment", "boron_concentration"])
     expected_df = pd.DataFrame({"series_index": [0], "state_index": [0],
                                 "average_enrichment_0": [   0], "average_enrichment_1": [   0], "average_enrichment_2": [   0],
                                 "average_enrichment_3": [   0], "average_enrichment_4": [4.37], "average_enrichment_5": [4.59],
@@ -46,7 +46,7 @@ def test_state():
     }).set_index(["series_index", "state_index"])
     pdt.assert_frame_equal(actual_df, expected_df, check_dtype=False)
 
-    state = StateSeriesList.from_dataframe(StateSeriesList([StateSeries([state])]).to_dataframe(features))[0][0]
+    state = SeriesCollection.from_dataframe(SeriesCollection([StateSeries([state])]).to_dataframe(features))[0][0]
     actual_average_enrichment      = state["average_enrichment"]
     actual_boron_concentration     = state["boron_concentration"]
     actual_measured_fixed_detector = state["measured_fixed_detector"]
@@ -64,3 +64,31 @@ def test_state():
 
     assert not(np.allclose(actual_boron_concentration, perturbed_boron_concentration))
     assert not(np.allclose(actual_measured_fixed_detector, perturbed_measured_fixed_detector))
+
+def test_state_mean_std_max_min():
+
+    series = StateSeries([
+        State({"feature_1": 10.0, "feature_2": 120.0}),
+        State({"feature_1": 9.0, "feature_2": 115.0}),
+        State({"feature_1": 12.0, "feature_2": 130.0}),
+    ])
+
+    # Test mean
+    assert_almost_equal(series.mean(["feature_1"]), 10.333333333333334)
+    assert_almost_equal(series.mean(["feature_2"]), 121.666666666666667)
+    assert_almost_equal(series.mean(), [10.33333333333334, 121.666666666666667])
+
+    # Test std
+    assert_almost_equal(series.std(["feature_1"]), 1.247219129)
+    assert_almost_equal(series.std(["feature_2"]), 6.236095645)
+    assert_almost_equal(series.std(), [1.247219129, 6.236095645])
+
+    # Test max
+    assert_almost_equal(series.max(["feature_1"]), 12.0)
+    assert_almost_equal(series.max(["feature_2"]), 130.0)
+    assert_almost_equal(series.max(), [12.0, 130.0])
+
+    # Test min
+    assert_almost_equal(series.min(["feature_1"]), 9.0)
+    assert_almost_equal(series.min(["feature_2"]), 115.0)
+    assert_almost_equal(series.min(), [9.0, 115.0])

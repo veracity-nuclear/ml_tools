@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import List, Dict, Union, Optional, Tuple
+from typing import List, Dict, Union, Optional, Tuple, Any
 import os
 import random
 import re
@@ -284,6 +284,14 @@ class StateSeries:
     ----------
     states : List[State]
         The list of states which describe the series
+
+    Attributes
+    ----------
+    features : List[str]
+        The list of features of the state series
+    shape : Tuple[int, int]
+        The shape of the state series, where the first element is the number of states
+        and the second element is the number of features in each state
     """
 
     def __init__(self, states: List[State]):
@@ -335,19 +343,12 @@ class StateSeries:
         return s
 
     def __add__(self, other: StateSeries) -> StateSeries:
+        assert self.features == other.features, f"Features of the two StateSeries do not match: {self.features} != {other.features}"
         assert isinstance(other, StateSeries), f"'{other}' is not a StateSeries object"
         return StateSeries(self.states + other.states)
 
     @property
     def features(self) -> List[str]:
-        """Get the features of the state series
-
-        Returns
-        -------
-        List[str]
-            The features of the state series
-        """
-
         if not self.states:
             return {}
 
@@ -355,14 +356,6 @@ class StateSeries:
 
     @property
     def shape(self) -> Tuple[int, int]:
-        """Get the shape of the state series
-
-        Returns
-        -------
-        Tuple[int, int]
-            The shape of the state series
-        """
-
         if not self.states:
             return (0, 0)
 
@@ -379,8 +372,24 @@ class StateSeries:
             The state to be appended to the series
         """
 
+        assert state.features == self.features, f"State features do not match: {state.features} != {self.features}"
         assert isinstance(state, State), f"'{state}' is not a State object"
         self.states.append(state)
+
+
+    def extend(self, other: StateSeries) -> None:
+        """Extend the current series with another StateSeries.
+
+        Parameters
+        ----------
+        other : StateSeries
+            The StateSeries to extend the current series with
+        """
+
+        assert self.features == other.features, f"Features of the two StateSeries do not match: {self.features} != {other.features}"
+        assert isinstance(other, StateSeries), f"'{other}' is not a StateSeries object"
+        self.states.extend(other.states)
+
 
     def pop(self) -> State:
         """Pop a state from the series
@@ -394,12 +403,12 @@ class StateSeries:
         assert len(self.states) > 0, "StateSeries is empty"
         return self.states.pop()
 
-    def to_numpy(self, keys: List[str] = None) -> np.ndarray:
+    def to_numpy(self, features: List[str] = None) -> np.ndarray:
         """Convert to a 2D NumPy array: rows are states, columns are features
 
         Parameters
         ----------
-        keys : List[str]
+        features : List[str]
             The list of features to extract to the numpy array, default is all
             features of the state
 
@@ -412,10 +421,10 @@ class StateSeries:
         if not self.states:
             return np.array([])
 
-        if keys is None:
-            keys = list(self.states[0].features.keys())
+        if features is None:
+            features = self.features
 
-        data = [[state[k] for k in keys] for state in self.states]
+        data = [[state[k] for k in features] for state in self.states]
         return np.array(data)
 
     def mean(self, keys: List[str] = None) -> np.ndarray:
@@ -629,7 +638,7 @@ class StateSeries:
         df.to_csv(file_name, index=False)
 
     @classmethod
-    def from_dataframe(cls, df: pd.DataFrame, features: List[str] = None) -> State:
+    def from_dataframe(cls, df: pd.DataFrame, features: List[str] = None) -> StateSeries:
         """Convert a Pandas DataFrame into a State object.
 
         Parameters
@@ -647,20 +656,20 @@ class StateSeries:
         """
         assert not df.empty, "DataFrame is empty"
 
-        state_series = []
+        state_series = cls()
         for _, group in df.groupby(level=0):
             filtered_group = group[features] if features else group
             state_series.append(State.from_dataframe(filtered_group))
 
         return state_series
 
-    def to_dataframe(self, features: Optional[List[str]] = None) -> pd.DataFrame:
+    def to_dataframe(self, features: Optional[Dict[str, Any]] = None) -> pd.DataFrame:
         """Convert the State into a Pandas DataFrame.
 
         Parameters
         ----------
-        features : Optional[List[str]]
-            List of features to extract to the dataframe, default is all features of the state
+        features : Optional[Dict[str, Any]]
+            Dict of features to extract to the dataframe, default is all features of the state
 
         Returns
         -------
@@ -674,21 +683,26 @@ class StateSeries:
         return pd.DataFrame(series_np, columns=features.keys(), index=None)
 
 
-class StateSeriesList:
+class SeriesCollection:
     """A class for storing and accessing a list of StateSeries
 
     Parameters
     ----------
     state_series_list : List[StateSeries]
         The list of StateSeries which describe the series
+
+    Attributes
+    ----------
+    features : List[str]
+        The list of features of the state series list, which is the same for all StateSeries
     """
 
     def __init__(self, state_series_list: List[StateSeries]):
         self.state_series_list = state_series_list
 
-    def __getitem__(self, index: Union[int, slice]) -> Union[StateSeries, StateSeriesList]:
+    def __getitem__(self, index: Union[int, slice]) -> Union[StateSeries, SeriesCollection]:
         if isinstance(index, slice):
-            return StateSeriesList(self.state_series_list[index])
+            return SeriesCollection(self.state_series_list[index])
         return self.state_series_list[index]
 
     def __len__(self) -> int:
@@ -709,20 +723,13 @@ class StateSeriesList:
         s = f"StateSeriesList of length {len(self)} with features: {self.features}\n"
         return s
 
-    def __add__(self, other: StateSeriesList) -> StateSeriesList:
-        assert isinstance(other, StateSeriesList), f"'{other}' is not a StateSeriesList object"
-        return StateSeriesList(self.state_series_list + other.state_series_list)
+    def __add__(self, other: SeriesCollection) -> SeriesCollection:
+        assert self.features == other.features, f"Features of the two StateSeriesLists do not match: {self.features} != {other.features}"
+        assert isinstance(other, SeriesCollection), f"'{other}' is not a StateSeriesList object"
+        return SeriesCollection(self.state_series_list + other.state_series_list)
 
     @property
     def features(self) -> List[str]:
-        """Get the features of the state series list
-
-        Returns
-        -------
-        List[str]
-            The features of the state series list
-        """
-
         if not self.state_series_list:
             return {}
 
@@ -737,11 +744,25 @@ class StateSeriesList:
             The state series to be appended to the list
         """
 
+        assert state_series.features == self.features, f"StateSeries features do not match: {state_series.features} != {self.features}"
         assert isinstance(state_series, StateSeries), f"'{state_series}' is not a StateSeries object"
         self.state_series_list.append(state_series)
 
+    def extend(self, other: SeriesCollection) -> None:
+        """Extend the current list with another StateSeriesList.
+
+        Parameters
+        ----------
+        other : StateSeriesList
+            The StateSeriesList to extend the current list with
+        """
+
+        assert self.features == other.features, f"Features of the two StateSeriesLists do not match: {self.features} != {other.features}"
+        assert isinstance(other, SeriesCollection), f"'{other}' is not a StateSeriesList object"
+        self.state_series_list.extend(other.state_series_list)
+
     @classmethod
-    def from_hdf5(cls, file_name: str) -> StateSeriesList:
+    def from_hdf5(cls, file_name: str) -> SeriesCollection:
         """A factory method for building a collection of StateSeries from an HDF5 file
 
         Parameters
@@ -767,7 +788,7 @@ class StateSeriesList:
         raise NotImplementedError("StateSeriesList.to_hdf5 is not implemented yet")
 
     @classmethod
-    def from_csv(cls, file_name: str, features: List[str] = None) -> StateSeriesList:
+    def from_csv(cls, file_name: str, features: List[str] = None) -> SeriesCollection:
         """A factory method for building a collection of StateSeries from a CSV file
 
         Parameters
@@ -797,7 +818,7 @@ class StateSeriesList:
         raise NotImplementedError("StateSeriesList.to_csv is not implemented yet")
 
     @classmethod
-    def from_dataframe(cls, df: pd.DataFrame) -> StateSeriesList:
+    def from_dataframe(cls, df: pd.DataFrame) -> SeriesCollection:
         """Convert a Pandas DataFrame into a List of StateSeries
 
         "DataFrame index must be a MultiIndex with 'series_index' and 'state_index'"
