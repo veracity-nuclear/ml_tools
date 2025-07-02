@@ -92,3 +92,81 @@ def test_state_mean_std_max_min():
     assert_almost_equal(series.min(["feature_1"]), 9.0)
     assert_almost_equal(series.min(["feature_2"]), 115.0)
     assert_almost_equal(series.min(), [9.0, 115.0])
+
+def test_state_series():
+    def compare_series(series1, series2):
+        assert len(series1) == len(series2)
+        for i in range(len(series1)):
+            assert series1[i].features == series2[i].features
+            for feat in series1[i].features:
+                assert_almost_equal(series1[i][feat], series2[i][feat])
+
+    test_dir = os.path.join(os.path.dirname(__file__), "test_state")
+    if not os.path.exists(test_dir):
+        os.mkdir(test_dir)
+
+    series = StateSeries([
+        State({"feature1": 10.0, "feature2": 120.0}),
+        State({"feature1": 9.0, "feature2": 115.0}),
+        State({"feature1": 12.0, "feature2": 130.0}),
+    ])
+
+    # Test csv
+    series.to_csv(os.path.join(test_dir, "test_state_series.csv"))
+    loaded_series = StateSeries.from_csv(os.path.join(test_dir, "test_state_series.csv"), features=series.features)
+    compare_series(series, loaded_series)
+
+    # Test hdf5
+    series.to_hdf5(os.path.join(test_dir, "test_state_series.h5"))
+    loaded_series = StateSeries.from_hdf5(os.path.join(test_dir, "test_state_series.h5"), features=series.features)
+    compare_series(series, loaded_series)
+
+    # Test to_dataframe
+    df = series.to_dataframe(features=series.features)
+    expected_df = pd.DataFrame({
+        "feature1": [10.0, 9.0, 12.0],
+        "feature2": [120.0, 115.0, 130.0]
+    })
+    pdt.assert_frame_equal(df, expected_df, check_dtype=False)
+
+    # Test from_dataframe
+    loaded_series = StateSeries.from_dataframe(expected_df, features=series.features)
+    compare_series(series, loaded_series)
+
+    # Test to numpy
+    np_array = series.to_numpy()
+    expected_array = np.array([[10.0, 120.0],
+                                [9.0, 115.0],
+                                [12.0, 130.0]])
+    assert np.array_equal(np_array, expected_array)
+
+    # Cleanup
+    os.remove(os.path.join(test_dir, "test_state_series.csv"))
+    os.remove(os.path.join(test_dir, "test_state_series.h5"))
+    os.rmdir(test_dir)
+
+def test_state_vector_features():
+    series = StateSeries([
+        State({"feature1": [10.0, 20.0, 30.0, 40.0, 50.0], "feature2": [120.0, 121.0, 126.0, 132.0, 140.0]}),
+        State({"feature1": [9.0, 19.0, 29.0, 39.0, 49.0], "feature2": [115.0, 116.0, 117.0, 118.0, 119.0]}),
+        State({"feature1": [12.0, 22.0, 32.0, 42.0, 52.0], "feature2": [130.0, 131.0, 132.0, 133.0, 134.0]})
+    ])
+
+    expected_array = np.array([
+        [
+            [10.0, 20.0, 30.0, 40.0, 50.0],
+            [120.0, 121.0, 126.0, 132.0, 140.0]
+        ],
+        [
+            [9.0, 19.0, 29.0, 39.0, 49.0],
+            [115.0, 116.0, 117.0, 118.0, 119.0]
+        ],
+        [
+            [12.0, 22.0, 32.0, 42.0, 52.0],
+            [130.0, 131.0, 132.0, 133.0, 134.0]
+        ]
+    ])
+
+    series_array = series.to_numpy()
+    assert series_array.shape == expected_array.shape
+    assert np.array_equal(series_array, expected_array)

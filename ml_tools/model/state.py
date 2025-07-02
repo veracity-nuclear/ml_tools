@@ -207,10 +207,10 @@ class State:
     @staticmethod
     def perturb_states(
         perturbators: Dict[str, FeaturePerturbator],
-        states: Union[List[State], State],
+        states: Union[StateSeries, State],
         silent: bool = False,
         num_procs: int = 1,
-    ) -> List[State]:
+    ) -> StateSeries:
         """A method for perturbing the features of a given collection of states
 
         Parameters
@@ -218,7 +218,7 @@ class State:
         perturbators : Dict[str, FeaturePerturbator]
             The collection of perturbators to be applied with keys corresponding to the
             feature to be perturbed
-        state : Union[List[State], State]
+        state : Union[StateSeries, State]
             The states to be perturbed
         silent : bool
             A flag indicating whether or not to display the progress bar to the screen
@@ -227,7 +227,7 @@ class State:
 
         Returns
         -------
-        List[State]
+        StateSeries
             A new states which are perturbations of the original states
         """
 
@@ -252,7 +252,7 @@ class State:
 
         else:
 
-            def chunkify(states: List[State], chunk_size: int):
+            def chunkify(states: StateSeries, chunk_size: int):
                 for i in range(0, len(states), chunk_size):
                     yield states[i : i + chunk_size]
 
@@ -324,7 +324,7 @@ class StateSeries:
             for key in keys:
                 value = state[key]
                 if isinstance(value, np.ndarray):
-                    value = value.tolist()
+                    value = value.squeeze()
                 s += f"{value:^{col_width}.3e}"
 
             # if there are more than 10 states, print the last 3 states
@@ -374,7 +374,8 @@ class StateSeries:
             The state to be appended to the series
         """
 
-        assert state.features == self.features, f"State features do not match: {state.features} != {self.features}"
+        if self.features:
+            assert list(state.features.keys()) == self.features, f"State features do not match: {list(state.features.keys())} != {self.features}"
         assert isinstance(state, State), f"'{state}' is not a State object"
         self.states.append(state)
 
@@ -586,7 +587,7 @@ class StateSeries:
 
         return cls(state_objs)
 
-    def to_hdf5(self, file_name: str, group_name: str) -> None:
+    def to_hdf5(self, file_name: str, group_name: Optional[str] = "/") -> None:
         """Write the state series to an HDF5 file
 
         Parameters
@@ -597,7 +598,7 @@ class StateSeries:
             The group name in the HDF5 file to write the state series to
         """
         with h5py.File(file_name, "w") as h5_file:
-            group = h5_file.create_group(group_name)
+            group = h5_file if group_name == "/" else h5_file.create_group(group_name)
             for i, state in enumerate(self.states):
                 state_group = group.create_group(f"state_{i:06d}")
                 for feature, data in state.features.items():
@@ -625,16 +626,18 @@ class StateSeries:
         df = pd.read_csv(file_name)
         return StateSeries.from_dataframe(df, features)
 
-    def to_csv(self, file_name: str, features: List[str]) -> None:
+    def to_csv(self, file_name: str, features: Optional[List[str]] = None) -> None:
         """Write the state series to a CSV file
 
         Parameters
         ----------
         file_name : str
             The name of the CSV file to write to
-        features : Dict[str, FeaturePerturbator]
+        features : Optional[List[str]]
             The dictionary of features to be written to the CSV file
         """
+        if features is None:
+            features = self.features
 
         df = self.to_dataframe(features)
         df.to_csv(file_name, index=False)
@@ -722,14 +725,14 @@ class SeriesCollection:
             The string representation of the state series list
         """
 
-        s = f"StateSeriesList of length {len(self)} with features: {self.features}\n"
+        s = f"SeriesCollection of length {len(self)} with features: {self.features}\n"
         return s
 
     def __add__(self, other: SeriesCollection) -> SeriesCollection:
         assert (
             self.features == other.features
-        ), f"Features of the two StateSeriesLists do not match: {self.features} != {other.features}"
-        assert isinstance(other, SeriesCollection), f"'{other}' is not a StateSeriesList object"
+        ), f"Features of the two SeriesCollections do not match: {self.features} != {other.features}"
+        assert isinstance(other, SeriesCollection), f"'{other}' is not a SeriesCollection object"
         return SeriesCollection(self.state_series_list + other.state_series_list)
 
     @property
@@ -755,18 +758,18 @@ class SeriesCollection:
         self.state_series_list.append(state_series)
 
     def extend(self, other: SeriesCollection) -> None:
-        """Extend the current list with another StateSeriesList.
+        """Extend the current list with another SeriesCollection.
 
         Parameters
         ----------
-        other : StateSeriesList
-            The StateSeriesList to extend the current list with
+        other : SeriesCollection
+            The SeriesCollection to extend the current list with
         """
 
         assert (
             self.features == other.features
-        ), f"Features of the two StateSeriesLists do not match: {self.features} != {other.features}"
-        assert isinstance(other, SeriesCollection), f"'{other}' is not a StateSeriesList object"
+        ), f"Features of the two SeriesCollections do not match: {self.features} != {other.features}"
+        assert isinstance(other, SeriesCollection), f"'{other}' is not a SeriesCollection object"
         self.state_series_list.extend(other.state_series_list)
 
     @classmethod
@@ -780,10 +783,10 @@ class SeriesCollection:
 
         Returns
         -------
-        StateSeriesList
+        SeriesCollection
             A list of state series read from the data in the HDF5 file
         """
-        raise NotImplementedError("StateSeriesList.from_hdf5 is not implemented yet")
+        raise NotImplementedError("SeriesCollection.from_hdf5 is not implemented yet")
 
     def to_hdf5(self, file_name: str) -> None:
         """Write the state series list to an HDF5 file
@@ -793,7 +796,7 @@ class SeriesCollection:
         file_name : str
             The name of the HDF5 file to write to
         """
-        raise NotImplementedError("StateSeriesList.to_hdf5 is not implemented yet")
+        raise NotImplementedError("SeriesCollection.to_hdf5 is not implemented yet")
 
     @classmethod
     def from_csv(cls, file_name: str, features: List[str] = None) -> SeriesCollection:
@@ -808,10 +811,10 @@ class SeriesCollection:
 
         Returns
         -------
-        StateSeriesList
+        SeriesCollection
             A list of state series read from the data in the CSV file
         """
-        raise NotImplementedError("StateSeriesList.from_csv is not implemented yet")
+        raise NotImplementedError("SeriesCollection.from_csv is not implemented yet")
 
     def to_csv(self, file_name: str, features: List[str] = None) -> None:
         """Write the state series list to a CSV file
@@ -823,7 +826,7 @@ class SeriesCollection:
         features : List[str]
             List of features to extract to the dataframe, default is all features of the state
         """
-        raise NotImplementedError("StateSeriesList.to_csv is not implemented yet")
+        raise NotImplementedError("SeriesCollection.to_csv is not implemented yet")
 
     @classmethod
     def from_dataframe(cls, df: pd.DataFrame) -> SeriesCollection:
@@ -838,7 +841,7 @@ class SeriesCollection:
 
         Returns
         -------
-        StateSeriesList
+        SeriesCollection
             The list of state series
         """
         assert not df.empty, "DataFrame is empty"

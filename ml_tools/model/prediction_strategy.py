@@ -5,7 +5,7 @@ from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 import h5py
 
-from ml_tools.model.state import StateSeries
+from ml_tools.model.state import StateSeries, SeriesCollection
 from ml_tools.model.feature_processor import FeatureProcessor, write_feature_processor, read_feature_processor
 
 
@@ -72,14 +72,14 @@ class PredictionStrategy(ABC):
 
 
     @abstractmethod
-    def train(self, train_data: List[StateSeries], test_data: Optional[List[StateSeries]] = None, num_procs: int = 1) -> None:
+    def train(self, train_data: SeriesCollection, test_data: Optional[SeriesCollection] = None, num_procs: int = 1) -> None:
         """ The method that trains the prediction strategy given a set of training data and testing data
 
         Parameters
         ----------
-        train_data : List[StateSeries]
+        train_data : SeriesCollection
             The state series to use for training
-        test_data : List[StateSeries]
+        test_data : SeriesCollection
             The state series to use for testing the trained model
             (NOTE: not all prediction strategies will require providing training / testing data as part of training)
         num_procs : int
@@ -87,12 +87,12 @@ class PredictionStrategy(ABC):
         """
 
 
-    def preprocess_inputs(self, state_series: List[StateSeries], num_procs: int = 1) -> np.ndarray:
+    def preprocess_inputs(self, state_series: SeriesCollection, num_procs: int = 1) -> np.ndarray:
         """ Preprocesses all the input state series into the series of processed input features of the model
 
         Parameters
         ----------
-        state_series : List[StateSeries]
+        state_series : SeriesCollection
             The list of state series to be pre-processed into a collection of model input series
         num_procs : int
             The number of parallel processors to use when processing the data
@@ -197,12 +197,12 @@ class PredictionStrategy(ABC):
         raise NotImplementedError
 
 
-    def predict(self, state_series: List[StateSeries]) -> np.ndarray:
+    def predict(self, state_series: SeriesCollection) -> np.ndarray:
         """ The method that approximates the predicted features corresponding to a list of state series
 
         Parameters
         ----------
-        state_series : List[StateSeries]
+        state_series : SeriesCollection
             The input state series which to predict outputs for
 
         Returns
@@ -241,7 +241,7 @@ class PredictionStrategy(ABC):
         return np.asarray([self._predict_one(series) for series in state_series])
 
 
-    def _get_targets(self, state_series: List[StateSeries]) -> np.ndarray:
+    def _get_targets(self, state_series: SeriesCollection) -> np.ndarray:
         """ The method that extracts the target values for each state for training
 
         Target value in this case refers either directly to the predicted feature if
@@ -250,7 +250,7 @@ class PredictionStrategy(ABC):
 
         Parameters
         ----------
-        state_series : List[StateSeries]
+        state_series : SeriesCollection
             The state series to extract / derive the target values from
 
         Returns
