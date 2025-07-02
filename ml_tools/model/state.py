@@ -375,7 +375,9 @@ class StateSeries:
         """
 
         if self.features:
-            assert list(state.features.keys()) == self.features, f"State features do not match: {list(state.features.keys())} != {self.features}"
+            assert (
+                list(state.features.keys()) == self.features
+            ), f"State features do not match: {list(state.features.keys())} != {self.features}"
         assert isinstance(state, State), f"'{state}' is not a State object"
         self.states.append(state)
 
