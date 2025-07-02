@@ -1,11 +1,11 @@
 from __future__ import annotations
-from typing import List, Optional, Type
+from typing import Optional, Type
 from math import isclose
 import numpy as np
 from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans
 
-from ml_tools.model.state import StateSeries
+from ml_tools.model.state import SeriesCollection
 from ml_tools.model.feature_processor import NoProcessing
 from ml_tools.model.prediction_strategy import PredictionStrategy
 
@@ -102,7 +102,7 @@ class PODStrategy(PredictionStrategy):
         self._kmeans  = None
 
 
-    def train(self, train_data: List[StateSeries], test_data: Optional[List[StateSeries]] = None, num_procs: int = 1) -> None:
+    def train(self, train_data: SeriesCollection, test_data: Optional[SeriesCollection] = None, num_procs: int = 1) -> None:
 
         assert test_data is None, "The POD Prediction Strategy does not use test data"
 

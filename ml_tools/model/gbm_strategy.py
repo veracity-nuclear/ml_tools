@@ -1,12 +1,12 @@
 from __future__ import annotations
-from typing import List, Dict, Optional, Type
+from typing import Dict, Optional, Type
 import os
 import h5py
 import lightgbm as lgb
 import numpy as np
 import pylab as plt
 
-from ml_tools.model.state import StateSeries
+from ml_tools.model.state import SeriesCollection
 from ml_tools.model.prediction_strategy import PredictionStrategy
 from ml_tools.model.feature_processor import FeatureProcessor
 
@@ -271,7 +271,7 @@ class GBMStrategy(PredictionStrategy):
         self._gbm               = None
 
 
-    def train(self, train_data: List[StateSeries], test_data: Optional[List[StateSeries]] = None, num_procs: int = 1) -> None:
+    def train(self, train_data: SeriesCollection, test_data: Optional[SeriesCollection] = None, num_procs: int = 1) -> None:
 
         X_train   = self.preprocess_inputs(train_data, num_procs)
         X_train   = X_train.reshape(-1, X_train.shape[-1])

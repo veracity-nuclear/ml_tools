@@ -1,4 +1,4 @@
-from .model.state import State, StateSeries
+from .model.state import State, StateSeries, SeriesCollection
 from .model.feature_processor import (
     FeatureProcessor, MinMaxNormalize, NoProcessing, write_feature_processor, read_feature_processor
 )
