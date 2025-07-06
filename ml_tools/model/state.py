@@ -178,6 +178,98 @@ class State:
         return State(state_data)
 
     @staticmethod
+    def read_states_from_hdf5(
+        file_name: str,
+        features: List[str],
+        states: Union[List[str], str] = None,
+        silent: bool = False,
+        num_procs: int = 1,
+        random_sample_size: int = None,
+    ) -> List[State]:
+        """A factory method for building a collection of States from an HDF5 file
+
+        Parameters
+        ----------
+        file_name : str
+            The name of the HDF5 file from which to read and build the states from
+        features : List[str]
+            The list of features expected to be read in for each state
+        states : Union[List[str], str]
+            The ordered list of groups in the HDF5 file which hold the feature data for each state.
+            If no states are provided, it will be assumed that all first-level groups are the states
+            and will read them all.
+        silent : bool
+            A flag indicating whether or not to display the progress bar to the screen
+        num_procs : int
+            The number of parallel processors to use when reading data from the HDF5
+        random_sample_size : int
+            Number of random state samples to draw from the list of specified states.
+            If this argument is not provided, all states of the list will be considered.
+
+        Returns
+        -------
+        List[State]
+            A list of states read from the data in the HDF5 file
+        """
+
+        assert os.path.exists(file_name), f"File does not exist: {file_name}"
+        assert len(features) > 0, f"'len(features) = {len(features)}'"
+        assert num_procs > 0, f"'num_procs = {num_procs}'"
+
+        if states is None:
+            with h5py.File(file_name, "r") as h5_file:
+                states = list(h5_file.keys())
+        elif isinstance(states, str):
+            states = [states]
+
+        if random_sample_size:
+            assert random_sample_size > 0, f"'random_sample_size = {random_sample_size}'"
+            assert random_sample_size < len(
+                states
+            ), f"'random_sample_size = {random_sample_size}, len(states) = {len(states)}'"
+            states = random.sample(states, random_sample_size)
+
+        if not silent:
+            print(f"Reading state data from: '{file_name}'")
+            statusbar = StatusBar(len(states))
+
+        state_data = []
+
+        if num_procs == 1:
+            for i, state in enumerate(states):
+                state_data.append(State.from_hdf5(file_name, state, features))
+                if not silent:
+                    statusbar.update(i)
+
+        else:
+
+            def chunkify(states: List[str], chunk_size: int):
+                for i in range(0, len(states), chunk_size):
+                    yield states[i : i + chunk_size]
+
+            chunk_size = max(1, len(states) // num_procs)
+            chunks = list(chunkify(states, chunk_size))
+
+            with ProcessPoolExecutor(max_workers=num_procs) as executor:
+                jobs = {
+                    executor.submit(State.read_states_from_hdf5, file_name, features, chunk, silent=True): chunk for chunk in chunks
+                }
+
+                completed = 0
+                for job in as_completed(jobs):
+                    result = job.result()
+                    state_data.extend(result)
+                    if not silent:
+                        for _ in result:
+                            statusbar.update(completed)
+                            completed += 1
+
+        if not silent:
+            statusbar.finalize()
+
+        return state_data
+
+    @staticmethod
     def perturb_state(perturbators: Dict[str, FeaturePerturbator], state: State) -> State:
         """A method for perturbing the features of a given state
 
@@ -497,97 +589,21 @@ class StateSeries:
         return self.to_numpy(keys).min(axis=0)
 
     @classmethod
-    def from_hdf5(
-        cls,
-        file_name: str,
-        features: List[str],
-        states: Union[List[str], str] = None,
-        silent: bool = False,
-        num_procs: int = 1,
-        random_sample_size: int = None,
-    ) -> StateSeries:
-        """A factory method for building a collection of States from an HDF5 file
+    def from_hdf5(cls, file_name: str) -> StateSeries:
+        """A factory method for building a StateSeries from an HDF5 file
 
         Parameters
         ----------
         file_name : str
-            The name of the HDF5 file from which to read and build the states from
-        features : List[str]
-            The list of features expected to be read in for each state
-        states : Union[List[str], str]
-            The ordered list of groups in the HDF5 file which hold the feature data for each state.
-            If no states are provided, it will be assumed that all first-level groups are the states
-            and will read them all.
-        silent : bool
-            A flag indicating whether or not to display the progress bar to the screen
-        num_procs : int
-            The number of parallel processors to use when reading data from the HDF5
-        random_sample_size : int
-            Number of random state samples to draw from the list of specified states.
-            If this argument is not provided, all states of the list will be considered.
+            The name of the HDF5 file from which to read and build the state series from
 
         Returns
         -------
         StateSeries
-            A list of states read from the data in the HDF5 file
+            A list of state series read from the data in the HDF5 file
         """
+        raise NotImplementedError("StateSeries.from_hdf5 is not implemented yet")
 
-        assert os.path.exists(file_name), f"File does not exist: {file_name}"
-        assert len(features) > 0, f"'len(features) = {len(features)}'"
-        assert num_procs > 0, f"'num_procs = {num_procs}'"
-
-        if states is None:
-            with h5py.File(file_name, "r") as h5_file:
-                states = list(h5_file.keys())
-        elif isinstance(states, str):
-            states = [states]
-
-        if random_sample_size:
-            assert random_sample_size > 0, f"'random_sample_size = {random_sample_size}'"
-            assert random_sample_size < len(
-                states
-            ), f"'random_sample_size = {random_sample_size}, len(states) = {len(states)}'"
-            states = random.sample(states, random_sample_size)
-
-        if not silent:
-            print(f"Reading state data from: '{file_name}'")
-            statusbar = StatusBar(len(states))
-
-        state_objs = []
-
-        if num_procs == 1:
-            for i, state in enumerate(states):
-                state_objs.append(State.from_hdf5(file_name, state, features))
-                if not silent:
-                    statusbar.update(i)
-
-        else:
-
-            def chunkify(states: List[str], chunk_size: int):
-                for i in range(0, len(states), chunk_size):
-                    yield states[i : i + chunk_size]
-
-            chunk_size = max(1, len(states) // num_procs)
-            chunks = list(chunkify(states, chunk_size))
-
-            with ProcessPoolExecutor(max_workers=num_procs) as executor:
-                jobs = {
-                    executor.submit(StateSeries.from_hdf5, file_name, features, chunk, silent=True): chunk for chunk in chunks
-                }
-
-                completed = 0
-                for job in as_completed(jobs):
-                    result = job.result()
-                    state_objs.extend(result)
-                    if not silent:
-                        for _ in result:
-                            statusbar.update(completed)
-                            completed += 1
-
-        if not silent:
-            statusbar.finalize()
-
-        return cls(state_objs)
 
     def to_hdf5(self, file_name: str, group_name: Optional[str] = "/") -> None:
         """Write the state series to an HDF5 file
