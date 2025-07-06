@@ -20,7 +20,7 @@ from tensorflow.keras.losses import MeanSquaredError
 from tensorflow.keras.metrics import MeanAbsoluteError
 from tensorflow.keras.callbacks import EarlyStopping
 
-from ml_tools.model.state import StateSeries
+from ml_tools.model.state import SeriesCollection
 from ml_tools.model.prediction_strategy import PredictionStrategy
 from ml_tools.model.feature_processor import FeatureProcessor
 
@@ -1357,7 +1357,7 @@ class NNStrategy(PredictionStrategy):
         self._model = None
 
 
-    def train(self, train_data: List[StateSeries], test_data: Optional[List[StateSeries]] = None, num_procs: int = 1) -> None:
+    def train(self, train_data: SeriesCollection, test_data: Optional[SeriesCollection] = None, num_procs: int = 1) -> None:
         assert test_data is None, "The Neural Network Prediction Strategy does not use test data"
         assert all(len(series) == len(train_data[0]) for series in train_data)
 

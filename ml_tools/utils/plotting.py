@@ -11,7 +11,7 @@ import ray
 import seaborn as sns
 import shap
 
-from ml_tools.model.state import State, StateSeries, series_to_pandas, pandas_to_series
+from ml_tools.model.state import State, StateSeries, SeriesCollection
 from ml_tools.model.prediction_strategy import PredictionStrategy
 from ml_tools.model.feature_perturbator import FeaturePerturbator
 from ml_tools.utils.status_bar import StatusBar
@@ -76,6 +76,7 @@ def plot_ref_vs_pred(models:                  Dict[str, PredictionStrategy],
     plt.ylabel('Predicted ' + predicted_feature_label, fontsize=14)
     if title:
         plt.title('Reference vs. Predicted ' + predicted_feature_label, fontsize=16)
+    plt.gca().set_aspect('equal', adjustable='box')
     plt.xticks(fontsize=12)
     plt.yticks(fontsize=12)
     plt.legend(fontsize=14)
@@ -137,7 +138,7 @@ def plot_hist(models:       Dict[str, PredictionStrategy],
 
 def plot_sensitivities(models:                  Dict[str, PredictionStrategy],
                        state_series:            List[StateSeries],
-                       perturbators:            List[FeaturePerturbator],
+                       perturbators:            Dict[str, FeaturePerturbator],
                        number_of_perturbations: int,
                        state_index:             int = -1,
                        array_index:             int = 0,
@@ -155,7 +156,7 @@ def plot_sensitivities(models:                  Dict[str, PredictionStrategy],
         The dictionary key will be the suffix of the figure file name
     state_series : List[StateSeries]
         The collection of state series to use for evaluating the sensitivities
-    perturbators : List[FeaturePerturbator]
+    perturbators : Dict[str, FeaturePerturbator]
         The perturbators to use for perturbing the state features
     number_of_perturbations : int
         The number of perturbation realizations to perform
@@ -255,7 +256,7 @@ def plot_corr_matrix(input_features:  List[str],
         A name for the figure that is generated (Default: 'corr_matrix')
     """
 
-    X = series_to_pandas(state_series, input_features)
+    X = SeriesCollection.to_dataframe(state_series, input_features)
 
     if state_index < 0:
         max_index = X.index.get_level_values('state_index').max()
@@ -442,7 +443,7 @@ def plot_shap(models:          Dict[str, PredictionStrategy],
     """
 
     state_series       = random.sample(state_series, min(num_samples, len(state_series)))
-    df                 = series_to_pandas(state_series)
+    df                 = SeriesCollection.to_dataframe(state_series)
     all_input_features = list(df.columns)
     X                  = df.to_numpy(dtype=float)
 
@@ -515,7 +516,7 @@ def _process_shap_batch(model:          PredictionStrategy,
                                                 names=["series_index", "state_index"])
 
         X_df        = pd.DataFrame(X_array, columns=input_features, index=index)
-        predictions = model.predict(pandas_to_series(X_df))
+        predictions = model.predict(StateSeries.from_dataframe(X_df))
 
         return np.asarray([series[state_index][array_index] for series in predictions])
 

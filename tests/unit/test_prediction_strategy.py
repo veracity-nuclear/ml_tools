@@ -14,7 +14,7 @@ input_features = {'average_exposure' : MinMaxNormalize(0., 45.),
 output_feature = "cips_index"
 
 data_file                          = os.path.dirname(__file__)+"/test_data.h5"
-state                              = State.read_state_from_hdf5(data_file, 'set_000001', ["2d_assembly_exposure", "num_gad_rods", "measured_rh_detector", "outputs/cips_index", "outputs/fine_detector"])
+state                              = State.from_hdf5(data_file, 'set_000001', ["2d_assembly_exposure", "num_gad_rods", "measured_rh_detector", "outputs/cips_index", "outputs/fine_detector"])
 state.features["average_exposure"] = np.nan_to_num(state["2d_assembly_exposure"], nan=0.)
 state.features["num_gad_rods"]     = np.where(state["num_gad_rods"] == -1, 0., state["num_gad_rods"])
 state.features["is_refl"]          = np.where(np.isnan(state["2d_assembly_exposure"]), 1., 0.)
