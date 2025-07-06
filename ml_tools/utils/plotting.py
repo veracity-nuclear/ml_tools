@@ -57,7 +57,7 @@ def plot_ref_vs_pred(models:                  Dict[str, PredictionStrategy],
         assert model.isTrained
         assert model.predicted_feature == predicted_feature
         predicted = np.asarray([series[state_index][array_index] for series in model.predict(state_series)])
-        plt.plot(reference, predicted, '.', alpha=0.3, label=label)
+        plt.plot(reference, predicted, '.', alpha=0.1, markersize=4, label=label)
 
     max_val = max(*plt.xlim(), *plt.ylim())
     plt.axis([0, max_val, 0, max_val])
@@ -79,7 +79,7 @@ def plot_ref_vs_pred(models:                  Dict[str, PredictionStrategy],
     plt.gca().set_aspect('equal', adjustable='box')
     plt.xticks(fontsize=12)
     plt.yticks(fontsize=12)
-    plt.legend(fontsize=14)
+    plt.legend(fontsize=12)
     plt.savefig(fig_name+'.png', dpi=600, bbox_inches='tight')
     plt.close()
 
@@ -123,9 +123,10 @@ def plot_hist(models:       Dict[str, PredictionStrategy],
         diffs.append(reference - predicted)
         maxdiff = max(maxdiff, np.max(np.abs(diffs[-1])))
 
+    colors = plt.cm.tab10.colors
     bins = np.linspace(-maxdiff, maxdiff, 100, endpoint=True)
-    for label, diff in zip(models.keys(), diffs):
-        plt.hist(diff, bins, alpha=0.3, label=label)
+    for i, (label, diff) in enumerate(zip(models.keys(), diffs)):
+        plt.hist(diff, bins, histtype='step', linewidth=1.5, label=label, color=colors[i % len(colors)])
 
     plt.grid(True)
     predicted_feature_label = predicted_feature if predicted_feature_label is None else predicted_feature_label
@@ -203,7 +204,8 @@ def plot_sensitivities(models:                  Dict[str, PredictionStrategy],
 def print_metrics(models:       Dict[str, PredictionStrategy],
                   state_series: List[StateSeries],
                   state_index:  int = -1,
-                  array_index:  int = 0,) -> None:
+                  array_index:  int = 0,
+                  output_file:  Optional[str] = None) -> None:
     """ Function for printing the statistical metrics (average, std.dev., rms, max) of models to the screen
 
     Parameters
@@ -217,6 +219,8 @@ def print_metrics(models:       Dict[str, PredictionStrategy],
         The index of the state in the series to be plotted (Default: -1)
     array_index : int
         The index of the predicted value array to be plotted (Default: 0)
+    output_file : Optional[str]
+        An optional file in which to output
     """
 
     predicted_feature = next(iter(models.values())).predicted_feature
@@ -225,7 +229,11 @@ def print_metrics(models:       Dict[str, PredictionStrategy],
 
     padding = np.max([len(label) for label in models.keys()]) + 3
     fmtstr  = f'{{0:{padding}s}} {{1:8.5f}} {{2:7.5f}} {{3:7.5f}} {{4:7.5f}} {{5:9.3e}}'
-    print(' ' * padding + '   Avg     Std     RMS     Max   Time/State')
+    header  = ' ' * padding + '   Avg     Std     RMS     Max   Time/State'
+    print(header)
+    if output_file:
+        with open(output_file, 'a') as f:
+            f.write(f"{header}\n")
     for label, model in models.items():
         start = time.time()
         predicted = np.asarray([series[state_index][array_index] for series in model.predict(state_series)])
@@ -235,7 +243,12 @@ def print_metrics(models:       Dict[str, PredictionStrategy],
         maxdiff = np.max(np.abs(diff))
         avg = np.mean(diff)
         std = np.std(diff)
-        print(fmtstr.format(label + ' :', avg, std, rms, maxdiff, dt/len(state_series)))
+        metrics = fmtstr.format(label + ' :', avg, std, rms, maxdiff, dt/len(state_series))
+        print(metrics)
+        if output_file:
+            with open(output_file, 'a') as f:
+                f.write(f"{metrics}\n")
+
 
 
 def plot_corr_matrix(input_features:  List[str],
@@ -267,14 +280,35 @@ def plot_corr_matrix(input_features:  List[str],
         f"state_index {state_index} is out of bounds (valid: {valid_indices.min()} to {valid_indices.max()})"
 
     input_features = [col for col in X.columns if any(col == prefix or col.startswith(prefix) for prefix in input_features)]
+    num_features   = len(input_features)
 
-    X           = X.loc[(slice(None), state_index), :]
-    X           = X[input_features]
-    corr_matrix = X.corr()
-    corr_matrix = corr_matrix.fillna(0)
+    X            = X.loc[(slice(None), state_index), :]
+    X            = X[input_features]
+    corr_matrix  = X.corr().fillna(0)
+    mask         = np.triu(np.ones_like(corr_matrix, dtype=bool))
 
     plt.figure(figsize=(8, 6))
-    sns.heatmap(corr_matrix, annot=True, xticklabels=input_features, yticklabels=input_features, cmap='coolwarm', fmt='.2f')
+    annotate = num_features <= 12
+    sns.heatmap(
+        corr_matrix,
+        mask        = mask,
+        annot       = annotate,
+        xticklabels = input_features,
+        yticklabels = input_features,
+        cmap        = 'coolwarm',
+        fmt         = '.2f' if annotate else "",
+        cbar        = True)
+
+    label_font_scale = max(0.3, min(1.2, 10 / num_features))
+    valid_rows       = sorted(set(np.where(~mask)[0]))
+    valid_cols       = sorted(set(np.where(~mask)[1]))
+    row_ticks        = [i + 0.5 for i in valid_rows]
+    col_ticks        = [i + 0.5 for i in valid_cols]
+    tick_positions   = np.arange(num_features)
+    plt.xticks(ticks=col_ticks, labels=[input_features[i] for i in valid_cols],
+               rotation=45, ha='right', fontsize=10 * label_font_scale)
+    plt.yticks(ticks=row_ticks, labels=[input_features[i] for i in valid_rows],
+               rotation=0, fontsize=10 * label_font_scale)
     plt.tight_layout()
     plt.savefig(fig_name+'.png', dpi=600, bbox_inches='tight')
     plt.close()
