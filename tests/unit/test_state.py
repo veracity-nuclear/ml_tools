@@ -14,7 +14,7 @@ def test_state():
     data_file    = os.path.dirname(__file__)+"/test_data.h5"
     state_groups = get_groups_with_prefix(data_file, "set_", 1)
     features     = ["average_enrichment", "boron_concentration", "measured_fixed_detector"]
-    states       = StateSeries.from_hdf5(data_file, features, state_groups)
+    states       = State.read_states_from_hdf5(data_file, features, state_groups)
 
     assert len(states) == 1
 
@@ -118,7 +118,7 @@ def test_state_series():
 
     # Test hdf5
     series.to_hdf5(os.path.join(test_dir, "test_state_series.h5"))
-    loaded_series = StateSeries.from_hdf5(os.path.join(test_dir, "test_state_series.h5"), features=series.features)
+    loaded_series = StateSeries(State.read_states_from_hdf5(os.path.join(test_dir, "test_state_series.h5"), features=series.features))
     compare_series(series, loaded_series)
 
     # Test to_dataframe

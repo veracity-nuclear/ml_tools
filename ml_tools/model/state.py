@@ -252,7 +252,8 @@ class State:
 
             with ProcessPoolExecutor(max_workers=num_procs) as executor:
                 jobs = {
-                    executor.submit(State.read_states_from_hdf5, file_name, features, chunk, silent=True): chunk for chunk in chunks
+                    executor.submit(State.read_states_from_hdf5, file_name, features, chunk, silent=True): chunk
+                    for chunk in chunks
                 }
 
                 completed = 0
