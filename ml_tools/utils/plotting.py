@@ -22,7 +22,7 @@ def plot_ref_vs_pred(models:                  Dict[str, PredictionStrategy],
                      fig_name:                str = 'ref_vs_pred',
                      state_index:             int = -1,
                      array_index:             int = 0,
-                     error_bands:             List[float] = [2.5, 5.0],
+                     error_bands:             List[float] = [5.0, 10.0],
                      title:                   bool = True,
                      predicted_feature_label: Optional[str] = None) -> None:
     """ Function for plotting reference vs. predicted results of a collection of models
@@ -62,12 +62,13 @@ def plot_ref_vs_pred(models:                  Dict[str, PredictionStrategy],
     max_val = max(*plt.xlim(), *plt.ylim())
     plt.axis([0, max_val, 0, max_val])
 
-    alpha = 1.0
-    plt.plot([0, max_val], [0, max_val], '--k', alpha=alpha, label='Reference')
-    for band in error_bands:
-        alpha -= 1./(len(error_bands) + 1.)
-        plt.plot([band, max_val+5+band, max_val+5-band, 0], [0, max_val+5, max_val+5, band],
-                 '--k', alpha=alpha, label=f'+/- {band:3.1f}')
+    plt.plot([0, max_val], [0, max_val], '--k', label='Reference')
+    grays = np.linspace(0.3, 0.7, len(error_bands))
+    for gray, band in zip(grays, sorted(error_bands)):
+        percent = band / 100.0
+        x = np.linspace(0, max_val, 100)
+        plt.plot(x, (1 + percent) * x, '--', color=(gray, gray, gray), label=f'+{band:.1f}%')
+        plt.plot(x, (1 - percent) * x, '--', color=(gray, gray, gray), label=f'-{band:.1f}%')
 
     plt.grid(True)
     predicted_feature_label = predicted_feature if predicted_feature_label is None else predicted_feature_label
@@ -321,9 +322,7 @@ def plot_ice_pdp(models:          Dict[str, PredictionStrategy],
     predicted_feature = next(iter(models.values())).predicted_feature
 
     values = np.asarray([series[state_index][input_feature][input_index] for series in state_series])
-    values = np.unique(values)
-    values = np.random.choice(values, size=min(num_points, len(values)), replace=False)
-    values = np.sort(values)
+    values = np.linspace(np.min(values), np.max(values), num_points)
 
     chunk_size = max(1, len(values) // num_procs)
     batches    = [values[i:i + chunk_size] for i in range(0, len(values), chunk_size)]
