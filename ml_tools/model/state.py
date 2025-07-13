@@ -791,6 +791,28 @@ class SeriesCollection:
         assert isinstance(other, SeriesCollection), f"'{other}' is not a SeriesCollection object"
         self.state_series_list.extend(other.state_series_list)
 
+    def random_sample(self, num_samples: int, seed: Optional[int] = None) -> SeriesCollection:
+        """ Method for getting a random subset of the series collection
+
+        Parameters
+        ----------
+        num_samples : int
+            The number of samples to draw
+        seed : Optional[int]
+            The number seed to use for the random number generator
+
+        Returns
+        -------
+        SeriesCollection
+            The random subset of the original SeriesCollection
+        """
+        assert num_samples <= len(self), \
+            f"Cannot sample {num_samples} elements from SeriesCollection of length {len(self)}"
+
+        rng = random.Random(seed) if seed is not None else random
+
+        return SeriesCollection(rng.sample(self.state_series_list, num_samples))
+
     @classmethod
     def from_hdf5(cls, file_name: str) -> SeriesCollection:
         """A factory method for building a collection of StateSeries from an HDF5 file

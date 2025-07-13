@@ -170,3 +170,26 @@ def test_state_vector_features():
     series_array = series.to_numpy()
     assert series_array.shape == expected_array.shape
     assert np.array_equal(series_array, expected_array)
+
+def test_series_collection_random_sample():
+    series1 = StateSeries([State({"x": 1.0})])
+    series2 = StateSeries([State({"x": 2.0})])
+    series3 = StateSeries([State({"x": 3.0})])
+    series4 = StateSeries([State({"x": 4.0})])
+    series5 = StateSeries([State({"x": 5.0})])
+
+    full_collection = SeriesCollection([series1, series2, series3, series4, series5])
+    sample_size = 3
+
+    sampled = full_collection.random_sample(sample_size, seed=42)
+
+    # Check sample size
+    assert len(sampled) == sample_size
+
+    # Check sampled elements are from original
+    for s in sampled:
+        assert s in full_collection.state_series_list
+
+    # Check deterministic behavior with seed
+    sampled_again = full_collection.random_sample(sample_size, seed=42)
+    assert [s[0]["x"] for s in sampled] == [s[0]["x"] for s in sampled_again]

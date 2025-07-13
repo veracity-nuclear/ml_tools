@@ -1,5 +1,4 @@
 from typing import Dict, List, Optional, Any
-import random
 import time
 from copy import deepcopy
 import os
@@ -11,14 +10,14 @@ import ray
 import seaborn as sns
 import shap
 
-from ml_tools.model.state import State, StateSeries, SeriesCollection
+from ml_tools.model.state import State, SeriesCollection
 from ml_tools.model.prediction_strategy import PredictionStrategy
 from ml_tools.model.feature_perturbator import FeaturePerturbator
 from ml_tools.utils.status_bar import StatusBar
 from ml_tools.utils.parallel import ray_context
 
 def plot_ref_vs_pred(models:                  Dict[str, PredictionStrategy],
-                     state_series:            List[StateSeries],
+                     series_collection:       SeriesCollection,
                      fig_name:                str = 'ref_vs_pred',
                      state_index:             int = -1,
                      array_index:             int = 0,
@@ -32,7 +31,7 @@ def plot_ref_vs_pred(models:                  Dict[str, PredictionStrategy],
     models : Dict[str, PredictionStrategy]
         The collection of models (i.e. prediction strategies) whose predictions are to be plotted.
         The dictionary key will be the label used for the model in the plot legend
-    state_series : List[StateSeries]
+    series_collection : SeriesCollection
         The collection of state series to use for plotting
     state_index : int
         The index of the state in the series to be plotted (Default: -1)
@@ -52,11 +51,11 @@ def plot_ref_vs_pred(models:                  Dict[str, PredictionStrategy],
 
     predicted_feature = next(iter(models.values())).predicted_feature
     reference         = np.asarray([series[state_index][predicted_feature][array_index]
-                          for series in state_series])
+                          for series in series_collection])
     for label, model in models.items():
         assert model.isTrained
         assert model.predicted_feature == predicted_feature
-        predicted = np.asarray([series[state_index][array_index] for series in model.predict(state_series)])
+        predicted = np.asarray([series[state_index][array_index] for series in model.predict(series_collection)])
         plt.plot(reference, predicted, '.', alpha=0.1, markersize=4, label=label)
 
     max_val = max(*plt.xlim(), *plt.ylim())
@@ -86,11 +85,11 @@ def plot_ref_vs_pred(models:                  Dict[str, PredictionStrategy],
 
 
 
-def plot_hist(models:       Dict[str, PredictionStrategy],
-              state_series: List[StateSeries],
-              fig_name:     str = 'hist',
-              state_index:  int = -1,
-              array_index:  int = 0,
+def plot_hist(models:                  Dict[str, PredictionStrategy],
+              series_collection:       SeriesCollection,
+              fig_name:                str = 'hist',
+              state_index:             int = -1,
+              array_index:             int = 0,
               predicted_feature_label: Optional[str] = None) -> None:
     """ Function for plotting reference minus predicted histograms of a collection of models
 
@@ -99,7 +98,7 @@ def plot_hist(models:       Dict[str, PredictionStrategy],
     models : Dict[str, PredictionStrategy]
         The collection of models (i.e. prediction strategies) whose predictions are to be plotted.
         The dictionary key will be the label used for the model in the plot legend
-    state_series : List[StateSeries]
+    series_collection : SeriesCollection
         The state series to use for plotting
     state_index : int
         The index of the state in the series to be plotted (Default: -1)
@@ -115,11 +114,11 @@ def plot_hist(models:       Dict[str, PredictionStrategy],
     maxdiff           = 0.
     predicted_feature = next(iter(models.values())).predicted_feature
     reference         = np.asarray([series[state_index][predicted_feature][array_index]
-                            for series in state_series])
+                            for series in series_collection])
     for label, model in models.items():
         assert model.isTrained
         assert model.predicted_feature == predicted_feature
-        predicted = np.asarray([series[state_index][array_index] for series in model.predict(state_series)])
+        predicted = np.asarray([series[state_index][array_index] for series in model.predict(series_collection)])
         diffs.append(reference - predicted)
         maxdiff = max(maxdiff, np.max(np.abs(diffs[-1])))
 
@@ -138,7 +137,7 @@ def plot_hist(models:       Dict[str, PredictionStrategy],
 
 
 def plot_sensitivities(models:                  Dict[str, PredictionStrategy],
-                       state_series:            List[StateSeries],
+                       series_collection:       SeriesCollection,
                        perturbators:            Dict[str, FeaturePerturbator],
                        number_of_perturbations: int,
                        state_index:             int = -1,
@@ -155,7 +154,7 @@ def plot_sensitivities(models:                  Dict[str, PredictionStrategy],
     models : Dict[str, PredictionStrategy]
         The collection of models (i.e. prediction strategies) whose sensitivities are to be plotted.
         The dictionary key will be the suffix of the figure file name
-    state_series : List[StateSeries]
+    series_collection : SeriesCollection
         The collection of state series to use for evaluating the sensitivities
     perturbators : Dict[str, FeaturePerturbator]
         The perturbators to use for perturbing the state features
@@ -174,7 +173,7 @@ def plot_sensitivities(models:                  Dict[str, PredictionStrategy],
     perturbations = []
     for _ in range(number_of_perturbations):
         perturbations.append([])
-        for series in state_series:
+        for series in series_collection:
             perturbations[-1].append(State.perturb_states(perturbators, series, num_procs))
 
     predicted_feature = next(iter(models.values())).predicted_feature
@@ -183,11 +182,11 @@ def plot_sensitivities(models:                  Dict[str, PredictionStrategy],
         assert model.isTrained
         assert model.predicted_feature == predicted_feature
 
-        predicted = np.asarray([series[state_index][array_index] for series in model.predict(state_series)])
-        results   = [[] for series in state_series]
+        predicted = np.asarray([series[state_index][array_index] for series in model.predict(series_collection)])
+        results   = [[] for series in series_collection]
         for perturbation in perturbations:
             perturbed_predicted = model.predict(perturbation)
-            for i in range(len(state_series)):
+            for i in range(len(series_collection)):
                 results[i].append(perturbed_predicted[i][state_index][array_index])
 
         order = np.argsort(predicted)
@@ -201,11 +200,11 @@ def plot_sensitivities(models:                  Dict[str, PredictionStrategy],
 
 
 
-def print_metrics(models:       Dict[str, PredictionStrategy],
-                  state_series: List[StateSeries],
-                  state_index:  int = -1,
-                  array_index:  int = 0,
-                  output_file:  Optional[str] = None) -> None:
+def print_metrics(models:            Dict[str, PredictionStrategy],
+                  series_collection: SeriesCollection,
+                  state_index:       int = -1,
+                  array_index:       int = 0,
+                  output_file:       Optional[str] = None) -> None:
     """ Function for printing the statistical metrics (average, std.dev., rms, max) of models to the screen
 
     Parameters
@@ -213,7 +212,7 @@ def print_metrics(models:       Dict[str, PredictionStrategy],
     models : Dict[str, PredictionStrategy]
         The collection of models (i.e. prediction strategies) whose predictions are to be plotted.
         The dictionary key will be the label used for the model in the plot legend
-    state_series : List[StateSeries]
+    series_collection : SeriesCollection
         The state series to use for plotting
     state_index : int
         The index of the state in the series to be plotted (Default: -1)
@@ -225,7 +224,7 @@ def print_metrics(models:       Dict[str, PredictionStrategy],
 
     predicted_feature = next(iter(models.values())).predicted_feature
     reference         = np.asarray([series[state_index][predicted_feature][array_index]
-                            for series in state_series])
+                            for series in series_collection])
 
     padding = np.max([len(label) for label in models.keys()]) + 3
     fmtstr  = f'{{0:{padding}s}} {{1:8.5f}} {{2:7.5f}} {{3:7.5f}} {{4:7.5f}} {{5:9.3e}}'
@@ -236,14 +235,14 @@ def print_metrics(models:       Dict[str, PredictionStrategy],
             f.write(f"{header}\n")
     for label, model in models.items():
         start = time.time()
-        predicted = np.asarray([series[state_index][array_index] for series in model.predict(state_series)])
+        predicted = np.asarray([series[state_index][array_index] for series in model.predict(series_collection)])
         dt = time.time() - start
         diff = reference - predicted
         rms = np.sqrt(np.dot(diff.flatten(),diff.flatten()))/float(len(diff))
         maxdiff = np.max(np.abs(diff))
         avg = np.mean(diff)
         std = np.std(diff)
-        metrics = fmtstr.format(label + ' :', avg, std, rms, maxdiff, dt/len(state_series))
+        metrics = fmtstr.format(label + ' :', avg, std, rms, maxdiff, dt/len(series_collection))
         print(metrics)
         if output_file:
             with open(output_file, 'a') as f:
@@ -251,17 +250,17 @@ def print_metrics(models:       Dict[str, PredictionStrategy],
 
 
 
-def plot_corr_matrix(input_features:  List[str],
-                     state_series:    List[StateSeries],
-                     state_index:     int = -1,
-                     fig_name:        str = 'corr_matrix') -> None:
+def plot_corr_matrix(input_features:    List[str],
+                     series_collection: SeriesCollection,
+                     state_index:       int = -1,
+                     fig_name:          str = 'corr_matrix') -> None:
     """ Function for plotting the correlation matrix of a given set of input features
 
     Parameters
     ----------
     input_features : List[str]
         A list specifying the input features whose correlations are to be plotted.
-    state_series : List[StateSeries]
+    series_collection : SeriesCollection
         The state series to use for plotting
     state_index : int
         The index of the state in the series to be plotted (Default: -1)
@@ -269,7 +268,8 @@ def plot_corr_matrix(input_features:  List[str],
         A name for the figure that is generated (Default: 'corr_matrix')
     """
 
-    X = SeriesCollection.to_dataframe(state_series, input_features)
+    series_collection = SeriesCollection(series_collection)
+    X = series_collection.to_dataframe(input_features)
 
     if state_index < 0:
         max_index = X.index.get_level_values('state_index').max()
@@ -314,16 +314,16 @@ def plot_corr_matrix(input_features:  List[str],
     plt.close()
 
 
-def plot_ice_pdp(models:          Dict[str, PredictionStrategy],
-                 state_series:    List[StateSeries],
-                 input_feature:   str,
-                 fig_name_prefix: str = 'ice_pdp',
-                 state_index:     int = -1,
-                 input_index:     int = 0,
-                 output_index:    int = 0,
-                 num_points:      int = 50,
-                 silent:          bool = False,
-                 num_procs:       int = 1,
+def plot_ice_pdp(models:                  Dict[str, PredictionStrategy],
+                 series_collection:       SeriesCollection,
+                 input_feature:           str,
+                 fig_name_prefix:         str = 'ice_pdp',
+                 state_index:             int = -1,
+                 input_index:             int = 0,
+                 output_index:            int = 0,
+                 num_points:              int = 50,
+                 silent:                  bool = False,
+                 num_procs:               int = 1,
                  predicted_feature_label: Optional[str] = None) -> None:
     """ Function to plot ICE/PDP feature analyses for a given set of models.
 
@@ -332,7 +332,7 @@ def plot_ice_pdp(models:          Dict[str, PredictionStrategy],
     models : Dict[str, PredictionStrategy]
         The collection of models (i.e. prediction strategies) whose predictions are to be plotted.
         The dictionary key will be the label used for the model in the plot legend
-    state_series : List[StateSeries]
+    series_collection : SeriesCollection
         The state series to use for plotting
     input_feature : str
         The input feature to generate ICE / PDP plots for
@@ -356,7 +356,7 @@ def plot_ice_pdp(models:          Dict[str, PredictionStrategy],
 
     predicted_feature = next(iter(models.values())).predicted_feature
 
-    values = np.asarray([series[state_index][input_feature][input_index] for series in state_series])
+    values = np.asarray([series[state_index][input_feature][input_index] for series in series_collection])
     values = np.linspace(np.min(values), np.max(values), num_points)
 
     chunk_size = max(1, len(values) // num_procs)
@@ -368,9 +368,9 @@ def plot_ice_pdp(models:          Dict[str, PredictionStrategy],
 
             if not silent:
                 print(f"Generating ICE/PDP plot: {fig_name_prefix}_{label}_{input_feature}.png")
-                statusbar = StatusBar(len(values) * len(state_series))
+                statusbar = StatusBar(len(values) * len(series_collection))
 
-            args = [(model, batch, state_series, input_feature, state_index, input_index, output_index)
+            args = [(model, batch, series_collection, input_feature, state_index, input_index, output_index)
                     for batch in batches]
 
 
@@ -410,13 +410,13 @@ def plot_ice_pdp(models:          Dict[str, PredictionStrategy],
             plt.close()
 
 @ray.remote
-def _process_ice_pdp_batch(model:         PredictionStrategy,
-                           batch:         np.ndarray,
-                           state_series:  List[StateSeries],
-                           input_feature: str,
-                           state_index:   int,
-                           input_index:   int,
-                           output_index:  int) -> List[Dict[str, Any]]:
+def _process_ice_pdp_batch(model:              PredictionStrategy,
+                           batch:              np.ndarray,
+                           series_collection:  SeriesCollection,
+                           input_feature:      str,
+                           state_index:        int,
+                           input_index:        int,
+                           output_index:       int) -> List[Dict[str, Any]]:
     """ Private helper function used by `plot_ice_pdp` for parallel batch processing.
 
     This function is not intended to be called directly. For an understanding of the parameters
@@ -425,11 +425,11 @@ def _process_ice_pdp_batch(model:         PredictionStrategy,
 
     batch_results = []
     for value in batch:
-        state_series_perturbed = deepcopy(state_series)
-        for series in state_series_perturbed:
+        series_collection_perturbed = deepcopy(series_collection)
+        for series in series_collection_perturbed:
             series[state_index][input_feature][input_index] = value
 
-        predictions = model.predict(state_series_perturbed)
+        predictions = model.predict(series_collection_perturbed)
 
         batch_results.extend([
             {'sample': i, 'value': value, 'prediction': series[state_index][output_index]}
@@ -438,16 +438,16 @@ def _process_ice_pdp_batch(model:         PredictionStrategy,
     return batch_results
 
 
-def plot_shap(models:          Dict[str, PredictionStrategy],
-              state_series:    List[StateSeries],
-              feature_plots:   Dict[str, List[str]],
-              algorithm:       str = 'auto',
-              fig_name_prefix: str = 'shap',
-              state_index:     int = -1,
-              array_index:     int = 0,
-              num_samples:     int = 50,
-              silent:          bool = False,
-              num_procs:       int = 1) -> None:
+def plot_shap(models:            Dict[str, PredictionStrategy],
+              series_collection: SeriesCollection,
+              feature_plots:     Dict[str, List[str]],
+              algorithm:         str = 'auto',
+              fig_name_prefix:   str = 'shap',
+              state_index:       int = -1,
+              array_index:       int = 0,
+              num_samples:       int = 50,
+              silent:            bool = False,
+              num_procs:         int = 1) -> None:
     """ Function to plot SHAP feature importance summary for a given set of models.
 
     Parameters
@@ -455,7 +455,7 @@ def plot_shap(models:          Dict[str, PredictionStrategy],
     models : Dict[str, PredictionStrategy]
         The collection of models (i.e. prediction strategies) whose sensitivities are to be plotted.
         The dictionary key will be the suffix of the figure file name
-    state_series : List[StateSeries]
+    series_collection : SeriesCollection
         The state series to use for plotting
     feature_plots : Dict[str, List[str]]
         Specification for what sets of input features to make SHAP plots for. The key corresponds to the
@@ -476,8 +476,8 @@ def plot_shap(models:          Dict[str, PredictionStrategy],
         The number of parallel processors to use when performing the SHAP evaluation (Default: 1)
     """
 
-    state_series       = random.sample(state_series, min(num_samples, len(state_series)))
-    df                 = SeriesCollection.to_dataframe(state_series)
+    series_collection  = series_collection.random_sample(min(num_samples, len(series_collection)))
+    df                 = series_collection.to_dataframe()
     all_input_features = list(df.columns)
     X                  = df.to_numpy(dtype=float)
 
@@ -550,7 +550,7 @@ def _process_shap_batch(model:          PredictionStrategy,
                                                 names=["series_index", "state_index"])
 
         X_df        = pd.DataFrame(X_array, columns=input_features, index=index)
-        predictions = model.predict(StateSeries.from_dataframe(X_df))
+        predictions = model.predict(SeriesCollection.from_dataframe(X_df))
 
         return np.asarray([series[state_index][array_index] for series in predictions])
 
