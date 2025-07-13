@@ -123,7 +123,7 @@ def plot_hist(models:       Dict[str, PredictionStrategy],
         diffs.append(reference - predicted)
         maxdiff = max(maxdiff, np.max(np.abs(diffs[-1])))
 
-    colors = plt.cm.tab10.colors
+    colors = plt.cm.get_cmap('tab10').colors
     bins = np.linspace(-maxdiff, maxdiff, 100, endpoint=True)
     for i, (label, diff) in enumerate(zip(models.keys(), diffs)):
         plt.hist(diff, bins, histtype='step', linewidth=1.5, label=label, color=colors[i % len(colors)])
