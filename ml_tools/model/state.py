@@ -759,7 +759,7 @@ class SeriesCollection:
         if not self.state_series_list:
             return {}
 
-        return self.state_series_list[0].features
+        return self.state_series_list[0][0].features
 
     def append(self, state_series: StateSeries) -> None:
         """Append a state series to the list
