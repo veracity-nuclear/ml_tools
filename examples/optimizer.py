@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import List, Dict, Tuple, Optional
 
+from ml_tools import SeriesCollection
 from ml_tools.model.prediction_strategy import PredictionStrategy, FeatureProcessor
 from ml_tools.model.nn_strategy import Activation
 
@@ -18,7 +19,7 @@ class Optimizer(ABC):
         A dictionary specifying the input features of this model and their corresponding feature processing strategy
     predicted_feature : str
         The string specifying the feature to be predicted
-    state_series : List[StateSeries]
+    series_collection : SeriesCollection
         The input state series which to predict outputs for
     num_procs : int
         The number of parallel processors to use when reading data from the HDF5
@@ -111,13 +112,13 @@ class Optimizer(ABC):
         self._predicted_feature = predicted_feature
 
     @property
-    def state_series(self) -> List[StateSeries]:
-        return self._state_series
+    def series_collection(self) -> SeriesCollection:
+        return self._series_collection
 
-    @state_series.setter
-    def state_series(self, state_series: List[StateSeries]) -> None:
-        assert len(state_series) > 0, f"len(state_series) = {len(state_series)}"
-        self._state_series = state_series
+    @series_collection.setter
+    def series_collection(self, series_collection: SeriesCollection) -> None:
+        assert len(series_collection) > 0, f"len(series_collection) = {len(series_collection)}"
+        self._series_collection = series_collection
 
     @property
     def num_procs(self) -> int:

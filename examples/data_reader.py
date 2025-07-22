@@ -2,7 +2,7 @@ from typing import List
 
 import numpy as np
 
-from ml_tools import State, StateSeries
+from ml_tools import State, StateSeries, SeriesCollection
 from ml_tools.utils.h5_utils import get_groups_with_prefix
 
 class DataReader():
@@ -11,7 +11,7 @@ class DataReader():
 
     def read_data(file_name:          str,
                   num_procs:          int = 1,
-                  random_sample_size: int = None) -> List[StateSeries]:
+                  random_sample_size: int = None) -> SeriesCollection:
         """ Method for reading all relevent data from the HDF5 file
 
         Parameters
@@ -26,10 +26,10 @@ class DataReader():
 
         Returns
         -------
-        List[StateSeries]
-            The relevent data for all states.  This is returned as a list of state series
+        SeriesCollection
+            The relevent data for all states.  This is returned as a SeriesCollection
             because that is what the prediction strategies take.  These are effectively a
-            list of series with length 1 (i.e., list of single state points)
+            list of StateSeries with length 1 (i.e., list of single state points)
         """
 
         features_to_read = [    "2d_assembly_exposure", "average_enrichment",
@@ -47,7 +47,7 @@ class DataReader():
             state.features["average_exposure"]       = np.nan_to_num(state["2d_assembly_exposure"], nan=0.)
             state.features["assembly_enrichment"]    = np.nan_to_num(state["average_enrichment"], nan=0.)
 
-        # Convert state data to list of state series
-        series = [[state] for state in states]
+        # Convert state data to SeriesCollection
+        collection = SeriesCollection([StateSeries([state]) for state in states])
 
-        return series
+        return collection

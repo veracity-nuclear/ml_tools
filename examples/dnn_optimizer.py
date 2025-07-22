@@ -9,6 +9,7 @@ from skopt import gp_minimize
 from skopt.space import Real, Integer, Categorical
 from skopt.utils import use_named_args
 
+from ml_tools import SeriesCollection
 from ml_tools.model.prediction_strategy import PredictionStrategy, FeatureProcessor
 from ml_tools.model.nn_strategy import Activation, NNStrategy, Dense, LayerSequence
 from optimizer import Optimizer
@@ -55,8 +56,8 @@ class DNNSkoptOptimizer(DNNOptimizer):
         A dictionary specifying the input features of this model and their corresponding feature processing strategy
     predicted_feature : str
         The string specifying the feature to be predicted
-    state_series : List[StateSeries]
-        The input state series which to predict outputs for
+    series_collection : SeriesCollection
+        The input state series collection which to predict outputs for
     num_procs : int
         The number of parallel processors to use when reading data from the HDF5
     test_fraction : float
@@ -78,7 +79,7 @@ class DNNSkoptOptimizer(DNNOptimizer):
                  dimensions:           Dimensions,
                  input_features:       Dict[str, FeatureProcessor],
                  predicted_feature:    str,
-                 state_series:         List[StateSeries],
+                 series_collection:    SeriesCollection,
                  num_procs:            int = 1,
                  test_fraction:        int = 0.2,
                  number_of_folds:      int = 5,
@@ -89,7 +90,7 @@ class DNNSkoptOptimizer(DNNOptimizer):
         self.dimensions           = dimensions
         self.input_features       = input_features
         self.predicted_feature    = predicted_feature
-        self.state_series         = state_series
+        self.series_collection    = series_collection
         self.num_procs            = num_procs
         self.test_fraction        = test_fraction
         self.number_of_folds      = number_of_folds
@@ -149,11 +150,11 @@ class DNNSkoptOptimizer(DNNOptimizer):
 
             rms = []
             kf = KFold(n_splits=self.number_of_folds, shuffle=True)
-            for fold, (train_idx, val_idx) in enumerate(kf.split(self.state_series)):
+            for fold, (train_idx, val_idx) in enumerate(kf.split(self.series_collection)):
                 print(f"Starting fold {fold + 1}/{self.number_of_folds}...")
 
-                training_set   = [self.state_series[i] for i in train_idx]
-                validation_set = [self.state_series[i] for i in val_idx]
+                training_set   = [self.series_collection[i] for i in train_idx]
+                validation_set = [self.series_collection[i] for i in val_idx]
 
                 model = self._build_model(initial_learning_rate = params["initial_learning_rate"],
                                           learning_decay_rate   = params["learning_decay_rate"],
@@ -214,8 +215,8 @@ class DNNOptunaOptimizer(DNNOptimizer):
         A dictionary specifying the input features of this model and their corresponding feature processing strategy
     predicted_feature : str
         The string specifying the feature to be predicted
-    state_series : List[StateSeries]
-        The input state series which to predict outputs for
+    series_collection : SeriesCollection
+        The input state series collection which to predict outputs for
     num_procs : int
         The number of parallel processors to use when reading data from the HDF5
     test_fraction : float
@@ -237,7 +238,7 @@ class DNNOptunaOptimizer(DNNOptimizer):
                  dimensions:           Dimensions,
                  input_features:       Dict[str, FeatureProcessor],
                  predicted_feature:    str,
-                 state_series:         List[StateSeries],
+                 series_collection:    SeriesCollection,
                  num_procs:            int = 1,
                  test_fraction:        int = 0.2,
                  number_of_folds:      int = 5,
@@ -248,7 +249,7 @@ class DNNOptunaOptimizer(DNNOptimizer):
         self.dimensions           = dimensions
         self.input_features       = input_features
         self.predicted_feature    = predicted_feature
-        self.state_series         = state_series
+        self.series_collection    = series_collection
         self.num_procs            = num_procs
         self.test_fraction        = test_fraction
         self.number_of_folds      = number_of_folds
@@ -308,11 +309,11 @@ class DNNOptunaOptimizer(DNNOptimizer):
 
             rms = []
             kf = KFold(n_splits=self.number_of_folds, shuffle=True)
-            for fold, (train_idx, val_idx) in enumerate(kf.split(self.state_series)):
+            for fold, (train_idx, val_idx) in enumerate(kf.split(self.series_collection)):
                 print(f"Starting fold {fold + 1}/{self.number_of_folds}...")
 
-                training_set   = [self.state_series[i] for i in train_idx]
-                validation_set = [self.state_series[i] for i in val_idx]
+                training_set   = [self.series_collection[i] for i in train_idx]
+                validation_set = [self.series_collection[i] for i in val_idx]
 
                 model = self._build_model(initial_learning_rate = initial_learning_rate,
                                           learning_decay_rate   = learning_decay_rate,

@@ -9,6 +9,7 @@ from skopt import gp_minimize
 from skopt.space import Real, Integer, Categorical
 from skopt.utils import use_named_args
 
+from ml_tools import SeriesCollection
 from ml_tools.model.prediction_strategy import PredictionStrategy, FeatureProcessor
 from ml_tools.model.nn_strategy import Activation, NNStrategy, Dense, SpatialConv, PassThrough, LayerSequence, CompoundLayer
 from optimizer import Optimizer
@@ -93,9 +94,9 @@ class CNNOptimizer(Optimizer):
                                    set(self.input_features.keys()))
 
         # This section assumes all 3x3 assembly inputs are listed first as the input_features of the models
-        len_all_inputs      = sum([len(self.state_series[0][0][feature]) for feature in self.input_features])
-        len_assembly_inputs = sum([len(self.state_series[0][0][feature]) for feature in assembly_inputs if feature in self.input_features])
-        len_detector_inputs = sum([len(self.state_series[0][0][feature]) for feature in detector_inputs if feature in self.input_features])
+        len_all_inputs      = sum([len(self.series_collection[0][0][feature]) for feature in self.input_features])
+        len_assembly_inputs = sum([len(self.series_collection[0][0][feature]) for feature in assembly_inputs if feature in self.input_features])
+        len_detector_inputs = sum([len(self.series_collection[0][0][feature]) for feature in detector_inputs if feature in self.input_features])
         assembly_inputs     = slice(0, len_assembly_inputs)                                       # Slice of 3x3 assembly inputs for CNN
         detector_inputs     = slice(len_assembly_inputs, len_assembly_inputs+len_detector_inputs) # Slice of 7x1 detector inputs for CNN
         other_inputs        = slice(len_assembly_inputs+len_detector_inputs, len_all_inputs)      # Slice of all other inputs
@@ -143,8 +144,8 @@ class CNNSkoptOptimizer(CNNOptimizer):
         A dictionary specifying the input features of this model and their corresponding feature processing strategy
     predicted_feature : str
         The string specifying the feature to be predicted
-    state_series : List[StateSeries]
-        The input state series which to predict outputs for
+    series_collection : SeriesCollection
+        The input state series collection which to predict outputs for
     num_procs : int
         The number of parallel processors to use when reading data from the HDF5
     test_fraction : float
@@ -166,7 +167,7 @@ class CNNSkoptOptimizer(CNNOptimizer):
                  dimensions:           Dimensions,
                  input_features:       Dict[str, FeatureProcessor],
                  predicted_feature:    str,
-                 state_series:         List[StateSeries],
+                 series_collection:    SeriesCollection,
                  num_procs:            int = 1,
                  test_fraction:        int = 0.2,
                  number_of_folds:      int = 5,
@@ -177,7 +178,7 @@ class CNNSkoptOptimizer(CNNOptimizer):
         self.dimensions           = dimensions
         self.input_features       = input_features
         self.predicted_feature    = predicted_feature
-        self.state_series         = state_series
+        self.series_collection    = series_collection
         self.num_procs            = num_procs
         self.test_fraction        = test_fraction
         self.number_of_folds      = number_of_folds
@@ -244,11 +245,11 @@ class CNNSkoptOptimizer(CNNOptimizer):
 
             rms = []
             kf = KFold(n_splits=self.number_of_folds, shuffle=True)
-            for fold, (train_idx, val_idx) in enumerate(kf.split(self.state_series)):
+            for fold, (train_idx, val_idx) in enumerate(kf.split(self.series_collection)):
                 print(f"Starting fold {fold + 1}/{self.number_of_folds}...")
 
-                training_set   = [self.state_series[i] for i in train_idx]
-                validation_set = [self.state_series[i] for i in val_idx]
+                training_set   = [self.series_collection[i] for i in train_idx]
+                validation_set = [self.series_collection[i] for i in val_idx]
 
                 model = self._build_model(initial_learning_rate     = params["initial_learning_rate"],
                                           learning_decay_rate       = params["learning_decay_rate"],
@@ -323,8 +324,8 @@ class CNNOptunaOptimizer(CNNOptimizer):
         A dictionary specifying the input features of this model and their corresponding feature processing strategy
     predicted_feature : str
         The string specifying the feature to be predicted
-    state_series : List[StateSeries]
-        The input state series which to predict outputs for
+    series_collection : SeriesCollection
+        The input state series collection which to predict outputs for
     num_procs : int
         The number of parallel processors to use when reading data from the HDF5
     test_fraction : float
@@ -346,7 +347,7 @@ class CNNOptunaOptimizer(CNNOptimizer):
                  dimensions:           Dimensions,
                  input_features:       Dict[str, FeatureProcessor],
                  predicted_feature:    str,
-                 state_series:         List[StateSeries],
+                 series_collection:    SeriesCollection,
                  num_procs:            int = 1,
                  test_fraction:        int = 0.2,
                  number_of_folds:      int = 5,
@@ -357,7 +358,7 @@ class CNNOptunaOptimizer(CNNOptimizer):
         self.dimensions           = dimensions
         self.input_features       = input_features
         self.predicted_feature    = predicted_feature
-        self.state_series         = state_series
+        self.series_collection    = series_collection
         self.num_procs            = num_procs
         self.test_fraction        = test_fraction
         self.number_of_folds      = number_of_folds
@@ -431,11 +432,11 @@ class CNNOptunaOptimizer(CNNOptimizer):
 
             rms = []
             kf = KFold(n_splits=self.number_of_folds, shuffle=True)
-            for fold, (train_idx, val_idx) in enumerate(kf.split(self.state_series)):
+            for fold, (train_idx, val_idx) in enumerate(kf.split(self.series_collection)):
                 print(f"Starting fold {fold + 1}/{self.number_of_folds}...")
 
-                training_set   = [self.state_series[i] for i in train_idx]
-                validation_set = [self.state_series[i] for i in val_idx]
+                training_set   = [self.series_collection[i] for i in train_idx]
+                validation_set = [self.series_collection[i] for i in val_idx]
 
                 model = self._build_model(initial_learning_rate     = initial_learning_rate,
                                           learning_decay_rate       = learning_decay_rate,
