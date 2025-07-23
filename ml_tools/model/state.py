@@ -99,7 +99,10 @@ class State:
         for feature_name, values in features.items():
             values = np.asarray(values)
 
-            if len(values) == 1:
+            # Handle scalar values
+            if values.ndim == 0:
+                flat_data[feature_name] = values.item()
+            elif len(values) == 1:
                 flat_data[feature_name] = values[0]
             else:
                 for i, v in enumerate(values.flat):
@@ -590,20 +593,44 @@ class StateSeries:
         return self.to_numpy(keys).min(axis=0)
 
     @classmethod
-    def from_hdf5(cls, file_name: str) -> StateSeries:
-        """A factory method for building a StateSeries from an HDF5 file
+    def from_hdf5(
+        cls,
+        file_name: str,
+        features: List[str],
+        state_series: List[str],
+        silent: bool = False,
+        num_procs: int = 1,
+    ) -> StateSeries:
+        """
+        Build a StateSeries from an HDF5 file using a list of state groups.
 
         Parameters
         ----------
         file_name : str
             The name of the HDF5 file from which to read and build the state series from
+        features : List[str]
+            The list of features expected to be read in for each state
+        state_series : List[str]
+            A list of HDF5 group paths, where each group path represents a single state.
+            These states will be combined to form the StateSeries.
+        silent : bool
+            Whether to suppress progress output
+        num_procs : int
+            Number of parallel processors to use
 
         Returns
         -------
         StateSeries
-            A list of state series read from the data in the HDF5 file
+            The StateSeries read from the HDF5 file
         """
-        raise NotImplementedError("StateSeries.from_hdf5 is not implemented yet")
+        states = State.read_states_from_hdf5(
+            file_name=file_name,
+            features=features,
+            states=state_series,
+            silent=silent,
+            num_procs=num_procs,
+        )
+        return cls(states)
 
 
     def to_hdf5(self, file_name: str, group_name: Optional[str] = "/") -> None:
@@ -757,9 +784,9 @@ class SeriesCollection:
     @property
     def features(self) -> List[str]:
         if not self.state_series_list:
-            return {}
+            return []
 
-        return self.state_series_list[0][0].features
+        return list(self.state_series_list[0][0].features.keys())
 
     def append(self, state_series: StateSeries) -> None:
         """Append a state series to the list
@@ -814,20 +841,63 @@ class SeriesCollection:
         return SeriesCollection(rng.sample(self.state_series_list, num_samples))
 
     @classmethod
-    def from_hdf5(cls, file_name: str) -> SeriesCollection:
-        """A factory method for building a collection of StateSeries from an HDF5 file
+    def from_hdf5(
+        cls,
+        file_name: str,
+        features: List[str],
+        series_collection: List[List[str]],
+        silent: bool = False,
+        num_procs: int = 1,
+    ) -> SeriesCollection:
+        """
+        Build a SeriesCollection from an HDF5 file using a list of lists of state names.
 
         Parameters
         ----------
         file_name : str
             The name of the HDF5 file from which to read and build the state series from
+        features : List[str]
+            The list of features expected to be read in for each state
+        series_collection : List[List[str]]
+            A list of lists of HDF5 group paths, where each group path represents a single state.
+            The nested list structure defines the organization: each inner list becomes a StateSeries,
+            and the collection of StateSeries forms the SeriesCollection.
+        silent : bool
+            Whether to suppress progress output
+        num_procs : int
+            Number of parallel processors to use
 
         Returns
         -------
         SeriesCollection
-            A list of state series read from the data in the HDF5 file
+            The SeriesCollection read from the HDF5 file
         """
-        raise NotImplementedError("SeriesCollection.from_hdf5 is not implemented yet")
+        # Flatten all state names and keep track of their series indices
+        flattened_states = []
+        series_lengths = []
+        for state_series in series_collection:
+            flattened_states.extend(state_series)
+            series_lengths.append(len(state_series))
+
+        # Read all states in a single parallelized call
+        all_states = State.read_states_from_hdf5(
+            file_name=file_name,
+            features=features,
+            states=flattened_states,
+            silent=silent,
+            num_procs=num_procs,
+        )
+
+        # Partition the states back into StateSeries based on original structure
+        state_series_list = []
+        start_idx = 0
+        for length in series_lengths:
+            end_idx = start_idx + length
+            series_states = all_states[start_idx:end_idx]
+            state_series_list.append(StateSeries(series_states))
+            start_idx = end_idx
+
+        return cls(state_series_list)
 
     def to_hdf5(self, file_name: str) -> None:
         """Write the state series list to an HDF5 file
@@ -837,7 +907,16 @@ class SeriesCollection:
         file_name : str
             The name of the HDF5 file to write to
         """
-        raise NotImplementedError("SeriesCollection.to_hdf5 is not implemented yet")
+        with h5py.File(file_name, "w") as h5_file:
+            for series_idx, series in enumerate(self.state_series_list):
+                series_group_name = f"series_{series_idx:03d}"
+                series_group = h5_file.create_group(series_group_name)
+
+                # Use StateSeries.to_hdf5 logic for each series
+                for state_idx, state in enumerate(series):
+                    state_group = series_group.create_group(f"state_{state_idx:06d}")
+                    for feature, data in state.features.items():
+                        state_group.create_dataset(feature, data=data)
 
     @classmethod
     def from_csv(cls, file_name: str, features: List[str] = None) -> SeriesCollection:
@@ -855,7 +934,13 @@ class SeriesCollection:
         SeriesCollection
             A list of state series read from the data in the CSV file
         """
-        raise NotImplementedError("SeriesCollection.from_csv is not implemented yet")
+        assert os.path.exists(file_name), f"File does not exist: {file_name}"
+
+        df = pd.read_csv(file_name)
+        if 'series_index' in df.columns and 'state_index' in df.columns:
+            df = df.set_index(['series_index', 'state_index'])
+
+        return cls.from_dataframe(df, features=features)
 
     def to_csv(self, file_name: str, features: List[str] = None) -> None:
         """Write the state series list to a CSV file
@@ -867,10 +952,14 @@ class SeriesCollection:
         features : List[str]
             List of features to extract to the dataframe, default is all features of the state
         """
-        raise NotImplementedError("SeriesCollection.to_csv is not implemented yet")
+        if features is None:
+            features = self.features
+
+        df = self.to_dataframe(features)
+        df.to_csv(file_name)
 
     @classmethod
-    def from_dataframe(cls, df: pd.DataFrame) -> SeriesCollection:
+    def from_dataframe(cls, df: pd.DataFrame, features: List[str] = None) -> SeriesCollection:
         """Convert a Pandas DataFrame into a List of StateSeries
 
         "DataFrame index must be a MultiIndex with 'series_index' and 'state_index'"
@@ -879,6 +968,8 @@ class SeriesCollection:
         ----------
         df : pd.DataFrame
             The DataFrame to be converted.
+        features : List[str]
+            The list of features to be read in for each state
 
         Returns
         -------
@@ -894,6 +985,11 @@ class SeriesCollection:
 
         for (series_idx, state_idx), state_df in df.groupby(level=["series_index", "state_index"]):
             state = State.from_dataframe(state_df.reset_index(drop=True))
+
+            # If features are specified, filter the resulting state to only include those features
+            if features:
+                filtered_features = {k: state.features[k] for k in features if k in state.features}
+                state = State(filtered_features)
 
             if series_idx not in state_series_dict:
                 state_series_dict[series_idx] = []
