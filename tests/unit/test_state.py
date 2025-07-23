@@ -46,7 +46,7 @@ def test_state():
     }).set_index(["series_index", "state_index"])
     pdt.assert_frame_equal(actual_df, expected_df, check_dtype=False)
 
-    state = SeriesCollection.from_dataframe(SeriesCollection([StateSeries([state])]).to_dataframe(features))[0][0]
+    state = SeriesCollection.from_dataframe(SeriesCollection([StateSeries([state])]).to_dataframe(features), features=features)[0][0]
     actual_average_enrichment      = state["average_enrichment"]
     actual_boron_concentration     = state["boron_concentration"]
     actual_measured_fixed_detector = state["measured_fixed_detector"]
@@ -121,7 +121,7 @@ def test_state_series():
     series.to_hdf5(file_name)
     with h5py.File(file_name, "r") as h5_file:
         state_series = list(h5_file.keys())
-    loaded_series = StateSeries.from_hdf5(file_name    = file_name, 
+    loaded_series = StateSeries.from_hdf5(file_name    = file_name,
                                           features     = series.features,
                                           state_series = state_series)
     compare_series(series, loaded_series)
@@ -205,8 +205,8 @@ def test_series_collection():
         for i in range(len(collection1)):
             assert len(collection1[i]) == len(collection2[i])
             for j in range(len(collection1[i])):
-                assert collection1[i][j].features == collection2[i][j].features
-                for feature in collection1[i][j].features:
+                assert list(collection1[i][j].features.keys()) == list(collection2[i][j].features.keys())
+                for feature in collection1[i][j].features.keys():
                     assert_almost_equal(collection1[i][j][feature], collection2[i][j][feature])
 
     test_dir = os.path.join(os.path.dirname(__file__), "test_series_collection")
@@ -215,15 +215,15 @@ def test_series_collection():
 
     # Create test data
     series1 = StateSeries([
-        State({"feature1": 10.0, "feature2": 120.0}),
-        State({"feature1": 9.0, "feature2": 115.0}),
+        State({"feature1": 10.0, "feature2": [120.0, 121.0, 122.0]}),
+        State({"feature1": 9.0, "feature2": [115.0, 116.0, 117.0]}),
     ])
     series2 = StateSeries([
-        State({"feature1": 12.0, "feature2": 130.0}),
-        State({"feature1": 11.0, "feature2": 125.0}),
+        State({"feature1": 12.0, "feature2": [130.0, 131.0, 132.0]}),
+        State({"feature1": 11.0, "feature2": [125.0, 126.0, 127.0]}),
     ])
     series3 = StateSeries([
-        State({"feature1": 8.0, "feature2": 110.0}),
+        State({"feature1": 8.0, "feature2": [110.0, 111.0, 112.0]}),
     ])
 
     collection = SeriesCollection([series1, series2, series3])
@@ -231,13 +231,13 @@ def test_series_collection():
     # Test csv
     csv_file = os.path.join(test_dir, "test_series_collection.csv")
     collection.to_csv(csv_file)
-    loaded_collection_csv = SeriesCollection.from_csv(csv_file, features=collection.features)
+    loaded_collection_csv = SeriesCollection.from_csv(csv_file)
     compare_collections(collection, loaded_collection_csv)
 
     # Test hdf5
     file_name = os.path.join(test_dir, "test_series_collection.h5")
     collection.to_hdf5(file_name)
-    
+
     # Create the series_collection structure for loading from the written file
     with h5py.File(file_name, "r") as h5_file:
         series_collection_groups = []
@@ -249,7 +249,7 @@ def test_series_collection():
                 series_collection_groups.append(state_groups)
             else:
                 series_collection_groups.append([])
-    
+
     loaded_collection = SeriesCollection.from_hdf5(
         file_name=file_name,
         features=collection.features,
@@ -261,7 +261,9 @@ def test_series_collection():
     df = collection.to_dataframe(features=collection.features)
     expected_df = pd.DataFrame({
         "feature1": [10.0, 9.0, 12.0, 11.0, 8.0],
-        "feature2": [120.0, 115.0, 130.0, 125.0, 110.0]
+        "feature2_0": [120.0, 115.0, 130.0, 125.0, 110.0],
+        "feature2_1": [121.0, 116.0, 131.0, 126.0, 111.0],
+        "feature2_2": [122.0, 117.0, 132.0, 127.0, 112.0]
     })
     expected_df.index = pd.MultiIndex.from_tuples(
         [(0, 0), (0, 1), (1, 0), (1, 1), (2, 0)],
@@ -270,20 +272,20 @@ def test_series_collection():
     pdt.assert_frame_equal(df, expected_df, check_dtype=False)
 
     # Test from_dataframe
-    loaded_collection = SeriesCollection.from_dataframe(expected_df)
+    loaded_collection = SeriesCollection.from_dataframe(expected_df, features=collection.features)
     compare_collections(collection, loaded_collection)
 
     # Test random_sample (moved from separate test)
     sample_size = 2
     sampled = collection.random_sample(sample_size, seed=42)
-    
+
     # Check sample size
     assert len(sampled) == sample_size
-    
+
     # Check sampled elements are from original
     for s in sampled:
         assert s in collection.state_series_list
-    
+
     # Check deterministic behavior with seed
     sampled_again = collection.random_sample(sample_size, seed=42)
     assert len(sampled) == len(sampled_again)
@@ -294,11 +296,11 @@ def test_series_collection():
                 assert_almost_equal(sampled[i][j][feat], sampled_again[i][j][feat])
 
     # Test append and extend
-    new_series = StateSeries([State({"feature1": 15.0, "feature2": 135.0})])
+    new_series = StateSeries([State({"feature1": 15.0, "feature2": [135.0, 136.0, 137.0]})])
     collection_copy = SeriesCollection(collection.state_series_list.copy())
     collection_copy.append(new_series)
     assert len(collection_copy) == len(collection) + 1
-    
+
     other_collection = SeriesCollection([new_series])
     collection_copy2 = SeriesCollection(collection.state_series_list.copy())
     collection_copy2.extend(other_collection)
@@ -316,7 +318,7 @@ def test_series_collection():
     assert len(collection[0]) == 2
     assert len(collection[1]) == 2
     assert len(collection[2]) == 1
-    
+
     # Test slicing
     subset = collection[0:2]
     assert len(subset) == 2
