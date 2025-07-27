@@ -6,7 +6,6 @@ import h5py
 # Pylint appears to not be handling the tensorflow imports correctly
 # pylint: disable=import-error, no-name-in-module, no-member
 import tensorflow as tf
-from tensorflow.keras import KerasTensor
 
 from ml_tools.model.nn_strategy.layer import Layer, Activation
 
@@ -81,8 +80,20 @@ class Dense(Layer):
                           self.layer_normalize
                    )
 
-    def _build(self, input_tensor: KerasTensor) -> KerasTensor:
-        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(units=self.units, activation=self.activation))(input_tensor)
+    def build(self, input_tensor: tf.Tensor) -> tf.Tensor:
+        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(units=self.units, activation=None))(input_tensor)
+
+        if self.batch_normalize:
+            x = tf.keras.layers.TimeDistributed(tf.keras.layers.BatchNormalization())(x)
+
+        if self.layer_normalize:
+            x = tf.keras.layers.TimeDistributed(tf.keras.layers.LayerNormalization())(x)
+
+        x = tf.keras.layers.Activation(self.activation)(x)
+
+        if self.dropout_rate > 0.:
+            x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x)
+
         return x
 
     def save(self, group: h5py.Group) -> None:

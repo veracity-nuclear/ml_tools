@@ -4,7 +4,7 @@ import h5py
 
 # Pylint appears to not be handling the tensorflow imports correctly
 # pylint: disable=import-error, no-name-in-module
-from tensorflow.keras import KerasTensor
+import tensorflow as tf
 
 from ml_tools.model.nn_strategy.layer import Layer
 
@@ -51,7 +51,7 @@ class LayerSequence(Layer):
     def __hash__(self) -> int:
         return hash(tuple(self.layers))
 
-    def _build(self, input_tensor: KerasTensor) -> KerasTensor:
+    def build(self, input_tensor: tf.Tensor) -> tf.Tensor:
         x = input_tensor
         for layer in self.layers:
             x = layer.build(x)

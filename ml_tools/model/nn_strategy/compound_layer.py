@@ -8,7 +8,6 @@ import numpy as np
 # Pylint appears to not be handling the tensorflow imports correctly
 # pylint: disable=import-error, no-name-in-module, no-member
 import tensorflow as tf
-from tensorflow.keras import KerasTensor
 
 from ml_tools.model.nn_strategy.layer import Layer, gather_indices
 
@@ -105,7 +104,7 @@ class CompoundLayer(Layer):
                     self.batch_normalize,
                     self.layer_normalize)
 
-    def _build(self, input_tensor: KerasTensor) -> KerasTensor:
+    def build(self, input_tensor: tf.Tensor) -> tf.Tensor:
         assert all(index < input_tensor.shape[2] for spec in self.input_specifications for index in spec), \
             "input specification index greater than input feature vector length"
         split_inputs = [tf.keras.layers.TimeDistributed(
@@ -114,6 +113,16 @@ class CompoundLayer(Layer):
 
         outputs = [layer.build(split) for layer, split in zip(self._layers, split_inputs)]
         x = tf.keras.layers.Concatenate(axis=-1)(outputs)
+
+        if self.batch_normalize:
+            x = tf.keras.layers.TimeDistributed(tf.keras.layers.BatchNormalization())(x)
+
+        if self.layer_normalize:
+            x = tf.keras.layers.TimeDistributed(tf.keras.layers.LayerNormalization())(x)
+
+        if self.dropout_rate > 0.:
+            x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x)
+
         return x
 
 

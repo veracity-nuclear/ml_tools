@@ -7,7 +7,6 @@ import h5py
 # Pylint appears to not be handling the tensorflow imports correctly
 # pylint: disable=import-error, no-name-in-module, no-member
 import tensorflow as tf
-from tensorflow.keras import KerasTensor
 
 from ml_tools.model.nn_strategy.layer import Layer, Activation
 
@@ -28,10 +27,6 @@ class Transformer(Layer):
         Activation function to use for the Feed Forward Network of the Transformer
     dropout_rate : float, optional
         Dropout rate for the layer. Default is 0.0 (no dropout).
-    batch_normalize : bool
-        Whether or not batch normalization will be performed on the layer output prior to dropout
-    layer_normalize : bool
-        Whether or not layer normalization will be performed on the layer output prior to dropout
 
     Attributes
     ----------
@@ -86,10 +81,8 @@ class Transformer(Layer):
                  model_dim:        int,
                  ff_dim:           int,
                  activation:       Activation = 'relu',
-                 dropout_rate:     float = 0.,
-                 batch_normalize:  bool = False,
-                 layer_normalize:  bool = False):
-        super().__init__(dropout_rate, batch_normalize, layer_normalize)
+                 dropout_rate:     float = 0.,):
+        super().__init__(dropout_rate, batch_normalize=False, layer_normalize=False)
         self.num_heads        = num_heads
         self.model_dim        = model_dim
         self.ff_dim           = ff_dim
@@ -102,9 +95,7 @@ class Transformer(Layer):
                   self.model_dim        == other.model_dim and
                   self.ff_dim           == other.ff_dim and
                   self.activation       == other.activation and
-                  isclose(self.dropout_rate, other.dropout_rate, rel_tol=1e-9) and
-                  self.batch_normalize  == other.batch_normalize and
-                  self.layer_normalize  == other.layer_normalize)
+                  isclose(self.dropout_rate, other.dropout_rate, rel_tol=1e-9))
         )
 
     def __hash__(self) -> int:
@@ -112,27 +103,37 @@ class Transformer(Layer):
                           self.model_dim,
                           self.ff_dim,
                           Decimal(self.dropout_rate).quantize(Decimal('1e-9'))),
-                          self.batch_normalize,
-                          self.layer_normalize,
                           self.activation
                    )
 
-    def _build(self, input_tensor: KerasTensor) -> KerasTensor:
-        # Project input_tensor to model dimensions if they are not the same
-        input_tensor = tf.keras.layers.Dense(self.model_dim)(input_tensor) \
-                       if input_tensor.shape[-1] != self.model_dim else input_tensor
+    def build(self, input_tensor: tf.Tensor) -> tf.Tensor:
+        # Project input to model_dim if needed
+        if input_tensor.shape[-1] != self.model_dim:
+            input_tensor = tf.keras.layers.Dense(self.model_dim)(input_tensor)
 
+        # Multi-head self-attention
         attention = tf.keras.layers.MultiHeadAttention(num_heads = self.num_heads,
                                                        key_dim   = self.model_dim)(input_tensor, input_tensor)
-        attention = tf.keras.layers.Dropout(rate=self.dropout_rate)(attention) if self.dropout_rate > 0. else attention
-        attention = tf.keras.layers.LayerNormalization(epsilon=1e-6)(attention + input_tensor)
+        if self.dropout_rate > 0.:
+            attention = tf.keras.layers.Dropout(self.dropout_rate)(attention)
 
-        feedfoward = tf.keras.layers.Dense(self.ff_dim, activation=self.activation)(attention)
-        feedfoward = tf.keras.layers.Dense(self.model_dim)(feedfoward)
-        feedfoward = tf.keras.layers.Dropout(rate=self.dropout_rate)(feedfoward) if self.dropout_rate > 0. else feedfoward
+        attention = tf.keras.layers.LayerNormalization(epsilon=1e-6)(input_tensor + attention)
 
-        return feedfoward + attention
+        # Feedforward network (MLP block)
+        feedforward = tf.keras.layers.Dense(self.ff_dim, activation=self.activation)(attention)
 
+        if self.dropout_rate > 0.:
+            feedforward = tf.keras.layers.Dropout(self.dropout_rate)(feedforward)
+
+        feedforward = tf.keras.layers.Dense(self.model_dim)(feedforward)
+
+        if self.dropout_rate > 0.:
+            feedforward = tf.keras.layers.Dropout(self.dropout_rate)(feedforward)
+
+        # Residual connection + LayerNorm (second norm)
+        x = tf.keras.layers.LayerNormalization(epsilon=1e-6)(attention + feedforward)
+
+        return x
 
     def save(self, group: h5py.Group) -> None:
         group.create_dataset('type',                    data='Transformer', dtype=h5py.string_dtype())
@@ -141,8 +142,6 @@ class Transformer(Layer):
         group.create_dataset('feed_forward_dimensions', data=self.ff_dim)
         group.create_dataset('activation_function',     data=self.activation, dtype=h5py.string_dtype())
         group.create_dataset('dropout_rate',            data=self.dropout_rate)
-        group.create_dataset('batch_normalize',         data=self.batch_normalize)
-        group.create_dataset('layer_normalize',         data=self.layer_normalize)
 
 
     @classmethod
@@ -151,6 +150,4 @@ class Transformer(Layer):
                    model_dim        =   int(group["model_dimensions"       ][()]),
                    ff_dim           =   int(group["feed_forward_dimensions"][()]),
                    activation       =       group["activation_function"    ][()].decode('utf-8'),
-                   dropout_rate     = float(group["dropout_rate"           ][()]),
-                   batch_normalize  =  bool(group["batch_normalize"        ][()]),
-                   layer_normalize  =  bool(group["layer_normalize"        ][()]))
+                   dropout_rate     = float(group["dropout_rate"           ][()]))

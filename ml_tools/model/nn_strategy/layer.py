@@ -6,7 +6,6 @@ import h5py
 # Pylint appears to not be handling the tensorflow imports correctly
 # pylint: disable=import-error, no-name-in-module
 import tensorflow as tf
-from tensorflow.keras import KerasTensor
 from tensorflow.keras.saving import register_keras_serializable
 
 
@@ -149,34 +148,13 @@ class Layer(ABC):
         Hash generation is consistent with the 1e-9 float comparison equality relative tolerance
         """
 
-    def build(self, input_tensor: KerasTensor) -> KerasTensor:
-        """ Method for constructing the layer
-
-        Parameters
-        ----------
-        input_tensor : KerasTensor
-            The input tensor for the layer
-        """
-        x = self._build(input_tensor)
-
-        if self.batch_normalize:
-            x = tf.keras.layers.TimeDistributed(tf.keras.layers.BatchNormalization())(x)
-
-        if self.layer_normalize:
-            x = tf.keras.layers.TimeDistributed(tf.keras.layers.LayerNormalization())(x)
-
-        if self.dropout_rate > 0.:
-            x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x)
-
-        return x
-
     @abstractmethod
-    def _build(self, input_tensor: KerasTensor) -> KerasTensor:
+    def build(self, input_tensor: tf.Tensor) -> tf.Tensor:
         """ Method for constructing the layer without any dropout or normalization
 
         Parameters
         ----------
-        input_tensor : KerasTensor
+        input_tensor : tf.Tensor
             The input tensor for the layer
         """
 

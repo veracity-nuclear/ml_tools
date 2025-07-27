@@ -7,7 +7,6 @@ import h5py
 # Pylint appears to not be handling the tensorflow imports correctly
 # pylint: disable=import-error, no-name-in-module, no-member
 import tensorflow as tf
-from tensorflow.keras import KerasTensor
 
 from ml_tools.model.nn_strategy.layer import Layer, Activation
 
@@ -116,12 +115,22 @@ class LSTM(Layer):
                           self.layer_normalize
                    )
 
-    def _build(self, input_tensor: KerasTensor) -> KerasTensor:
+    def build(self, input_tensor: tf.Tensor) -> tf.Tensor:
         x = tf.keras.layers.LSTM(units                = self.units,
                                  activation           = self.activation,
                                  return_sequences     = True,
                                  recurrent_activation = self.recurrent_activation,
                                  recurrent_dropout    = self.recurrent_dropout_rate)(input_tensor)
+
+        if self.batch_normalize:
+            x = tf.keras.layers.BatchNormalization()(x)
+
+        if self.layer_normalize:
+            x = tf.keras.layers.LayerNormalization()(x)
+
+        if self.dropout_rate > 0.:
+            x = tf.keras.layers.Dropout(rate=self.dropout_rate)(x)
+
         return x
 
     def save(self, group: h5py.Group) -> None:

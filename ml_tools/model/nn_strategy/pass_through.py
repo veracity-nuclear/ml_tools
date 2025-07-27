@@ -5,8 +5,8 @@ from decimal import Decimal
 import h5py
 
 # Pylint appears to not be handling the tensorflow imports correctly
-# pylint: disable=import-error, no-name-in-module
-from tensorflow.keras import KerasTensor
+# pylint: disable=import-error, no-name-in-module, no-member
+import tensorflow as tf
 
 from ml_tools.model.nn_strategy.layer import Layer
 
@@ -40,8 +40,20 @@ class PassThrough(Layer):
                     self.batch_normalize,
                     self.layer_normalize)
 
-    def _build(self, input_tensor: KerasTensor) -> KerasTensor:
-        return input_tensor
+    def build(self, input_tensor: tf.Tensor) -> tf.Tensor:
+
+        x = input_tensor
+
+        if self.batch_normalize:
+            x = tf.keras.layers.TimeDistributed(tf.keras.layers.BatchNormalization())(x)
+
+        if self.layer_normalize:
+            x = tf.keras.layers.TimeDistributed(tf.keras.layers.LayerNormalization())(x)
+
+        if self.dropout_rate > 0.:
+            x = tf.keras.layers.TimeDistributed(tf.keras.layers.Dropout(rate=self.dropout_rate))(x)
+
+        return x
 
     def save(self, group: h5py.Group) -> None:
         group.create_dataset('type'        ,     data='PassThrough', dtype=h5py.string_dtype())
