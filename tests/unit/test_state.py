@@ -121,7 +121,7 @@ def test_state_series():
     series.to_hdf5(file_name)
     with h5py.File(file_name, "r") as h5_file:
         state_series = list(h5_file.keys())
-    loaded_series = StateSeries.from_hdf5(file_name    = file_name, 
+    loaded_series = StateSeries.from_hdf5(file_name    = file_name,
                                           features     = series.features,
                                           state_series = state_series)
     compare_series(series, loaded_series)
@@ -231,13 +231,13 @@ def test_series_collection():
     # Test csv
     csv_file = os.path.join(test_dir, "test_series_collection.csv")
     collection.to_csv(csv_file)
-    loaded_collection_csv = SeriesCollection.from_csv(csv_file, features=collection.features)
+    loaded_collection_csv = SeriesCollection.from_csv(csv_file)
     compare_collections(collection, loaded_collection_csv)
 
     # Test hdf5
     file_name = os.path.join(test_dir, "test_series_collection.h5")
     collection.to_hdf5(file_name)
-    
+
     # Create the series_collection structure for loading from the written file
     with h5py.File(file_name, "r") as h5_file:
         series_collection_groups = []
@@ -249,7 +249,7 @@ def test_series_collection():
                 series_collection_groups.append(state_groups)
             else:
                 series_collection_groups.append([])
-    
+
     loaded_collection = SeriesCollection.from_hdf5(
         file_name=file_name,
         features=collection.features,
@@ -276,14 +276,14 @@ def test_series_collection():
     # Test random_sample (moved from separate test)
     sample_size = 2
     sampled = collection.random_sample(sample_size, seed=42)
-    
+
     # Check sample size
     assert len(sampled) == sample_size
-    
+
     # Check sampled elements are from original
     for s in sampled:
         assert s in collection.state_series_list
-    
+
     # Check deterministic behavior with seed
     sampled_again = collection.random_sample(sample_size, seed=42)
     assert len(sampled) == len(sampled_again)
@@ -298,7 +298,7 @@ def test_series_collection():
     collection_copy = SeriesCollection(collection.state_series_list.copy())
     collection_copy.append(new_series)
     assert len(collection_copy) == len(collection) + 1
-    
+
     other_collection = SeriesCollection([new_series])
     collection_copy2 = SeriesCollection(collection.state_series_list.copy())
     collection_copy2.extend(other_collection)
@@ -316,7 +316,7 @@ def test_series_collection():
     assert len(collection[0]) == 2
     assert len(collection[1]) == 2
     assert len(collection[2]) == 1
-    
+
     # Test slicing
     subset = collection[0:2]
     assert len(subset) == 2

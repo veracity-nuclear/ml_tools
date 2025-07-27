@@ -1,12 +1,11 @@
 from __future__ import annotations
 from typing import Literal, Dict, Type, List
-import h5py
 from abc import ABC, abstractmethod
+import h5py
 
 # Pylint appears to not be handling the tensorflow imports correctly
 # pylint: disable=import-error, no-name-in-module
 import tensorflow as tf
-import tensorflow.keras.layers
 from tensorflow.keras import KerasTensor
 from tensorflow.keras.saving import register_keras_serializable
 

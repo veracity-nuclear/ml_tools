@@ -5,9 +5,8 @@ import h5py
 import numpy as np
 
 # Pylint appears to not be handling the tensorflow imports correctly
-# pylint: disable=import-error, no-name-in-module
+# pylint: disable=import-error, no-name-in-module, no-member
 import tensorflow as tf
-import tensorflow.keras.layers
 from tensorflow.keras.models import load_model
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.optimizers.schedules import ExponentialDecay

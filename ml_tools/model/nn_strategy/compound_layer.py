@@ -1,10 +1,16 @@
 from __future__ import annotations
-from typing import Any, List
+from typing import Any, List, Union
+from math import isclose
+from decimal import Decimal
 import h5py
+import numpy as np
 
+# Pylint appears to not be handling the tensorflow imports correctly
+# pylint: disable=import-error, no-name-in-module, no-member
+import tensorflow as tf
 from tensorflow.keras import KerasTensor
 
-from ml_tools.model.nn_strategy.layer import Layer
+from ml_tools.model.nn_strategy.layer import Layer, gather_indices
 
 
 @Layer.register_subclass("CompoundLayer")
@@ -102,12 +108,12 @@ class CompoundLayer(Layer):
     def _build(self, input_tensor: KerasTensor) -> KerasTensor:
         assert all(index < input_tensor.shape[2] for spec in self.input_specifications for index in spec), \
             "input specification index greater than input feature vector length"
-        split_inputs = [tensorflow.keras.layers.TimeDistributed(
-                        tensorflow.keras.layers.Lambda(gather_indices, arguments={'indices': indices}))(input_tensor)
+        split_inputs = [tf.keras.layers.TimeDistributed(
+                        tf.keras.layers.Lambda(gather_indices, arguments={'indices': indices}))(input_tensor)
                         for indices in self.input_specifications]
 
         outputs = [layer.build(split) for layer, split in zip(self._layers, split_inputs)]
-        x = tensorflow.keras.layers.Concatenate(axis=-1)(outputs)
+        x = tf.keras.layers.Concatenate(axis=-1)(outputs)
         return x
 
 

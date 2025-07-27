@@ -4,9 +4,12 @@ from math import isclose
 from typing import Any
 import h5py
 
+# Pylint appears to not be handling the tensorflow imports correctly
+# pylint: disable=import-error, no-name-in-module, no-member
+import tensorflow as tf
 from tensorflow.keras import KerasTensor
 
-from ml_tools.model.nn_strategy.layer import Layer
+from ml_tools.model.nn_strategy.layer import Layer, Activation
 
 @Layer.register_subclass("LSTM")
 class LSTM(Layer):
@@ -140,4 +143,3 @@ class LSTM(Layer):
                    dropout_rate           = float(group["dropout_rate"                 ][()]),
                    batch_normalize        =  bool(group["batch_normalize"              ][()]),
                    layer_normalize        =  bool(group["layer_normalize"              ][()]))
-

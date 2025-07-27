@@ -1,9 +1,14 @@
 from __future__ import annotations
+from math import isclose
+from decimal import Decimal
 import h5py
 
+# Pylint appears to not be handling the tensorflow imports correctly
+# pylint: disable=import-error, no-name-in-module, no-member
+import tensorflow as tf
 from tensorflow.keras import KerasTensor
 
-from ml_tools.model.nn_strategy.layer import Layer
+from ml_tools.model.nn_strategy.layer import Layer, Activation
 
 @Layer.register_subclass("Dense")
 class Dense(Layer):

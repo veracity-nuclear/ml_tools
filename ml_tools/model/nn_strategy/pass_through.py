@@ -1,7 +1,11 @@
 from __future__ import annotations
 from typing import Any
+from math import isclose
+from decimal import Decimal
 import h5py
 
+# Pylint appears to not be handling the tensorflow imports correctly
+# pylint: disable=import-error, no-name-in-module
 from tensorflow.keras import KerasTensor
 
 from ml_tools.model.nn_strategy.layer import Layer
