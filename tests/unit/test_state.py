@@ -46,7 +46,7 @@ def test_state():
     }).set_index(["series_index", "state_index"])
     pdt.assert_frame_equal(actual_df, expected_df, check_dtype=False)
 
-    state = SeriesCollection.from_dataframe(SeriesCollection([StateSeries([state])]).to_dataframe(features))[0][0]
+    state = SeriesCollection.from_dataframe(SeriesCollection([StateSeries([state])]).to_dataframe(features), features=features)[0][0]
     actual_average_enrichment      = state["average_enrichment"]
     actual_boron_concentration     = state["boron_concentration"]
     actual_measured_fixed_detector = state["measured_fixed_detector"]
@@ -205,8 +205,8 @@ def test_series_collection():
         for i in range(len(collection1)):
             assert len(collection1[i]) == len(collection2[i])
             for j in range(len(collection1[i])):
-                assert collection1[i][j].features == collection2[i][j].features
-                for feature in collection1[i][j].features:
+                assert list(collection1[i][j].features.keys()) == list(collection2[i][j].features.keys())
+                for feature in collection1[i][j].features.keys():
                     assert_almost_equal(collection1[i][j][feature], collection2[i][j][feature])
 
     test_dir = os.path.join(os.path.dirname(__file__), "test_series_collection")
@@ -215,15 +215,15 @@ def test_series_collection():
 
     # Create test data
     series1 = StateSeries([
-        State({"feature1": 10.0, "feature2": 120.0}),
-        State({"feature1": 9.0, "feature2": 115.0}),
+        State({"feature1": 10.0, "feature2": [120.0, 121.0, 122.0]}),
+        State({"feature1": 9.0, "feature2": [115.0, 116.0, 117.0]}),
     ])
     series2 = StateSeries([
-        State({"feature1": 12.0, "feature2": 130.0}),
-        State({"feature1": 11.0, "feature2": 125.0}),
+        State({"feature1": 12.0, "feature2": [130.0, 131.0, 132.0]}),
+        State({"feature1": 11.0, "feature2": [125.0, 126.0, 127.0]}),
     ])
     series3 = StateSeries([
-        State({"feature1": 8.0, "feature2": 110.0}),
+        State({"feature1": 8.0, "feature2": [110.0, 111.0, 112.0]}),
     ])
 
     collection = SeriesCollection([series1, series2, series3])
@@ -261,7 +261,9 @@ def test_series_collection():
     df = collection.to_dataframe(features=collection.features)
     expected_df = pd.DataFrame({
         "feature1": [10.0, 9.0, 12.0, 11.0, 8.0],
-        "feature2": [120.0, 115.0, 130.0, 125.0, 110.0]
+        "feature2_0": [120.0, 115.0, 130.0, 125.0, 110.0],
+        "feature2_1": [121.0, 116.0, 131.0, 126.0, 111.0],
+        "feature2_2": [122.0, 117.0, 132.0, 127.0, 112.0]
     })
     expected_df.index = pd.MultiIndex.from_tuples(
         [(0, 0), (0, 1), (1, 0), (1, 1), (2, 0)],
@@ -270,7 +272,7 @@ def test_series_collection():
     pdt.assert_frame_equal(df, expected_df, check_dtype=False)
 
     # Test from_dataframe
-    loaded_collection = SeriesCollection.from_dataframe(expected_df)
+    loaded_collection = SeriesCollection.from_dataframe(expected_df, features=collection.features)
     compare_collections(collection, loaded_collection)
 
     # Test random_sample (moved from separate test)
@@ -294,7 +296,7 @@ def test_series_collection():
                 assert_almost_equal(sampled[i][j][feat], sampled_again[i][j][feat])
 
     # Test append and extend
-    new_series = StateSeries([State({"feature1": 15.0, "feature2": 135.0})])
+    new_series = StateSeries([State({"feature1": 15.0, "feature2": [135.0, 136.0, 137.0]})])
     collection_copy = SeriesCollection(collection.state_series_list.copy())
     collection_copy.append(new_series)
     assert len(collection_copy) == len(collection) + 1

@@ -919,13 +919,15 @@ class SeriesCollection:
                         state_group.create_dataset(feature, data=data)
 
     @classmethod
-    def from_csv(cls, file_name: str) -> SeriesCollection:
+    def from_csv(cls, file_name: str, features: List[str] = None) -> SeriesCollection:
         """A factory method for building a collection of StateSeries from a CSV file
 
         Parameters
         ----------
         file_name : str
             The name of the CSV file from which to read and build the state series from
+        features : List[str]
+            List of features to extract to the dataframe, default is all features of the state
 
         Returns
         -------
@@ -938,7 +940,7 @@ class SeriesCollection:
         if 'series_index' in df.columns and 'state_index' in df.columns:
             df = df.set_index(['series_index', 'state_index'])
 
-        return cls.from_dataframe(df)
+        return cls.from_dataframe(df, features=features)
 
     def to_csv(self, file_name: str, features: List[str] = None) -> None:
         """Write the state series list to a CSV file
@@ -957,7 +959,7 @@ class SeriesCollection:
         df.to_csv(file_name)
 
     @classmethod
-    def from_dataframe(cls, df: pd.DataFrame) -> SeriesCollection:
+    def from_dataframe(cls, df: pd.DataFrame, features: List[str] = None) -> SeriesCollection:
         """Convert a Pandas DataFrame into a List of StateSeries
 
         "DataFrame index must be a MultiIndex with 'series_index' and 'state_index'"
@@ -966,6 +968,8 @@ class SeriesCollection:
         ----------
         df : pd.DataFrame
             The DataFrame to be converted.
+        features : List[str]
+            The list of features to be read in for each state
 
         Returns
         -------
@@ -981,6 +985,11 @@ class SeriesCollection:
 
         for (series_idx, state_idx), state_df in df.groupby(level=["series_index", "state_index"]):
             state = State.from_dataframe(state_df.reset_index(drop=True))
+
+            # If features are specified, filter the resulting state to only include those features
+            if features:
+                filtered_features = {k: state.features[k] for k in features if k in state.features}
+                state = State(filtered_features)
 
             if series_idx not in state_series_dict:
                 state_series_dict[series_idx] = []
