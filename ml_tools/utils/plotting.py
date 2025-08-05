@@ -4,6 +4,7 @@ from copy import deepcopy
 import os
 
 import pylab as plt
+from matplotlib.lines import Line2D
 import numpy as np
 import pandas as pd
 import ray
@@ -52,11 +53,22 @@ def plot_ref_vs_pred(models:                  Dict[str, PredictionStrategy],
     predicted_feature = next(iter(models.values())).predicted_feature
     reference         = np.asarray([series[state_index][predicted_feature][array_index]
                           for series in series_collection])
+
+    # Store legend handles for model data
+    legend_handles = []
+    legend_labels = []
+
     for label, model in models.items():
         assert model.isTrained
         assert model.predicted_feature == predicted_feature
         predicted = np.asarray([series[state_index][array_index] for series in model.predict(series_collection)])
-        plt.plot(reference, predicted, '.', alpha=0.1, markersize=4, label=label)
+        # Plot with alpha for visualization but create separate legend handle
+        line = plt.plot(reference, predicted, '.', alpha=0.1, markersize=4)[0]
+        # Create legend handle without alpha
+        legend_handle = Line2D([0], [0], marker='o', color=line.get_color(),
+                              linestyle='None', markersize=8, label=label)
+        legend_handles.append(legend_handle)
+        legend_labels.append(label)
 
     max_val = max(*plt.xlim(), *plt.ylim())
     plt.axis([0, max_val, 0, max_val])
@@ -78,7 +90,19 @@ def plot_ref_vs_pred(models:                  Dict[str, PredictionStrategy],
     plt.gca().set_aspect('equal', adjustable='box')
     plt.xticks(fontsize=12)
     plt.yticks(fontsize=12)
-    plt.legend(fontsize=12)
+
+    # Create legend with custom handles for model data and automatic handles for other elements
+    reference_line = Line2D([0], [0], color='black', linestyle='--', label='Reference')
+    all_handles = legend_handles + [reference_line]
+    all_labels = legend_labels + ['Reference']
+
+    # Add error band handles
+    for gray, band in zip(grays, sorted(error_bands)):
+        error_line = Line2D([0], [0], color=(gray, gray, gray), linestyle='--', label=f'±{band:.1f}%')
+        all_handles.append(error_line)
+        all_labels.append(f'±{band:.1f}%')
+
+    plt.legend(handles=all_handles, labels=all_labels, fontsize=12)
     plt.savefig(fig_name+'.png', dpi=600, bbox_inches='tight')
     plt.close()
 
