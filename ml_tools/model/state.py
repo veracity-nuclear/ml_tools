@@ -78,13 +78,13 @@ class State:
             s += f"  {feature_name}: {values}\n"
         return s
 
-    def to_dataframe(self, features: Optional[Dict[str, np.ndarray]] = None) -> pd.DataFrame:
+    def to_dataframe(self, features: Optional[List[str]] = None) -> pd.DataFrame:
         """Convert the State into a Pandas DataFrame.
 
         Parameters
         ----------
-        features : Optional[Dict[str, np.ndarray]]
-            Dictionary of features to extract to the dataframe, default is all
+        features : Optional[List[str]]
+            List of features to extract to the dataframe, default is all
             features of the state
 
         Returns
