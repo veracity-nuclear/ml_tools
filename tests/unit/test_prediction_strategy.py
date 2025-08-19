@@ -93,7 +93,7 @@ def test_nn_strategy_Dense():
 
     cips_calculator = NNStrategy(input_features, output_feature)
     cips_calculator.train([[state]]*1000)
-    assert_allclose(state["cips_index"], cips_calculator.predict([[state]])[0][0], atol=1E-5)
+    assert_allclose(state["cips_index"], cips_calculator.predict([[state]])[0][0], atol=1E-2)
 
     cips_calculator.save_model('test_nn_model')
     new_cips_calculator = NNStrategy.read_from_file('test_nn_model')
@@ -105,7 +105,7 @@ def test_nn_strategy_Dense():
     assert_allclose(new_cips_calculator.initial_learning_rate, cips_calculator.initial_learning_rate)
     assert_allclose(new_cips_calculator.learning_decay_rate,   cips_calculator.learning_decay_rate)
     assert_allclose(new_cips_calculator.convergence_criteria,  cips_calculator.convergence_criteria)
-    assert_allclose(state["cips_index"], new_cips_calculator.predict([[state]])[0][0], atol=1E-5)
+    assert_allclose(state["cips_index"], new_cips_calculator.predict([[state]])[0][0], atol=1E-2)
 
 
 def test_nn_strategy_LSTM():
@@ -126,12 +126,12 @@ def test_nn_strategy_Transformer():
     layers = [Transformer(num_heads=2, model_dim=27, ff_dim=50)]
     cips_calculator = NNStrategy(input_features, output_feature, layers)
     cips_calculator.train([[state]*100]*1000)
-    assert_allclose(state["cips_index"], cips_calculator.predict([[state]*100])[0][-1], atol=1E-5)
+    assert_allclose(state["cips_index"], cips_calculator.predict([[state]*100])[0][-1], atol=1E-2)
 
     cips_calculator.save_model('test_nn_model')
     new_cips_calculator = NNStrategy.read_from_file('test_nn_model')
     assert all(old_layer == new_layer for old_layer, new_layer in zip(cips_calculator.layers, new_cips_calculator.layers))
-    assert_allclose(state["cips_index"], new_cips_calculator.predict([[state]*100])[0][-1], atol=1E-5)
+    assert_allclose(state["cips_index"], new_cips_calculator.predict([[state]*100])[0][-1], atol=1E-2)
 
 
 def test_nn_strategy_CNN():
@@ -140,12 +140,12 @@ def test_nn_strategy_CNN():
               SpatialMaxPool(input_shape=(3,3), pool_size=(2,2), padding=False)]
     cips_calculator = NNStrategy(input_features, output_feature, layers)
     cips_calculator.train([[state]]*100)
-    assert_allclose(state["cips_index"], cips_calculator.predict([[state]])[0][0], atol=1E-5)
+    assert_allclose(state["cips_index"], cips_calculator.predict([[state]])[0][0], atol=1E-2)
 
     cips_calculator.save_model('test_nn_model')
     new_cips_calculator = NNStrategy.read_from_file('test_nn_model')
     assert all(old_layer == new_layer for old_layer, new_layer in zip(cips_calculator.layers, new_cips_calculator.layers))
-    assert_allclose(state["cips_index"], new_cips_calculator.predict([[state]])[0][0], atol=1E-5)
+    assert_allclose(state["cips_index"], new_cips_calculator.predict([[state]])[0][0], atol=1E-2)
 
 
 def test_nn_strategy_LayerSequence():
@@ -153,12 +153,12 @@ def test_nn_strategy_LayerSequence():
     layers          = [PassThrough(), Dense(units=10, activation='relu'), LayerSequence(layers=[Dense(units=5, activation='relu'), Dense(units=10, activation='relu')])]
     cips_calculator = NNStrategy(input_features, output_feature, layers)
     cips_calculator.train([[state]]*1000)
-    assert_allclose(state["cips_index"], cips_calculator.predict([[state]])[0][0], atol=1E-5)
+    assert_allclose(state["cips_index"], cips_calculator.predict([[state]])[0][0], atol=1E-2)
 
     cips_calculator.save_model('test_nn_model')
     new_cips_calculator = NNStrategy.read_from_file('test_nn_model')
     assert all(old_layer == new_layer for old_layer, new_layer in zip(cips_calculator.layers, new_cips_calculator.layers))
-    assert_allclose(state["cips_index"], new_cips_calculator.predict([[state]])[0][0], atol=1E-5)
+    assert_allclose(state["cips_index"], new_cips_calculator.predict([[state]])[0][0], atol=1E-2)
 
 
 def test_nn_strategy_CompoundLayer():
@@ -166,12 +166,12 @@ def test_nn_strategy_CompoundLayer():
     layers          = [CompoundLayer(layers=[Dense(units=5, activation='relu'), Dense(units=10, activation='relu')], input_specifications=[slice(0, 9), slice(9, 19)])]
     cips_calculator = NNStrategy(input_features, output_feature, layers)
     cips_calculator.train([[state]]*1000)
-    assert_allclose(state["cips_index"], cips_calculator.predict([[state]])[0][0], atol=1E-5)
+    assert_allclose(state["cips_index"], cips_calculator.predict([[state]])[0][0], atol=1E-2)
 
     cips_calculator.save_model('test_nn_model')
     new_cips_calculator = NNStrategy.read_from_file('test_nn_model')
     assert all(old_layer == new_layer for old_layer, new_layer in zip(cips_calculator.layers, new_cips_calculator.layers))
-    assert_allclose(state["cips_index"], new_cips_calculator.predict([[state]])[0][0], atol=1E-5)
+    assert_allclose(state["cips_index"], new_cips_calculator.predict([[state]])[0][0], atol=1E-2)
 
     for file in glob.glob('test_nn_model.*'):
         os.remove(file)

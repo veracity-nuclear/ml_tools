@@ -574,7 +574,7 @@ def _process_shap_batch(model:          PredictionStrategy,
                                                 names=["series_index", "state_index"])
 
         X_df        = pd.DataFrame(X_array, columns=input_features, index=index)
-        predictions = model.predict(SeriesCollection.from_dataframe(X_df, features=input_features))
+        predictions = model.predict(SeriesCollection.from_dataframe(X_df))
 
         return np.asarray([series[state_index][array_index] for series in predictions])
 
