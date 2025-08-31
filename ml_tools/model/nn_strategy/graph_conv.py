@@ -60,7 +60,8 @@ def _prod(t: Tuple[int, int, int]) -> int:
     return int(t[0]) * int(t[1]) * int(t[2])
 
 
-def _neighbors_offsets(dim: int, connectivity: Literal['1d-2', '2d-4', '2d-8', '3d-6', '3d-18', '3d-26']) -> List[Tuple[int, int, int]]:
+def _neighbors_offsets(dim:          int,
+                       connectivity: Literal['1d-2', '2d-4', '2d-8', '3d-6', '3d-18', '3d-26']) -> List[Tuple[int, int, int]]:
     """Returns neighbor offsets for grid connectivity in 1D/2D/3D.
 
     Parameters
@@ -284,21 +285,41 @@ class GraphSAGEConv(tf.keras.layers.Layer):
         Aggregation type for neighbor messages, by default 'mean'.
     use_bias : bool, optional
         Whether to include a bias term, by default True.
+    adj_init : Optional[numpy.ndarray], optional
+        Optional initial value for the non-trainable adjacency weight of shape
+        ``(N, N)``. When provided, the layer initializes its internal adjacency
+        to this value; otherwise ones are used until set by the parent.
 
     Notes
     -----
     - Preferred input tensor shape: ``(B, N, F)`` (we normalize to this form).
     - Output tensor shape: ``(B, N, units)``.
-    - The adjacency ``A`` is a non-trainable weight seeded by the parent layer.
+    - The adjacency ``A`` is a non-trainable weight initialized via
+      ``adj_init`` (or ones by default) and can be set by the parent layer.
     """
 
-    def __init__(self, num_nodes: int, units: int, aggregator: str = 'mean', use_bias: bool = True, **kwargs):
+    def __init__(self,
+                 num_nodes: int,
+                 units: int,
+                 aggregator: str = 'mean',
+                 use_bias: bool = True,
+                 adj_init: Optional[np.ndarray] = None,
+                 **kwargs):
         super().__init__(**kwargs)
         assert aggregator in ('mean', 'sum'), f"Unsupported aggregator {aggregator}"
         self.num_nodes = int(num_nodes)
         self.units = int(units)
         self.aggregator = aggregator
         self.use_bias = bool(use_bias)
+
+        # Optional initializer for adjacency (non-trainable)
+        self._adj_init = adj_init
+
+        # These will be populated in build(); declared here to satisfy linters
+        self._adjacency: Optional[tf.Variable] = None
+        self._kernel_self: Optional[tf.Variable] = None
+        self._kernel_neigh: Optional[tf.Variable] = None
+        self._bias: Optional[tf.Variable] = None
 
     def build(self, input_shape) -> None:
         """Creates layer weights based on the input shape.
@@ -313,35 +334,38 @@ class GraphSAGEConv(tf.keras.layers.Layer):
         n_nodes = int(input_shape[-2])
         assert n_nodes == self.num_nodes, "num_nodes mismatch in GraphSAGEConv"
         feat_dim = int(input_shape[-1])
-        # Adjacency (un-normalized) is loaded externally and stored here as non-trainable
-        self.adj = self.add_weight(
+
+        # Adjacency (un-normalized) is a non-trainable weight; initialize if provided
+        adj_initializer = (tf.keras.initializers.Constant(self._adj_init)
+                           if self._adj_init is not None else tf.keras.initializers.Ones())
+        self._adjacency = self.add_weight(
             name='adjacency',
             shape=(self.num_nodes, self.num_nodes),
-            initializer=tf.keras.initializers.Zeros(),
+            initializer=adj_initializer,
             trainable=False,
         )
         # Self and neighbor kernels
-        self.kernel_self = self.add_weight(
+        self._kernel_self = self.add_weight(
             name='kernel_self',
             shape=(feat_dim, self.units),
             initializer=tf.keras.initializers.GlorotUniform(),
             trainable=True,
         )
-        self.kernel_neigh = self.add_weight(
+        self._kernel_neigh = self.add_weight(
             name='kernel_neigh',
             shape=(feat_dim, self.units),
             initializer=tf.keras.initializers.GlorotUniform(),
             trainable=True,
         )
         if self.use_bias:
-            self.bias = self.add_weight(
+            self._bias = self.add_weight(
                 name='bias',
                 shape=(self.units,),
                 initializer=tf.keras.initializers.Zeros(),
                 trainable=True,
             )
         else:
-            self.bias = None
+            self._bias = None
         super().build(input_shape)
 
     def call(self, inputs: tf.Tensor) -> tf.Tensor:
@@ -358,7 +382,7 @@ class GraphSAGEConv(tf.keras.layers.Layer):
             Output tensor of shape ``(B, N, units)`` with updated per-node embeddings.
         """
         # Remove self-loops for neighbor aggregation
-        adj_no_self = self.adj - tf.linalg.diag(tf.linalg.diag_part(self.adj))  # (N, N)
+        adj_no_self = self._adjacency - tf.linalg.diag(tf.linalg.diag_part(self._adjacency))  # (N, N)
 
         # Aggregate neighbors: (N,N) x (B,N,F) -> (B,N,F)
         neigh = tf.einsum('ij,bjf->bif', adj_no_self, inputs)
@@ -368,10 +392,10 @@ class GraphSAGEConv(tf.keras.layers.Layer):
             neigh = neigh / tf.reshape(deg, (1, -1, 1))
 
         # Self and neighbor transforms across feature dim
-        out = tf.tensordot(inputs, self.kernel_self, axes=[[-1], [0]])
-        out += tf.tensordot(neigh, self.kernel_neigh, axes=[[-1], [0]])
-        if self.bias is not None:
-            out = out + self.bias
+        out = tf.tensordot(inputs, self._kernel_self, axes=[[-1], [0]])
+        out += tf.tensordot(neigh, self._kernel_neigh, axes=[[-1], [0]])
+        if self._bias is not None:
+            out = out + self._bias
         return out
 
     def compute_output_shape(self, input_shape) -> tf.TensorShape:
@@ -799,9 +823,9 @@ class GraphConv(Layer):
 
         x, feat_per_node_after = self._apply_pre_node_layers(x)
 
-        conv = GraphSAGEConv(num_nodes=int(N), units=self.units, aggregator=self.aggregator, use_bias=self.use_bias)
+        conv = GraphSAGEConv(num_nodes=int(N), units=self.units, aggregator=self.aggregator, use_bias=self.use_bias,
+                             adj_init=self._adjacency_np)
         conv.build((int(N), int(feat_per_node_after)))
-        conv.adj.assign(tf.convert_to_tensor(self._adjacency_np, dtype=tf.float32))
         # Merge (batch,time) for conv, then restore
         x_bt = tf.keras.layers.Lambda(merge_batch_time)(x)
         y_bt = conv(x_bt)
@@ -847,9 +871,9 @@ class GraphConv(Layer):
         x = tf.keras.layers.Concatenate(axis=2)([x_spatial, x_global])
 
         N_total = N + G
-        conv = GraphSAGEConv(num_nodes=int(N_total), units=self.units, aggregator=self.aggregator, use_bias=self.use_bias)
+        conv = GraphSAGEConv(num_nodes=int(N_total), units=self.units, aggregator=self.aggregator, use_bias=self.use_bias,
+                             adj_init=self._adjacency_np)
         conv.build((int(N_total), int(S_prime)))
-        conv.adj.assign(tf.convert_to_tensor(self._adjacency_np, dtype=tf.float32))
         x_bt = tf.keras.layers.Lambda(merge_batch_time)(x)
         y_bt = conv(x_bt)
         y    = tf.keras.layers.Lambda(unmerge_batch_time)([y_bt, x])
@@ -887,7 +911,8 @@ class GraphConv(Layer):
         group.create_dataset('dropout_rate',        data=self.dropout_rate)
         group.create_dataset('batch_normalize',     data=self.batch_normalize)
         group.create_dataset('layer_normalize',     data=self.layer_normalize)
-        group.create_dataset('spatial_feature_size', data=self.spatial_feature_size if self.spatial_feature_size is not None else -1)
+        group.create_dataset('spatial_feature_size', data=self.spatial_feature_size
+                             if self.spatial_feature_size is not None else -1)
         group.create_dataset('global_feature_count', data=self.global_feature_count)
         group.create_dataset('connect_global_to_all', data=self.connect_global_to_all)
         group.create_dataset('connect_global_to_global', data=self.connect_global_to_global)
