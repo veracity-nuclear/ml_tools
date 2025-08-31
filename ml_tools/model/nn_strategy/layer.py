@@ -10,7 +10,7 @@ from tensorflow.keras.saving import register_keras_serializable
 
 
 
-LayerType  = Literal['Dense', 'PassThrough', 'LSTM', 'LayerSequence', 'CompoundLayer']
+LayerType  = Literal['Dense', 'PassThrough', 'LSTM', 'LayerSequence', 'CompoundLayer', 'SpatialConv', 'SpatialMaxPool', 'Transformer', 'GraphConv']
 Activation = Literal['elu', 'exponential', 'gelu', 'hard_sigmoid', 'linear', 'mish',
                      'relu', 'selu', 'sigmoid', 'softmax', 'softplus', 'softsign', 'swish', 'tanh']
 
