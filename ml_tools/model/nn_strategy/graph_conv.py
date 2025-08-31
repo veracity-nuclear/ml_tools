@@ -220,6 +220,54 @@ def unmerge_batch_node(inputs: Union[Tuple[tf.Tensor, tf.Tensor], List[tf.Tensor
 
 
 @register_keras_serializable()
+def merge_batch_time(t: tf.Tensor) -> tf.Tensor:
+    """Merges the batch and time axes of a 4D tensor.
+
+    Parameters
+    ----------
+    t : tf.Tensor
+        A tensor of shape ``(batch, time, nodes, features)``.
+
+    Returns
+    -------
+    tf.Tensor
+        A tensor of shape ``(batch*time, nodes, features)`` suitable for
+        applying graph layers that expect ``(B, N, F)``.
+    """
+    b = tf.shape(t)[0]
+    tm = tf.shape(t)[1]
+    n = tf.shape(t)[2]
+    f = tf.shape(t)[3]
+    return tf.reshape(t, (b * tm, n, f))
+
+
+@register_keras_serializable()
+def unmerge_batch_time(inputs: Union[Tuple[tf.Tensor, tf.Tensor], List[tf.Tensor]]) -> tf.Tensor:
+    """Restores the batch and time axes after merging.
+
+    Parameters
+    ----------
+    inputs : Tuple[tf.Tensor, tf.Tensor]
+        A 2-tuple/list ``[t, ref]`` where ``t`` has shape ``(batch*time, nodes, features)`` and
+        ``ref`` is a reference tensor with shape ``(batch, time, nodes, _)``.
+
+    Returns
+    -------
+    tf.Tensor
+        A tensor of shape ``(batch, time, nodes, features)``.
+    """
+    if isinstance(inputs, (list, tuple)):
+        t, ref = inputs
+    else:
+        raise ValueError("unmerge_batch_time expects [t, ref]")
+    b = tf.shape(ref)[0]
+    tm = tf.shape(ref)[1]
+    n = tf.shape(ref)[2]
+    u = tf.shape(t)[2]
+    return tf.reshape(t, (b, tm, n, u))
+
+
+@register_keras_serializable()
 class GraphSAGEConv(tf.keras.layers.Layer):
     """GraphSAGE-style convolution per time-slice with fixed adjacency.
 
@@ -239,8 +287,8 @@ class GraphSAGEConv(tf.keras.layers.Layer):
 
     Notes
     -----
-    - Input tensor shape: ``(N, F)``
-    - Output tensor shape: ``(N, units)``
+    - Preferred input tensor shape: ``(B, N, F)`` (we normalize to this form).
+    - Output tensor shape: ``(B, N, units)``.
     - The adjacency ``A`` is a non-trainable weight seeded by the parent layer.
     """
 
@@ -258,11 +306,12 @@ class GraphSAGEConv(tf.keras.layers.Layer):
         Parameters
         ----------
         input_shape : tuple
-            Expected as ``(N, F)`` where ``N`` matches ``num_nodes`` and
-            ``F`` is the per-node feature width.
+            Shape tuple as ``(batch, N, F)`` or ``(N, F)``; only the final two
+            dims are used to infer ``N`` and ``F``.
         """
-        # input_shape: (N, F)
-        assert int(input_shape[0]) == self.num_nodes, "num_nodes mismatch in GraphSAGEConv"
+        # input_shape: (N, F) or (batch, N, F)
+        n_nodes = int(input_shape[-2])
+        assert n_nodes == self.num_nodes, "num_nodes mismatch in GraphSAGEConv"
         feat_dim = int(input_shape[-1])
         # Adjacency (un-normalized) is loaded externally and stored here as non-trainable
         self.adj = self.add_weight(
@@ -301,27 +350,44 @@ class GraphSAGEConv(tf.keras.layers.Layer):
         Parameters
         ----------
         inputs : tf.Tensor
-            A tensor of shape ``(N, F)`` containing per-node features.
+            A tensor of shape ``(B, N, F)`` containing per-node features.
 
         Returns
         -------
         tf.Tensor
-            Output tensor of shape ``(N, units)`` with updated per-node embeddings.
+            Output tensor of shape ``(B, N, units)`` with updated per-node embeddings.
         """
-        # inputs: (N, F)
         # Remove self-loops for neighbor aggregation
-        adj_no_self = self.adj - tf.linalg.diag(tf.linalg.diag_part(self.adj))
-        neigh = tf.linalg.matmul(adj_no_self, inputs)  # (N, F)
+        adj_no_self = self.adj - tf.linalg.diag(tf.linalg.diag_part(self.adj))  # (N, N)
+
+        # Aggregate neighbors: (N,N) x (B,N,F) -> (B,N,F)
+        neigh = tf.einsum('ij,bjf->bif', adj_no_self, inputs)
         if self.aggregator == 'mean':
-            deg = tf.reduce_sum(adj_no_self, axis=1, keepdims=True)  # (N, 1)
+            deg = tf.reduce_sum(adj_no_self, axis=1)  # (N,)
             deg = tf.where(deg > 0, deg, tf.ones_like(deg))
-            neigh = neigh / deg
-        # Self and neighbor transforms
-        out = tf.tensordot(inputs, self.kernel_self, axes=[[1], [0]])
-        out += tf.tensordot(neigh, self.kernel_neigh, axes=[[1], [0]])
+            neigh = neigh / tf.reshape(deg, (1, -1, 1))
+
+        # Self and neighbor transforms across feature dim
+        out = tf.tensordot(inputs, self.kernel_self, axes=[[-1], [0]])
+        out += tf.tensordot(neigh, self.kernel_neigh, axes=[[-1], [0]])
         if self.bias is not None:
             out = out + self.bias
         return out
+
+    def compute_output_shape(self, input_shape) -> tf.TensorShape:
+        """Infers output shape for inputs of shape ``(batch, N, F)``.
+
+        Parameters
+        ----------
+        input_shape : tuple
+            Shape tuple ``(batch, N, F)``.
+
+        Returns
+        -------
+        tf.TensorShape
+            Output shape ``(batch, N, units)``.
+        """
+        return tf.TensorShape((input_shape[0], input_shape[1], self.units))
 
     def get_config(self) -> Dict[str, Any]:
         """Returns the serializable config for Keras SavedModel compatibility.
@@ -731,15 +797,16 @@ class GraphConv(Layer):
         else:
             x = tf.keras.layers.Reshape(target_shape=(-1, int(N), int(feat_per_node)))(input_tensor)
 
-        x_merged            = tf.keras.layers.Lambda(merge_batch_node)(x)
-        z                   = self._pre_node_sequence.build(x_merged)
-        x                   = tf.keras.layers.Lambda(unmerge_batch_node)([z, x])
-        feat_per_node_after = int(z.shape[-1]) if z.shape[-1] is not None else int(feat_per_node)
+        x, feat_per_node_after = self._apply_pre_node_layers(x)
 
         conv = GraphSAGEConv(num_nodes=int(N), units=self.units, aggregator=self.aggregator, use_bias=self.use_bias)
         conv.build((int(N), int(feat_per_node_after)))
         conv.adj.assign(tf.convert_to_tensor(self._adjacency_np, dtype=tf.float32))
-        return tf.keras.layers.TimeDistributed(conv)(x)
+        # Merge (batch,time) for conv, then restore
+        x_bt = tf.keras.layers.Lambda(merge_batch_time)(x)
+        y_bt = conv(x_bt)
+        y    = tf.keras.layers.Lambda(unmerge_batch_time)([y_bt, x])
+        return y
 
     def _build_with_globals(self, input_tensor: tf.Tensor, N: int, G: int) -> tf.Tensor:
         """Build the computation when using virtual global nodes.
@@ -773,11 +840,7 @@ class GraphConv(Layer):
         else:
             x_spatial = tf.keras.layers.Reshape(target_shape=(-1, int(N), S))(spatial_flat)
 
-        x_spatial_merged = tf.keras.layers.Lambda(merge_batch_node)(x_spatial)
-        z_spatial        = self._pre_node_sequence.build(x_spatial_merged)
-        x_spatial        = tf.keras.layers.Lambda(unmerge_batch_node)([z_spatial, x_spatial])
-
-        S_prime  = int(z_spatial.shape[-1]) if z_spatial.shape[-1] is not None else S
+        x_spatial, S_prime = self._apply_pre_node_layers(x_spatial)
         x_global = tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(int(G * S_prime)))(global_vec)
         x_global = tf.keras.layers.TimeDistributed(tf.keras.layers.Reshape((int(G), S_prime)))(x_global)
 
@@ -787,7 +850,30 @@ class GraphConv(Layer):
         conv = GraphSAGEConv(num_nodes=int(N_total), units=self.units, aggregator=self.aggregator, use_bias=self.use_bias)
         conv.build((int(N_total), int(S_prime)))
         conv.adj.assign(tf.convert_to_tensor(self._adjacency_np, dtype=tf.float32))
-        return tf.keras.layers.TimeDistributed(conv)(x)
+        x_bt = tf.keras.layers.Lambda(merge_batch_time)(x)
+        y_bt = conv(x_bt)
+        y    = tf.keras.layers.Lambda(unmerge_batch_time)([y_bt, x])
+        return y
+
+    def _apply_pre_node_layers(self, x: tf.Tensor) -> Tuple[tf.Tensor, int]:
+        """Applies the configured pre-node layers to each node.
+
+        Parameters
+        ----------
+        x : tf.Tensor
+            Tensor of shape ``(batch, time, nodes, features)``.
+
+        Returns
+        -------
+        Tuple[tf.Tensor, int]
+            The transformed tensor of shape ``(batch, time, nodes, features')``
+            and the new per-node feature width ``features'``.
+        """
+        x_merged = tf.keras.layers.Lambda(merge_batch_node)(x)
+        z = self._pre_node_sequence.build(x_merged)
+        x = tf.keras.layers.Lambda(unmerge_batch_node)([z, x])
+        feat_after = int(z.shape[-1]) if z.shape[-1] is not None else int(x.shape[-1])
+        return x, feat_after
 
     def save(self, group: h5py.Group) -> None:
         group.create_dataset('type',                data='GraphConv', dtype=h5py.string_dtype())

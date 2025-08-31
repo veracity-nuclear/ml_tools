@@ -5,7 +5,7 @@ import h5py
 from numpy.testing import assert_allclose
 import numpy as np
 
-from ml_tools.model.nn_strategy import Dense, LSTM, Transformer, SpatialConv, SpatialMaxPool, PassThrough, LayerSequence, CompoundLayer
+from ml_tools.model.nn_strategy import Dense, LSTM, Transformer, SpatialConv, SpatialMaxPool, PassThrough, LayerSequence, CompoundLayer, GraphConv
 from ml_tools import State, NNStrategy, GBMStrategy, PODStrategy, MinMaxNormalize, NoProcessing
 
 input_features = {'average_exposure' : MinMaxNormalize(0., 45.),
@@ -166,6 +166,18 @@ def test_nn_strategy_CompoundLayer():
     layers          = [CompoundLayer(layers=[Dense(units=5, activation='relu'), Dense(units=10, activation='relu')], input_specifications=[slice(0, 9), slice(9, 19)])]
     cips_calculator = NNStrategy(input_features, output_feature, layers)
     cips_calculator.train([[state]]*1000)
+    assert_allclose(state["cips_index"], cips_calculator.predict([[state]])[0][0], atol=1E-2)
+
+    cips_calculator.save_model('test_nn_model')
+    new_cips_calculator = NNStrategy.read_from_file('test_nn_model')
+    assert all(old_layer == new_layer for old_layer, new_layer in zip(cips_calculator.layers, new_cips_calculator.layers))
+    assert_allclose(state["cips_index"], new_cips_calculator.predict([[state]])[0][0], atol=1E-2)
+
+def test_nn_strategy_GNN():
+
+    layers = [GraphConv(input_shape=(3, 3), units=4, connectivity='2d-4', aggregator='mean')]
+    cips_calculator = NNStrategy(input_features, output_feature, layers)
+    cips_calculator.train([[state]]*100)
     assert_allclose(state["cips_index"], cips_calculator.predict([[state]])[0][0], atol=1E-2)
 
     cips_calculator.save_model('test_nn_model')
