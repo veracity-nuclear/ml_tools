@@ -433,15 +433,24 @@ class GraphSAGEConv(tf.keras.layers.Layer):
         -------
         Dict[str, Any]
             A dictionary including ``num_nodes``, ``units``, ``aggregator``,
-            and ``use_bias`` along with base Keras config.
+            ``use_bias``, and ``adj_init`` along with base Keras config.
         """
         base = super().get_config()
-        base.update({
-            'num_nodes':  self.num_nodes,
-            'units':      self.units,
-            'aggregator': self.aggregator,
-            'use_bias':   self.use_bias,
-        })
+
+        # Convert adj_init to a JSON-serializable form if provided
+        if self._adj_init is None:
+            adj_init_ser = None
+        else:
+            try:
+                adj_init_ser = self._adj_init.tolist()
+            except Exception:  # fallback if already list-like
+                adj_init_ser = self._adj_init
+
+        base.update({'num_nodes':  self.num_nodes,
+                     'units':      self.units,
+                     'aggregator': self.aggregator,
+                     'use_bias':   self.use_bias,
+                     'adj_init':   adj_init_ser,})
         return base
 
 
