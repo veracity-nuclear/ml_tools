@@ -468,6 +468,9 @@ class GraphConv(Layer):
         Include self connections, by default True.
     normalize : bool, optional
         Apply symmetric degree normalization, by default True.
+    distance_weighted : bool, optional
+        Use inverse Manhattan distance edge weights within the chosen
+        connectivity class, by default False.
     ordering : {'feature_major', 'node_major'}, optional
         Flattening order of the input feature vector, by default 'feature_major'.
     pre_node_layers : Optional[Union[LayerSequence, list[Layer]]]
@@ -509,6 +512,8 @@ class GraphConv(Layer):
         Whether self connections are included.
     normalize : bool
         Whether degree normalization is applied.
+    distance_weighted : bool
+        Whether inverse Manhattan distance edge weights is applied
     ordering : str
         Flattening order used for reshape/permute.
     pre_node_layers : LayerSequence
@@ -588,6 +593,14 @@ class GraphConv(Layer):
     @normalize.setter
     def normalize(self, value: bool) -> None:
         self._normalize = bool(value)
+
+    @property
+    def distance_weighted(self) -> bool:
+        return self._distance_weighted
+
+    @distance_weighted.setter
+    def distance_weighted(self, value: bool) -> None:
+        self._distance_weighted = bool(value)
 
     @property
     def ordering(self) -> str:
@@ -679,6 +692,7 @@ class GraphConv(Layer):
                  connectivity:             Literal['1d-2', '2d-4', '2d-8', '3d-6', '3d-18', '3d-26'] = '2d-4',
                  self_loops:               bool = True,
                  normalize:                bool = True,
+                 distance_weighted:        bool = False,
                  ordering:                 Literal['feature_major', 'node_major'] = 'feature_major',
                  pre_node_layers:          Optional[Union[LayerSequence, list[Layer]]] = None,
                  spatial_feature_size:     Optional[int] = None,
@@ -699,6 +713,7 @@ class GraphConv(Layer):
         self.connectivity  = connectivity
         self.self_loops    = self_loops
         self.normalize     = normalize
+        self.distance_weighted = distance_weighted
         self.ordering      = ordering
 
         # Configure pre-node sequence (applied identically to each node)
@@ -719,7 +734,7 @@ class GraphConv(Layer):
         self.use_bias                 = use_bias
 
         # Build base grid adjacency, then augment with virtual global nodes if any
-        base_adj = _build_adjacency(self._input_shape, connectivity, self_loops, normalize)
+        base_adj = _build_adjacency(self._input_shape, connectivity, self_loops, normalize, distance_weighted)
         N = base_adj.shape[0]
         G = self.global_feature_count
         if G > 0:
@@ -751,6 +766,7 @@ class GraphConv(Layer):
                  self.connectivity == other.connectivity and
                  self.self_loops == other.self_loops and
                  self.normalize == other.normalize and
+                 self.distance_weighted == other.distance_weighted and
                  self.ordering == other.ordering and
                  self._pre_node_sequence == other._pre_node_sequence and
                  self.spatial_feature_size == other.spatial_feature_size and
@@ -773,6 +789,7 @@ class GraphConv(Layer):
             self.connectivity,
             self.self_loops,
             self.normalize,
+            self.distance_weighted,
             self.ordering,
             self._pre_node_sequence,
             self.spatial_feature_size,
@@ -920,6 +937,7 @@ class GraphConv(Layer):
         group.create_dataset('connectivity',        data=self.connectivity, dtype=h5py.string_dtype())
         group.create_dataset('self_loops',          data=self.self_loops)
         group.create_dataset('normalize',           data=self.normalize)
+        group.create_dataset('distance_weighted',   data=self.distance_weighted)
         group.create_dataset('ordering',            data=self.ordering, dtype=h5py.string_dtype())
         group.create_dataset('dropout_rate',        data=self.dropout_rate)
         group.create_dataset('batch_normalize',     data=self.batch_normalize)
@@ -944,6 +962,8 @@ class GraphConv(Layer):
         connectivity  = group['connectivity'][()].decode('utf-8')
         self_loops    = bool(group['self_loops'][()])
         normalize     = bool(group['normalize'][()])
+        distance_weighted_ds = group.get('distance_weighted', None)
+        distance_weighted = bool(distance_weighted_ds[()]) if distance_weighted_ds is not None else False
         ordering      = group['ordering'][()].decode('utf-8')
         dropout_rate  = float(group['dropout_rate'][()])
         batch_norm    = bool(group['batch_normalize'][()])
@@ -972,6 +992,7 @@ class GraphConv(Layer):
                    connectivity  = connectivity,
                    self_loops    = self_loops,
                    normalize     = normalize,
+                   distance_weighted = distance_weighted,
                    ordering      = ordering,
                    pre_node_layers = pre_node_sequence,
                    spatial_feature_size = spatial_feature_size,
