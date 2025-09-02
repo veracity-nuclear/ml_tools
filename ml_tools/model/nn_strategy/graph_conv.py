@@ -117,7 +117,8 @@ def _neighbors_offsets(dim:          int,
 def _build_adjacency(shape: Tuple[int, int, int],
                      connectivity: Literal['1d-2', '2d-4', '2d-8', '3d-6', '3d-18', '3d-26'],
                      self_loops: bool,
-                     normalize: bool) -> np.ndarray:
+                     normalize: bool,
+                     distance_weighted: bool = False) -> np.ndarray:
     """Builds a dense adjacency matrix for a grid graph.
 
     Parameters
@@ -131,6 +132,12 @@ def _build_adjacency(shape: Tuple[int, int, int],
         Whether to include identity connections on each node.
     normalize : bool
         If True, returns symmetric normalized adjacency ``D^{-1/2} A D^{-1/2}``.
+    distance_weighted : bool, optional
+        If True, apply static neighbor-class weighting based on Manhattan distance
+        between nodes: weight = 1 / (|dx|+|dy|+|dz|). This yields weights of 1.0 for
+        face neighbors (distance 1), 0.5 for edge/diagonal neighbors (distance 2),
+        and ~0.333 for corner neighbors (distance 3) in 3D. If False, all neighbor
+        edges are weighted uniformly at 1.0. Defaults to False.
 
     Returns
     -------
@@ -157,8 +164,14 @@ def _build_adjacency(shape: Tuple[int, int, int],
                     nx, ny, nz = x + dx, y + dy, z + dz
                     if 0 <= nx < H and 0 <= ny < W and 0 <= nz < D:
                         j = idx(nx, ny, nz)
-                        A[i, j] = 1.0
-                        A[j, i] = 1.0
+
+                        if distance_weighted:
+                            manhattan = abs(dx) + abs(dy) + abs(dz)
+                            w = float(1.0 / manhattan) if manhattan > 0 else 1.0
+                        else:
+                            w = 1.0
+                        A[i, j] = w
+                        A[j, i] = w
 
     if normalize:
         deg = np.sum(A, axis=1)
