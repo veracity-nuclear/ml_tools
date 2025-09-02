@@ -18,6 +18,7 @@ from ml_tools.model.state import SeriesCollection
 from ml_tools.model.prediction_strategy import PredictionStrategy
 from ml_tools.model.feature_processor import FeatureProcessor
 from ml_tools.model.nn_strategy.layer import Layer, gather_indices
+from ml_tools.model.nn_strategy.graph_conv import GraphSAGEConv
 from ml_tools.model.nn_strategy.layer_sequence import LayerSequence
 from ml_tools.model.nn_strategy.dense import Dense
 
@@ -258,6 +259,9 @@ class NNStrategy(PredictionStrategy):
             new_model.batch_size            = int(   h5_file['batch_size'][()]            )
             new_model._layer_sequence       = LayerSequence.from_h5(h5_file['neural_network'])
 
-        new_model._model = load_model(keras_name, custom_objects={"gather_indices": gather_indices})
+        new_model._model = load_model(keras_name, custom_objects={
+            "gather_indices": gather_indices,
+            "GraphSAGEConv": GraphSAGEConv,
+        })
 
         return new_model

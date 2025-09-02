@@ -8,6 +8,7 @@ from .dense import Dense
 from .lstm import LSTM
 from .transformer import Transformer
 from .spatial_conv import SpatialConv, SpatialMaxPool
+from .graph_conv import GraphConv
 from .pass_through import PassThrough
 from .layer_sequence import LayerSequence
 from .compound_layer import CompoundLayer
@@ -21,6 +22,7 @@ __all__ = [
     'Transformer',
     'SpatialConv',
     'SpatialMaxPool',
+    'GraphConv',
     'PassThrough',
     'LayerSequence',
     'CompoundLayer',
