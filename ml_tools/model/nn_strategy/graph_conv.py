@@ -321,12 +321,12 @@ class GraphSAGEConv(tf.keras.layers.Layer):
         self._kernel_neigh: Optional[tf.Variable] = None
         self._bias: Optional[tf.Variable] = None
 
-    def build(self, input_shape) -> None:
+    def build(self, input_shape: Union[Tuple[int, int], Tuple[int, int, int]]) -> None:
         """Creates layer weights based on the input shape.
 
         Parameters
         ----------
-        input_shape : tuple
+        input_shape : Union[Tuple[int, int], Tuple[int, int, int]]
             Shape tuple as ``(batch, N, F)`` or ``(N, F)``; only the final two
             dims are used to infer ``N`` and ``F``.
         """
@@ -398,12 +398,12 @@ class GraphSAGEConv(tf.keras.layers.Layer):
             out = out + self._bias
         return out
 
-    def compute_output_shape(self, input_shape) -> tf.TensorShape:
+    def compute_output_shape(self, input_shape: Tuple[int, int, int]) -> tf.TensorShape:
         """Infers output shape for inputs of shape ``(batch, N, F)``.
 
         Parameters
         ----------
-        input_shape : tuple
+        input_shape : Tuple[int, int, int]
             Shape tuple ``(batch, N, F)``.
 
         Returns
