@@ -21,6 +21,7 @@ from ml_tools.model.nn_strategy.layer import Layer, gather_indices
 from ml_tools.model.nn_strategy.layer_sequence import LayerSequence
 from ml_tools.model.nn_strategy.dense import Dense
 from ml_tools.model.nn_strategy.graph.sage import GraphSAGEConv
+from ml_tools.model.nn_strategy.graph.gat import GraphAttentionConv
 
 
 class NNStrategy(PredictionStrategy):
@@ -262,6 +263,7 @@ class NNStrategy(PredictionStrategy):
         new_model._model = load_model(keras_name, custom_objects={
             "gather_indices": gather_indices,
             "GraphSAGEConv": GraphSAGEConv,
+            "GraphAttentionConv": GraphAttentionConv,
         })
 
         return new_model

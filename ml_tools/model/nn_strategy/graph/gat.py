@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import Optional, Any, Dict, Tuple, Union
+from decimal import Decimal
 import numpy as np
-import h5py
 
 # Pylint appears to not be handling the tensorflow imports correctly
 # pylint: disable=import-error, no-name-in-module, no-member
@@ -13,45 +13,51 @@ from ml_tools.model.nn_strategy.layer_sequence import LayerSequence
 
 
 @register_keras_serializable()
-class GraphSAGEConv(tf.keras.layers.Layer):
-    """GraphSAGE-style convolution per time-slice with fixed adjacency.
+class GraphAttentionConv(tf.keras.layers.Layer):
+    """Simplified Graph Attention (GAT) layer with fixed adjacency.
+
+    Single-head attention that computes attention coefficients over neighbors
+    and aggregates neighbor features accordingly.
 
     Parameters
     ----------
     num_nodes : int
-        Number of nodes (including any virtual globals).
+        Number of nodes (including virtual globals).
     units : int
         Output feature dimension per node.
-    aggregator : {'mean','sum'}, optional
-        Neighbor aggregation method; default ``'mean'``.
+    alpha : float, optional
+        LeakyReLU negative slope for attention logits, default 0.2.
+    temperature : float, optional
+        Softmax temperature applied to attention logits (e/temperature) to
+        control sharpness; 1.0 leaves logits unchanged.
     use_bias : bool, optional
-        Whether to include a bias term; default True.
+        Whether to include a bias term, default True.
     adj_init : numpy.ndarray | None, optional
-        Optional initial adjacency matrix to load into the non-trainable
-        adjacency weight; if ``None`` uses ones until set by parent.
+        Initial adjacency to load into a non-trainable weight. If None, ones.
     """
 
     def __init__(self,
-                 num_nodes: int,
-                 units: int,
-                 aggregator: str = 'mean',
-                 use_bias: bool = True,
-                 adj_init: Optional[np.ndarray] = None,
+                 num_nodes:   int,
+                 units:       int,
+                 alpha:       float = 0.2,
+                 temperature: float = 1.0,
+                 use_bias:    bool = True,
+                 adj_init:    Optional[np.ndarray] = None,
                  **kwargs):
         super().__init__(**kwargs)
 
-        assert aggregator in ('mean', 'sum'), f"Unsupported aggregator {aggregator}"
+        self.num_nodes   = int(num_nodes)
+        self.units       = int(units)
+        self.alpha       = float(alpha)
+        self.temperature = float(temperature)
+        self.use_bias    = bool(use_bias)
+        self._adj_init   = adj_init
 
-        self.num_nodes  = int(num_nodes)
-        self.units      = int(units)
-        self.aggregator = aggregator
-        self.use_bias   = bool(use_bias)
-        self._adj_init  = adj_init
-
-        self._adjacency:    Optional[tf.Variable] = None
-        self._kernel_self:  Optional[tf.Variable] = None
-        self._kernel_neigh: Optional[tf.Variable] = None
-        self._bias:         Optional[tf.Variable] = None
+        self._adjacency: Optional[tf.Variable] = None
+        self._kernel:    Optional[tf.Variable] = None
+        self._attn_src:  Optional[tf.Variable] = None
+        self._attn_dst:  Optional[tf.Variable] = None
+        self._bias:      Optional[tf.Variable] = None
 
     def build(self, input_shape: Union[Tuple[int, int], Tuple[int, int, int]]) -> None:
         feat_dim = int(input_shape[-1])
@@ -62,15 +68,23 @@ class GraphSAGEConv(tf.keras.layers.Layer):
             initializer = tf.keras.initializers.Constant(1.0 if self._adj_init is None else self._adj_init),
             trainable   = False)
 
-        self._kernel_self = self.add_weight(
-            name        = 'kernel_self',
+        self._kernel = self.add_weight(
+            name        = 'kernel',
             shape       = (feat_dim, self.units),
-            initializer = 'glorot_uniform', trainable=True)
+            initializer = 'glorot_uniform',
+            trainable   = True)
 
-        self._kernel_neigh = self.add_weight(
-            name        = 'kernel_neigh',
-            shape       = (feat_dim, self.units),
-            initializer = 'glorot_uniform', trainable=True)
+        self._attn_src = self.add_weight(
+            name        = 'attn_src',
+            shape       = (self.units, 1),
+            initializer = 'glorot_uniform',
+            trainable   = True)
+
+        self._attn_dst = self.add_weight(
+            name        = 'attn_dst',
+            shape       = (self.units, 1),
+            initializer = 'glorot_uniform',
+            trainable   = True)
 
         if self.use_bias:
             self._bias = self.add_weight(
@@ -83,36 +97,27 @@ class GraphSAGEConv(tf.keras.layers.Layer):
 
         super().build(input_shape)
 
-    def set_adjacency(self, adj: tf.Tensor) -> None:
-        if self._adjacency is None:
-            raise RuntimeError('Layer not built yet; call build() first')
-        self._adjacency.assign(adj)
-
     def call(self, inputs: tf.Tensor) -> tf.Tensor:
-        """Forward pass for a single time slice.
+        # inputs: (B, N, F); adjacency: (N, N)
+        Wh = tf.tensordot(inputs, self._kernel, axes=[[-1], [0]])  # (B, N, U)
 
-        Parameters
-        ----------
-        inputs : tf.Tensor
-            Tensor of shape ``(B, N, F)`` containing per-node features.
+        # Compute attention logits e_ij = LeakyReLU(a_src^T Wh_i + a_dst^T Wh_j)
+        e_src = tf.tensordot(Wh, self._attn_src, axes=[[-1], [0]])      # (B, N, 1)
+        e_dst = tf.tensordot(Wh, self._attn_dst, axes=[[-1], [0]])      # (B, N, 1)
+        e     = e_src + tf.transpose(e_dst, perm=[0, 2, 1])             # (B, N, N)
+        e     = tf.nn.leaky_relu(e, alpha=self.alpha)
 
-        Returns
-        -------
-        tf.Tensor
-            Output tensor of shape ``(B, N, units)``.
-        """
-        adj_no_self = self._adjacency - tf.linalg.diag(tf.linalg.diag_part(self._adjacency))
-        neigh = tf.einsum('ij,bjf->bif', adj_no_self, inputs)
-        if self.aggregator == 'mean':
-            deg = tf.reduce_sum(adj_no_self, axis=1)
-            deg = tf.where(deg > 0, deg, tf.ones_like(deg))
-            neigh = neigh / tf.reshape(deg, (1, -1, 1))
+        # Mask by adjacency: set logits to large negative where no edge
+        mask     = tf.cast(self._adjacency > 0, dtype=tf.bool)      # (N, N)
+        neg_inf  = tf.constant(-1e9, dtype=e.dtype)
+        e_masked = tf.where(mask[tf.newaxis, :, :], e, neg_inf)
+        temp     = tf.cast(self.temperature, dtype=e_masked.dtype)
+        alpha    = tf.nn.softmax(e_masked / temp, axis=-1)          # (B, N, N)
 
-        out = tf.tensordot(inputs, self._kernel_self, axes=[[-1], [0]])
-        out += tf.tensordot(neigh, self._kernel_neigh, axes=[[-1], [0]])
+        h_prime = tf.matmul(alpha, Wh)                              # (B, N, U)
         if self._bias is not None:
-            out = out + self._bias
-        return out
+            h_prime = h_prime + self._bias
+        return h_prime
 
     def compute_output_shape(self, input_shape: Tuple[int, int, int]) -> tf.TensorShape:
         return tf.TensorShape((input_shape[0], input_shape[1], self.units))
@@ -126,43 +131,36 @@ class GraphSAGEConv(tf.keras.layers.Layer):
                 adj_init_ser = self._adj_init.tolist()
             except Exception:
                 adj_init_ser = self._adj_init
-        base.update({'num_nodes':  self.num_nodes,
-                     'units':      self.units,
-                     'aggregator': self.aggregator,
-                     'use_bias':   self.use_bias,
-                     'adj_init':   adj_init_ser})
+        base.update({'num_nodes':   self.num_nodes,
+                     'units':       self.units,
+                     'alpha':       self.alpha,
+                     'temperature': self.temperature,
+                     'use_bias':    self.use_bias,
+                     'adj_init':    adj_init_ser})
         return base
 
 
-class SAGE(Graph):
-    """GraphSAGE variant implementing ``Graph.make_conv_layer``.
+class GAT(Graph):
+    """Graph Attention Network variant implementing ``Graph.make_conv_layer``.
 
-    Parameters
-    ----------
-    input_shape : tuple[int, int, int]
-        Extended 3D spatial shape ``(H, W, D)`` used to construct adjacency.
-    units : int
-        Output feature dimension per node.
-    ordering : {'feature_major','node_major'}, optional
-        Feature layout; default ``'feature_major'``.
-    pre_node_layers : LayerSequence | list, optional
-        Per-node encoder to apply before message passing.
-    spatial_feature_size : int | None, optional
-        Per-spatial-node width ``S`` (required when using globals).
-    global_feature_count : int, optional
-        Number of virtual global nodes; default 0.
-    connectivity, self_loops, normalize, distance_weighted,
-    connect_global_to_all, connect_global_to_global, global_edge_weight :
-        See ``Graph``.
-    aggregator : {'mean','sum'}, optional
-        SAGE neighbor aggregation; default ``'mean'``.
+    Parameters are the same as ``Graph`` with the following additions:
+
+    alpha : float, optional
+        LeakyReLU negative slope for attention, default 0.2.
+    temperature : float, optional
+        Softmax temperature applied to attention logits (e/temperature) to
+        control sharpness; 1.0 leaves logits unchanged.
     use_bias : bool, optional
-        Include bias in the SAGE conv; default True.
+        Include bias in attention layer, default True.
     """
 
     @property
-    def aggregator(self) -> str:
-        return self._aggregator
+    def alpha(self) -> float:
+        return self._alpha
+
+    @property
+    def temperature(self) -> float:
+        return self._temperature
 
     @property
     def use_bias(self) -> bool:
@@ -182,9 +180,9 @@ class SAGE(Graph):
                  connect_global_to_all:    bool = True,
                  connect_global_to_global: bool = False,
                  global_edge_weight:       float = 1.0,
-                 aggregator:               str = 'mean',
+                 alpha:                    float = 0.2,
+                 temperature:              float = 1.0,
                  use_bias:                 bool = True) -> None:
-        assert aggregator in ('mean', 'sum'), f"aggregator = {aggregator}"
 
         super().__init__(input_shape              = input_shape,
                          units                    = units,
@@ -200,43 +198,32 @@ class SAGE(Graph):
                          connect_global_to_global = connect_global_to_global,
                          global_edge_weight       = global_edge_weight)
 
-        self._aggregator = aggregator
-        self._use_bias   = bool(use_bias)
+        assert alpha > 0.0, "alpha must be positive"
+        assert temperature > 0.0, "temperature must be positive"
+
+        self._alpha       = float(alpha)
+        self._temperature = float(temperature)
+        self._use_bias    = bool(use_bias)
 
     def variant_name(self) -> str:
-        return 'SAGE'
+        return 'GAT'
 
     def make_conv_layer(self, num_nodes: int, units: int, **kwargs):
-        """Create the per-time-step SAGE conv layer.
-
-        Parameters
-        ----------
-        num_nodes : int
-            Number of nodes in the (possibly augmented) graph.
-        units : int
-            Output feature dimension per node.
-        **kwargs : Any
-            May include ``adj_init``.
-
-        Returns
-        -------
-        tf.keras.layers.Layer
-            Configured GraphSAGEConv instance.
-        """
         adj_init = kwargs.get('adj_init', None)
-        return GraphSAGEConv(num_nodes  = num_nodes,
-                             units      = units,
-                             aggregator = self.aggregator,
-                             use_bias   = self.use_bias,
-                             adj_init   = adj_init)
+        return GraphAttentionConv(num_nodes   = num_nodes,
+                                  units       = units,
+                                  alpha       = self.alpha,
+                                  temperature = self.temperature,
+                                  use_bias    = self.use_bias,
+                                  adj_init    = adj_init)
 
     def _save_variant(self, group) -> None:
-        str_dtype = h5py.string_dtype()
-        group.create_dataset('aggregator', data=self.aggregator, dtype=str_dtype)
-        group.create_dataset('use_bias', data=bool(self.use_bias))
+        group.create_dataset('alpha',       data=float(self.alpha))
+        group.create_dataset('temperature', data=float(self.temperature))
+        group.create_dataset('use_bias',    data=bool(self.use_bias))
 
     @classmethod
-    def from_h5(cls, group) -> SAGE:
+    def from_h5(cls, group) -> GAT:
         # Base fields
         input_shape              = tuple(int(x) for x in group['input_shape'][()])
         ordering                 = group['ordering'][()].decode('utf-8')
@@ -260,9 +247,15 @@ class SAGE(Graph):
             pre_node_layers = None
 
         # Variant subgroup
-        vgroup     = group.get('variant', None)
-        aggregator = vgroup['aggregator'][()].decode('utf-8') if vgroup is not None else 'mean'
-        use_bias   = bool(vgroup['use_bias'][()]) if vgroup is not None else True
+        vgroup      = group.get('variant', None)
+        if vgroup is not None:
+            alpha       = float(vgroup.get('alpha', 0.2)[()])
+            temperature = float(vgroup.get('temperature', 1.0)[()])
+            use_bias    = bool(vgroup.get('use_bias', True)[()])
+        else:
+            alpha       = 0.2
+            temperature = 1.0
+            use_bias    = True
 
         return cls(input_shape              = input_shape,
                    units                    = units,
@@ -277,16 +270,23 @@ class SAGE(Graph):
                    connect_global_to_all    = connect_global_to_all,
                    connect_global_to_global = connect_global_to_global,
                    global_edge_weight       = global_edge_weight,
-                   aggregator               = aggregator,
+                   alpha                    = alpha,
+                   temperature              = temperature,
                    use_bias                 = use_bias)
 
     def __eq__(self, other: object) -> bool:
         return (
-            isinstance(other, SAGE) and
+            isinstance(other, GAT) and
             self._base_eq_fields(other) and
-            self.aggregator == other.aggregator and
-            self.use_bias   == other.use_bias
+            abs(self.alpha - other.alpha) <= 1e-9 and
+            abs(self.temperature - other.temperature) <= 1e-9 and
+            self.use_bias == other.use_bias
         )
 
     def __hash__(self) -> int:
-        return hash((self._base_hash_fields(), self.aggregator, self.use_bias))
+        return hash((
+            self._base_hash_fields(),
+            Decimal(self.alpha).quantize(Decimal('1e-9')),
+            Decimal(self.temperature).quantize(Decimal('1e-9')),
+            self.use_bias,
+        ))

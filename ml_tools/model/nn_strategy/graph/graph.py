@@ -3,13 +3,16 @@ from typing import Tuple, Optional, Union, List
 from abc import ABC, abstractmethod
 from decimal import Decimal
 import numpy as np
-import tensorflow as tf
 import h5py
+
+# Pylint appears to not be handling the tensorflow imports correctly
+# pylint: disable=import-error, no-name-in-module, no-member
+import tensorflow as tf
 
 from ml_tools.model.nn_strategy.layer import Layer
 from ml_tools.model.nn_strategy.layer_sequence import LayerSequence
 from ml_tools.model.nn_strategy.pass_through import PassThrough
-from .utils import (
+from ml_tools.model.nn_strategy.graph.utils import (
     merge_batch_node,
     unmerge_batch_node,
     merge_batch_time,
@@ -54,6 +57,58 @@ class Graph(ABC):
 
     _adjacency_np: Optional[np.ndarray] = None
 
+    @property
+    def input_shape(self) -> Tuple[int, int, int]:
+        return self._input_shape
+
+    @property
+    def units(self) -> int:
+        return self._units
+
+    @property
+    def ordering(self) -> str:
+        return self._ordering
+
+    @property
+    def pre_node_sequence(self) -> LayerSequence:
+        return self._pre_node_sequence
+
+    @property
+    def spatial_feature_size(self) -> Optional[int]:
+        return self._spatial_feature_size
+
+    @property
+    def global_feature_count(self) -> int:
+        return self._global_feature_count
+
+    @property
+    def connectivity(self) -> str:
+        return self._connectivity
+
+    @property
+    def self_loops(self) -> bool:
+        return self._self_loops
+
+    @property
+    def normalize(self) -> bool:
+        return self._normalize
+
+    @property
+    def distance_weighted(self) -> bool:
+        return self._distance_weighted
+
+    @property
+    def connect_global_to_all(self) -> bool:
+        return self._connect_global_to_all
+
+    @property
+    def connect_global_to_global(self) -> bool:
+        return self._connect_global_to_global
+
+    @property
+    def global_edge_weight(self) -> float:
+        return self._global_edge_weight
+
     def __init__(self,
                  input_shape:              Tuple[int, int, int],
                  units:                    int,
@@ -83,11 +138,22 @@ class Graph(ABC):
             assert isinstance(pre_node_layers, list) and len(pre_node_layers) > 0
             pre_node_seq = LayerSequence(pre_node_layers)
 
-        self._input_shape              = _extend_shape(tuple(input_shape))
+        eshape = _extend_shape(tuple(input_shape))
+        assert all(int(d) > 0 for d in eshape), f"input_shape must be positive, got {eshape}"
+        assert int(units) > 0, f"units must be > 0, got {units}"
+        assert connectivity in ('1d-2','2d-4','2d-8','3d-6','3d-18','3d-26'), f"invalid connectivity {connectivity}"
+        assert int(global_feature_count) >= 0, f"global_feature_count must be >= 0, got {global_feature_count}"
+        if spatial_feature_size is not None:
+            assert int(spatial_feature_size) > 0, f"spatial_feature_size must be > 0, got {spatial_feature_size}"
+
+        self._input_shape              = eshape
         self._units                    = int(units)
         self._ordering                 = ordering
         self._pre_node_sequence        = pre_node_seq
-        self._spatial_feature_size     = None if spatial_feature_size is None else int(spatial_feature_size)
+        if spatial_feature_size is None:
+            self._spatial_feature_size = None
+        else:
+            self._spatial_feature_size = int(spatial_feature_size)
         self._global_feature_count     = int(global_feature_count)
         self._connectivity             = connectivity
         self._self_loops               = bool(self_loops)
@@ -135,18 +201,18 @@ class Graph(ABC):
         """
         return (
             isinstance(other, Graph) and
-            self._units                    == other._units and
-            self._ordering                 == other._ordering and
-            self._pre_node_sequence        == other._pre_node_sequence and
-            self._spatial_feature_size     == other._spatial_feature_size and
-            self._global_feature_count     == other._global_feature_count and
-            self._connectivity             == other._connectivity and
-            self._self_loops               == other._self_loops and
-            self._normalize                == other._normalize and
-            self._distance_weighted        == other._distance_weighted and
-            self._connect_global_to_all    == other._connect_global_to_all and
-            self._connect_global_to_global == other._connect_global_to_global and
-            abs(self._global_edge_weight - other._global_edge_weight) <= 1e-9
+            self.units                    == other.units and
+            self.ordering                 == other.ordering and
+            self.pre_node_sequence        == other.pre_node_sequence and
+            self.spatial_feature_size     == other.spatial_feature_size and
+            self.global_feature_count     == other.global_feature_count and
+            self.connectivity             == other.connectivity and
+            self.self_loops               == other.self_loops and
+            self.normalize                == other.normalize and
+            self.distance_weighted        == other.distance_weighted and
+            self.connect_global_to_all    == other.connect_global_to_all and
+            self.connect_global_to_global == other.connect_global_to_global and
+            abs(self.global_edge_weight - other.global_edge_weight) <= 1e-9
         )
 
     def _base_hash_fields(self) -> tuple:
@@ -158,18 +224,18 @@ class Graph(ABC):
             Tuple of hashable core configuration values.
         """
         return (
-            self._units,
-            self._ordering,
-            self._pre_node_sequence,
-            self._spatial_feature_size,
-            self._global_feature_count,
-            self._connectivity,
-            self._self_loops,
-            self._normalize,
-            self._distance_weighted,
-            self._connect_global_to_all,
-            self._connect_global_to_global,
-            Decimal(self._global_edge_weight).quantize(Decimal('1e-9')),
+            self.units,
+            self.ordering,
+            self.pre_node_sequence,
+            self.spatial_feature_size,
+            self.global_feature_count,
+            self.connectivity,
+            self.self_loops,
+            self.normalize,
+            self.distance_weighted,
+            self.connect_global_to_all,
+            self.connect_global_to_global,
+            Decimal(self.global_edge_weight).quantize(Decimal('1e-9')),
         )
 
     @abstractmethod
@@ -368,7 +434,8 @@ class Graph(ABC):
         group.create_dataset('input_shape', data=self._input_shape)
         group.create_dataset('units', data=int(self._units))
         group.create_dataset('ordering', data=self._ordering, dtype=str_dtype)
-        group.create_dataset('spatial_feature_size', data=(self._spatial_feature_size if self._spatial_feature_size is not None else -1))
+        group.create_dataset('spatial_feature_size', data=(self._spatial_feature_size if self._spatial_feature_size is not None
+                                                           else -1))
         group.create_dataset('global_feature_count', data=int(self._global_feature_count))
         group.create_dataset('connectivity', data=self._connectivity, dtype=str_dtype)
         group.create_dataset('self_loops', data=bool(self._self_loops))
@@ -400,4 +467,3 @@ class Graph(ABC):
             A writable storage handle where data should be persisted (e.g., an
             h5py.Group, a zarr Group, or a dict-like/mapping object).
         """
-        pass
