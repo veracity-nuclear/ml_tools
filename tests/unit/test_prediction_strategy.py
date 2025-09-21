@@ -6,6 +6,7 @@ from numpy.testing import assert_allclose
 import numpy as np
 
 from ml_tools.model.nn_strategy import Dense, LSTM, Transformer, SpatialConv, SpatialMaxPool, PassThrough, LayerSequence, CompoundLayer, GraphConv
+from ml_tools.model.nn_strategy.graph import SAGE
 from ml_tools import State, NNStrategy, GBMStrategy, PODStrategy, MinMaxNormalize, NoProcessing
 
 input_features = {'average_exposure' : MinMaxNormalize(0., 45.),
@@ -175,7 +176,8 @@ def test_nn_strategy_CompoundLayer():
 
 def test_nn_strategy_GNN():
 
-    layers = [GraphConv(input_shape=(3, 3), units=4, connectivity='2d-4', aggregator='mean')]
+    graph = SAGE(input_shape=(3, 3), units=4, connectivity='2d-4', aggregator='mean')
+    layers = [GraphConv(graph=graph, activation='relu')]
     cips_calculator = NNStrategy(input_features, output_feature, layers)
     cips_calculator.train([[state]]*100)
     assert_allclose(state["cips_index"], cips_calculator.predict([[state]])[0][0], atol=1E-2)

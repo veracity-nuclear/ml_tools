@@ -18,9 +18,9 @@ from ml_tools.model.state import SeriesCollection
 from ml_tools.model.prediction_strategy import PredictionStrategy
 from ml_tools.model.feature_processor import FeatureProcessor
 from ml_tools.model.nn_strategy.layer import Layer, gather_indices
-from ml_tools.model.nn_strategy.graph_conv import GraphSAGEConv
 from ml_tools.model.nn_strategy.layer_sequence import LayerSequence
 from ml_tools.model.nn_strategy.dense import Dense
+from ml_tools.model.nn_strategy.graph.sage import GraphSAGEConv
 
 
 class NNStrategy(PredictionStrategy):
