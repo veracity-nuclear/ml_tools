@@ -10,7 +10,7 @@ import tensorflow as tf
 
 from ml_tools.model.nn_strategy.layer import Layer, Activation
 from ml_tools.model.nn_strategy.graph.graph import Graph
-from ml_tools.model.nn_strategy.graph import load_graph_from_h5
+from ml_tools.model.nn_strategy.graph import load_graph_from_h5, build_graph_from_dict
 
 
 @Layer.register_subclass("GraphConv")
@@ -131,3 +131,27 @@ class GraphConv(Layer):
                    batch_normalize=batch_norm,
                    layer_normalize=layer_norm,
                    graph=graph)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> GraphConv:
+        activation    = data.get('activation', data.get('activation_function', 'relu'))
+        dropout_rate  = float(data.get('dropout_rate', 0.0))
+        batch_norm    = bool(data.get('batch_normalize', False))
+        layer_norm    = bool(data.get('layer_normalize', False))
+        graph         = build_graph_from_dict(data['graph'])
+        return cls(activation=activation,
+                   dropout_rate=dropout_rate,
+                   batch_normalize=batch_norm,
+                   layer_normalize=layer_norm,
+                   graph=graph)
+
+    def to_dict(self) -> dict:
+        gdict = self.graph.to_dict() if hasattr(self.graph, 'to_dict') else {}
+        return {
+            'type': 'GraphConv',
+            'activation_function': self.activation,
+            'dropout_rate': self.dropout_rate,
+            'batch_normalize': self.batch_normalize,
+            'layer_normalize': self.layer_normalize,
+            'graph': gdict,
+        }

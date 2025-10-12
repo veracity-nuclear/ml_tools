@@ -8,9 +8,11 @@ import pylab as plt
 
 from ml_tools.model.state import SeriesCollection
 from ml_tools.model.prediction_strategy import PredictionStrategy
+from ml_tools.model import register_prediction_strategy
 from ml_tools.model.feature_processor import FeatureProcessor
 
 
+@register_prediction_strategy()  # registers under 'GBMStrategy' by default
 class GBMStrategy(PredictionStrategy):
     """ A concrete class for a Gradient-Boosting-based prediction strategy
 
@@ -409,3 +411,24 @@ class GBMStrategy(PredictionStrategy):
         new_gbm.load_model(h5py.File(file_name, "r"))
 
         return new_gbm
+
+    @classmethod
+    def from_dict(cls,
+                  dict: Dict,
+                  input_features: Dict[str, FeatureProcessor],
+                  predicted_feature: str,
+                  biasing_model: Optional[PredictionStrategy] = None) -> GBMStrategy:
+
+        known_keys = {
+            "boosting_type", "objective", "metric", "num_leaves", "learning_rate",
+            "n_estimators", "max_depth", "min_child_samples", "subsample",
+            "colsample_bytree", "reg_alpha", "reg_lambda", "verbose",
+            "num_boost_round", "stopping_rounds"
+        }
+        kwargs = {k: v for k, v in (dict or {}).items() if k in known_keys}
+        instance = cls(input_features    = input_features,
+                       predicted_feature = predicted_feature,
+                       **kwargs)
+        if biasing_model is not None:
+            instance.biasing_model = biasing_model
+        return instance

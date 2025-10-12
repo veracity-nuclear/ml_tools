@@ -67,3 +67,13 @@ class LayerSequence(Layer):
     def from_h5(cls, group: h5py.Group) -> LayerSequence:
         layers = Layer.layers_from_h5(group)
         return cls(layers=layers)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> LayerSequence:
+        layers = Layer.layers_from_dict(data)
+        return cls(layers=layers)
+
+    def to_dict(self) -> dict:
+        d = {f"layer_{i}": layer.to_dict() for i, layer in enumerate(self.layers)}
+        d["type"] = "LayerSequence"
+        return d

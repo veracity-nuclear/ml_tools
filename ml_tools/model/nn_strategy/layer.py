@@ -186,7 +186,7 @@ class Layer(ABC):
         """
 
     @staticmethod
-    def layers_from_h5(group: "h5py.Group") -> List[Layer]:
+    def layers_from_h5(group: h5py.Group) -> List[Layer]:
         """ Create a list of Layers from an HDF5 group.
 
         Parameters
@@ -211,3 +211,50 @@ class Layer(ABC):
             layers.append(Layer._registry[layer_type].from_h5(layer_group))
 
         return layers
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> "Layer":
+        """ Default factory from a parameter dict.
+
+        Subclasses may override for custom parsing; by default this
+        assumes the dict keys match the constructor signature.
+        """
+        return cls(**data)
+
+    def to_dict(self) -> Dict:
+        """Serialize this layer into a dict.
+
+        Subclasses should override to include their parameters. This default
+        returns only the type name.
+        """
+        return {"type": self.__class__.__name__}
+
+
+    @staticmethod
+    def layers_from_dict(data: Dict) -> List[Layer]:
+        """ Create a list of Layers from a dict.
+
+        Parameters
+        ----------
+        data : Dict
+            A dict containing layer specifications.
+
+        Returns
+        -------
+        List[Layer]
+            A list of Layer instances created from the parameter dicts.
+        """
+
+        layers = []
+        layer_names = [key for key in data.keys() if key.startswith("layer_")]
+        layer_names = sorted(layer_names, key=lambda x: int(x.split('_')[1]))
+
+        for layer_name in layer_names:
+            layer_dict = data[layer_name]
+            layer_type = layer_dict['type']
+            if layer_type not in Layer._registry:
+                raise ValueError(f"Unknown layer type: {layer_type}")
+            layers.append(Layer._registry[layer_type].from_dict(layer_dict))
+
+        return layers
+

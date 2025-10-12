@@ -240,6 +240,44 @@ class SpatialConv(Layer):
                    batch_normalize        =  bool(group["batch_normalize"              ][()]),
                    layer_normalize        =  bool(group["layer_normalize"              ][()]))
 
+    @classmethod
+    def from_dict(cls, data: dict) -> "SpatialConv":
+        params = dict(data or {})
+
+        if "dropout_rate" not in params and "dropout" in params:
+            params["dropout_rate"] = params.pop("dropout")
+        if "filters" not in params and "channels" in params:
+            params["filters"] = params.pop("channels")
+        if "filters" not in params and "number_of_filters" in params:
+            params["filters"] = params.pop("number_of_filters")
+        if "activation" not in params and "activation_function" in params:
+            params["activation"] = params.pop("activation_function")
+
+        def _to_tuple(v):
+            if isinstance(v, (list, tuple)):
+                return tuple(int(x) for x in v)
+            return (int(v),)
+
+        if "input_shape" in params:
+            params["input_shape"] = _to_tuple(params["input_shape"])
+        if "kernel_size" in params:
+            params["kernel_size"] = _to_tuple(params["kernel_size"])
+        if "strides" in params:
+            params["strides"] = _to_tuple(params["strides"])
+        return cls(**params)
+
+    def to_dict(self) -> dict:
+        return {"type":                "SpatialConv",
+                "input_shape":         tuple(self.input_shape),
+                "activation_function": self.activation,
+                "number_of_filters":   self.filters,
+                "kernel_size":         tuple(self.kernel_size),
+                "strides":             tuple(self.strides),
+                "padding":             self.padding,
+                "dropout_rate":        self.dropout_rate,
+                "batch_normalize":     self.batch_normalize,
+                "layer_normalize":     self.layer_normalize}
+
 
 @Layer.register_subclass("SpatialMaxPool")
 class SpatialMaxPool(Layer):
@@ -400,3 +438,31 @@ class SpatialMaxPool(Layer):
                    dropout_rate     = float(group["dropout_rate"               ][()]),
                    batch_normalize  =  bool(group["batch_normalize"            ][()]),
                    layer_normalize  =  bool(group["layer_normalize"            ][()]))
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "SpatialMaxPool":
+        params = dict(data or {})
+
+        if "dropout_rate" not in params and "dropout" in params:
+            params["dropout_rate"] = params.pop("dropout")
+
+        def _to_tuple(v):
+            if isinstance(v, (list, tuple)):
+                return tuple(int(x) for x in v)
+            return (int(v),)
+
+        for key in ("input_shape", "pool_size", "strides"):
+            if key in params:
+                params[key] = _to_tuple(params[key])
+
+        return cls(**params)
+
+    def to_dict(self) -> dict:
+        return {"type":            "SpatialMaxPool",
+                "input_shape":     tuple(self.input_shape),
+                "pool_size":       tuple(self.pool_size),
+                "strides":         tuple(self.strides),
+                "padding":         self.padding,
+                "dropout_rate":    self.dropout_rate,
+                "batch_normalize": self.batch_normalize,
+                "layer_normalize": self.layer_normalize}

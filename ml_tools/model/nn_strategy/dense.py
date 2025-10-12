@@ -111,3 +111,24 @@ class Dense(Layer):
                    dropout_rate     = float(group["dropout_rate"       ][()]),
                    batch_normalize  =  bool(group["batch_normalize"    ][()]),
                    layer_normalize  =  bool(group["layer_normalize"    ][()]))
+
+    @classmethod
+    def from_dict(cls, data: dict) -> Dense:
+        params = dict(data or {})
+        if "units" not in params and "number_of_units" in params:
+            params["units"] = params.pop("number_of_units")
+        if "activation" not in params and "activation_function" in params:
+            params["activation"] = params.pop("activation_function")
+        if "units" not in params and "neurons" in params:
+            params["units"] = params.pop("neurons")
+        if "dropout_rate" not in params and "dropout" in params:
+            params["dropout_rate"] = params.pop("dropout")
+        return cls(**params)
+
+    def to_dict(self) -> dict:
+        return {"type":                "Dense",
+                "number_of_units":     self.units,
+                "activation_function": self.activation,
+                "dropout_rate":        self.dropout_rate,
+                "batch_normalize":     self.batch_normalize,
+                "layer_normalize":     self.layer_normalize,}

@@ -235,6 +235,11 @@ class SAGE(Graph):
         group.create_dataset('aggregator', data=self.aggregator, dtype=str_dtype)
         group.create_dataset('use_bias', data=bool(self.use_bias))
 
+
+    def _variant_to_dict(self) -> dict:
+        return {'aggregator': self.aggregator,
+                'use_bias':   bool(self.use_bias)}
+
     @classmethod
     def from_h5(cls, group) -> SAGE:
         # Base fields
@@ -263,6 +268,56 @@ class SAGE(Graph):
         vgroup     = group.get('variant', None)
         aggregator = vgroup['aggregator'][()].decode('utf-8') if vgroup is not None else 'mean'
         use_bias   = bool(vgroup['use_bias'][()]) if vgroup is not None else True
+
+        return cls(input_shape              = input_shape,
+                   units                    = units,
+                   ordering                 = ordering,
+                   pre_node_layers          = pre_node_layers,
+                   spatial_feature_size     = spatial_feature_size,
+                   global_feature_count     = global_feature_count,
+                   connectivity             = connectivity,
+                   self_loops               = self_loops,
+                   normalize                = normalize,
+                   distance_weighted        = distance_weighted,
+                   connect_global_to_all    = connect_global_to_all,
+                   connect_global_to_global = connect_global_to_global,
+                   global_edge_weight       = global_edge_weight,
+                   aggregator               = aggregator,
+                   use_bias                 = use_bias)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> SAGE:
+
+        if 'input_shape' not in data:
+            raise KeyError("SAGE configuration must include 'input_shape' key")
+        input_shape = tuple(int(x) for x in data['input_shape'])
+        if 'units' not in data:
+            raise KeyError("SAGE configuration must include 'units' key")
+
+        # Base fields
+        units                    = int(data['units'])
+        ordering                 = data.get('ordering', 'feature_major')
+        sfs                      = int(data.get('spatial_feature_size', -1))
+        spatial_feature_size     = None if sfs == -1 else sfs
+        global_feature_count     = int(data.get('global_feature_count', 0))
+        connectivity             = data.get('connectivity', '2d-4')
+        self_loops               = bool(data.get('self_loops', True))
+        normalize                = bool(data.get('normalize', True))
+        distance_weighted        = bool(data.get('distance_weighted', False))
+        connect_global_to_all    = bool(data.get('connect_global_to_all', True))
+        connect_global_to_global = bool(data.get('connect_global_to_global', False))
+        global_edge_weight       = float(data.get('global_edge_weight', 1.0))
+
+        # Pre-node sequence
+        pre_node = data.get('pre_node', None)
+        if pre_node is not None:
+            pre_node_layers = LayerSequence.from_dict(pre_node)
+        else:
+            pre_node_layers = None
+
+        # Variant fields
+        aggregator = data.get('aggregator', 'mean')
+        use_bias   = bool(data.get('use_bias', True))
 
         return cls(input_shape              = input_shape,
                    units                    = units,

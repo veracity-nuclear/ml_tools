@@ -5,7 +5,7 @@ import numpy as np
 from sklearn.model_selection import KFold
 
 from ml_tools.data.series_collection import SeriesCollection
-from ml_tools.optimizer.prediction_strategy import PredictionStrategy
+from ml_tools.model.prediction_strategy import PredictionStrategy
 from ml_tools.optimizer.search_strategy import SearchStrategy
 from ml_tools.optimizer.search_space import SearchSpace, \
     Int         as IntDimension, \

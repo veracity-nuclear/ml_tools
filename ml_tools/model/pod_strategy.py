@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Optional, Type
+from typing import Optional, Type, Dict
 from math import isclose
 import numpy as np
 from sklearn.decomposition import PCA
@@ -7,8 +7,10 @@ from sklearn.cluster import KMeans
 
 from ml_tools.model.state import SeriesCollection
 from ml_tools.model.feature_processor import NoProcessing
-from ml_tools.model.prediction_strategy import PredictionStrategy
+from ml_tools.model.prediction_strategy import PredictionStrategy, FeatureProcessor
+from ml_tools.model import register_prediction_strategy
 
+@register_prediction_strategy()  # registers under 'PODStrategy'
 class PODStrategy(PredictionStrategy):
     """ A concrete class for a categorized POD-based prediction strategy
 
@@ -209,3 +211,26 @@ class PODStrategy(PredictionStrategy):
             The name of the file to load the model from
         """
         raise NotImplementedError
+
+    @classmethod
+    def from_dict(cls,
+                  dict:              Dict,
+                  input_features:    Dict[str, FeatureProcessor],
+                  predicted_feature: str,
+                  biasing_model:     Optional[PredictionStrategy] = None) -> PODStrategy:
+
+        assert input_features is not None and len(input_features) == 1, \
+            "PODStrategy requires exactly one input feature"
+        input_feature = list(input_features.keys())[0]
+        kwargs = {
+            "fine_to_coarse_map": np.ndarray(dict.get("fine_to_coarse_map", [[]])),
+            "nclusters": dict.get("nclusters", 1),
+            "max_svd_size": dict.get("max_svd_size", None),
+            "ndims": dict.get("ndims", None),
+        }
+        instance = cls(input_feature     = input_feature,
+                       predicted_feature = predicted_feature,
+                       **kwargs)
+        if biasing_model is not None:
+            instance.biasing_model = biasing_model
+        return instance

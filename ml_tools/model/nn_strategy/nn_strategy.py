@@ -16,6 +16,7 @@ from tensorflow.keras.callbacks import EarlyStopping
 
 from ml_tools.model.state import SeriesCollection
 from ml_tools.model.prediction_strategy import PredictionStrategy
+from ml_tools.model import register_prediction_strategy
 from ml_tools.model.feature_processor import FeatureProcessor
 from ml_tools.model.nn_strategy.layer import Layer, gather_indices
 from ml_tools.model.nn_strategy.layer_sequence import LayerSequence
@@ -24,6 +25,7 @@ from ml_tools.model.nn_strategy.graph.sage import GraphSAGEConv
 from ml_tools.model.nn_strategy.graph.gat import GraphAttentionConv
 
 
+@register_prediction_strategy()  # registers under 'NNStrategy'
 class NNStrategy(PredictionStrategy):
     """ A concrete class for a Neural-Network-based prediction strategy
 
@@ -267,3 +269,52 @@ class NNStrategy(PredictionStrategy):
         })
 
         return new_model
+
+    @classmethod
+    def from_dict(cls,
+                  dict:              Dict,
+                  input_features:    Dict[str, FeatureProcessor],
+                  predicted_feature: str,
+                  biasing_model:     Optional[PredictionStrategy] = None) -> NNStrategy:
+
+        nn_cfg = dict.get('neural_network')
+        if nn_cfg is None:
+            if 'layers' in dict:
+                nn_cfg = { 'layers': dict['layers'] }
+            else:
+                raise KeyError("NNStrategy.from_dict requires 'neural_network' or 'layers'")
+
+        layers                = LayerSequence.from_dict(nn_cfg)
+        initial_learning_rate = dict.get("initial_learning_rate", 0.01)
+        learning_decay_rate   = dict.get("learning_decay_rate", 1.0)
+        epoch_limit           = dict.get("epoch_limit", 1000)
+        convergence_criteria  = dict.get("convergence_criteria", 1e-14)
+        convergence_patience  = dict.get("convergence_patience", 100)
+        if "batch_size" in dict:
+            batch_size = dict["batch_size"]
+        elif "batch_size_log2" in dict:
+            batch_size = 2 ** int(dict["batch_size_log2"])
+        else:
+            batch_size = 32
+
+        instance = cls(input_features        = input_features,
+                       predicted_feature     = predicted_feature,
+                       layers                = layers,
+                       initial_learning_rate = initial_learning_rate,
+                       learning_decay_rate   = learning_decay_rate,
+                       epoch_limit           = epoch_limit,
+                       convergence_criteria  = convergence_criteria,
+                       convergence_patience  = convergence_patience,
+                       batch_size            = batch_size)
+        if biasing_model is not None:
+            instance.biasing_model = biasing_model
+        return instance
+
+    def to_dict(self) -> dict:
+        return {'initial_learning_rate': self.initial_learning_rate,
+                'learning_decay_rate':   self.learning_decay_rate,
+                'epoch_limit':           self.epoch_limit,
+                'convergence_criteria':  self.convergence_criteria,
+                'convergence_patience':  self.convergence_patience,
+                'batch_size':            self.batch_size,
+                'neural_network':        self._layer_sequence.to_dict()}
