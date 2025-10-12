@@ -432,3 +432,20 @@ class GBMStrategy(PredictionStrategy):
         if biasing_model is not None:
             instance.biasing_model = biasing_model
         return instance
+
+    def to_dict(self) -> Dict:
+        return {"boosting_type":     self.boosting_type,
+                "objective":         self.objective,
+                "metric":            self.metric,
+                "num_leaves":        self.num_leaves,
+                "learning_rate":     self.learning_rate,
+                "n_estimators":      self.n_estimators,
+                "max_depth":         self.max_depth,
+                "min_child_samples": self.min_child_samples,
+                "subsample":         self.subsample,
+                "colsample_bytree":  self.colsample_bytree,
+                "reg_alpha":         self.reg_alpha,
+                "reg_lambda":        self.reg_lambda,
+                "verbose":           self.verbose,
+                "num_boost_round":   self.num_boost_round,
+                "stopping_rounds":   self.stopping_rounds}

@@ -234,3 +234,10 @@ class PODStrategy(PredictionStrategy):
         if biasing_model is not None:
             instance.biasing_model = biasing_model
         return instance
+
+    def to_dict(self) -> Dict:
+        return {"input_feature":      self.input_feature,
+                "fine_to_coarse_map": (self.fine_to_coarse_map.tolist()),
+                "nclusters":          self.nclusters,
+                "max_svd_size":       self.max_svd_size,
+                "ndims":              self.ndims}
