@@ -5,7 +5,6 @@ from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 import h5py
 
-from ml_tools.model import build_prediction_strategy
 from ml_tools.model.state import StateSeries, SeriesCollection
 from ml_tools.model.feature_processor import FeatureProcessor, write_feature_processor, read_feature_processor
 
@@ -267,32 +266,17 @@ class PredictionStrategy(ABC):
         return targets
 
     @classmethod
+    @abstractmethod
     def from_dict(cls,
-                  strategy_type: str,
                   dict: Dict,
                   input_features: Dict[str, FeatureProcessor],
                   predicted_feature: str,
                   biasing_model: Optional[PredictionStrategy] = None) -> PredictionStrategy:
-        """Factory method delegating to the registry in ml_tools.model.__init__.
+        """Construct a concrete strategy from a configuration dict.
 
-        Parameters
-        ----------
-        strategy_type : str
-            The registered name of the strategy to build (defaults to class name if not provided during registration)
-        dict : Dict
-            The dictionary of hyperparameters and configuration produced by the optimizer
-        input_features : Dict[str, FeatureProcessor]
-            Input features mapping
-        predicted_feature : str
-            Predicted feature name
-        biasing_model : Optional[PredictionStrategy]
-            Optional trained biasing model
+        Concrete subclasses must implement this.
         """
-        return build_prediction_strategy(strategy_type     = strategy_type,
-                                         dict              = dict,
-                                         input_features    = input_features,
-                                         predicted_feature = predicted_feature,
-                                         biasing_model     = biasing_model)
+        raise NotImplementedError
 
 
     @abstractmethod

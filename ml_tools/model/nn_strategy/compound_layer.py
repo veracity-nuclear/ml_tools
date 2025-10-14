@@ -157,11 +157,7 @@ class CompoundLayer(Layer):
         dropout_rate         = data.get("dropout_rate", 0.0)
         batch_normalize      = data.get("batch_normalize", False)
         layer_normalize      = data.get("layer_normalize", False)
-        # Support 'layers' list or H5-style sub-keys
-        if "layers" in data and isinstance(data["layers"], list):
-            layers = Layer.layers_from_dict({"layers": data["layers"]})
-        else:
-            layers = Layer.layers_from_dict(data)
+        layers               = Layer.layers_from_dict(data.get('layers', []))
         return cls(layers               = layers,
                    input_specifications = input_specifications,
                    dropout_rate         = dropout_rate,
@@ -173,7 +169,6 @@ class CompoundLayer(Layer):
              "input_specifications": [list(spec) for spec in self.input_specifications],
              "dropout_rate":         self.dropout_rate,
              "batch_normalize":      self.batch_normalize,
-             "layer_normalize":      self.layer_normalize}
-        for i, layer in enumerate(self.layers):
-            d[f"layer_{i}"] = layer.to_dict()
+             "layer_normalize":      self.layer_normalize,
+             "layers":               {f"layer_{i}": layer.to_dict() for i, layer in enumerate(self.layers)}}
         return d

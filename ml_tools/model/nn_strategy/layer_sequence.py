@@ -70,10 +70,9 @@ class LayerSequence(Layer):
 
     @classmethod
     def from_dict(cls, data: dict) -> LayerSequence:
-        layers = Layer.layers_from_dict(data)
+        layers = Layer.layers_from_dict(data.get('layers', []))
         return cls(layers=layers)
 
     def to_dict(self) -> dict:
-        d = {f"layer_{i}": layer.to_dict() for i, layer in enumerate(self.layers)}
-        d["type"] = "LayerSequence"
-        return d
+        layers = {f"layer_{i}": layer.to_dict() for i, layer in enumerate(self.layers)}
+        return {'type': 'LayerSequence', 'layers': layers}

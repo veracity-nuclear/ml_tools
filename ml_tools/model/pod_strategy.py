@@ -223,7 +223,8 @@ class PODStrategy(PredictionStrategy):
             "PODStrategy requires exactly one input feature"
         input_feature = list(input_features.keys())[0]
         kwargs = {
-            "fine_to_coarse_map": np.ndarray(dict.get("fine_to_coarse_map", [[]])),
+            "fine_to_coarse_map": (np.asarray(dict.get("fine_to_coarse_map"), dtype=float)
+                                    if dict.get("fine_to_coarse_map") is not None else None),
             "nclusters": dict.get("nclusters", 1),
             "max_svd_size": dict.get("max_svd_size", None),
             "ndims": dict.get("ndims", None),

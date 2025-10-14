@@ -284,7 +284,7 @@ class NNStrategy(PredictionStrategy):
             else:
                 raise KeyError("NNStrategy.from_dict requires 'neural_network' or 'layers'")
 
-        layers                = LayerSequence.from_dict(nn_cfg)
+        layers                = LayerSequence.from_dict(nn_cfg).layers
         initial_learning_rate = dict.get("initial_learning_rate", 0.01)
         learning_decay_rate   = dict.get("learning_decay_rate", 1.0)
         epoch_limit           = dict.get("epoch_limit", 1000)

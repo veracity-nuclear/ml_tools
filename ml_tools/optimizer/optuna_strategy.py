@@ -6,6 +6,7 @@ from sklearn.model_selection import KFold
 
 from ml_tools.data.series_collection import SeriesCollection
 from ml_tools.model.prediction_strategy import PredictionStrategy
+from ml_tools.model import build_prediction_strategy
 from ml_tools.optimizer.search_strategy import SearchStrategy
 from ml_tools.optimizer.search_space import SearchSpace, \
     Int         as IntDimension, \
@@ -78,11 +79,11 @@ class OptunaStrategy(SearchStrategy):
         """
 
         def objective(trial: optuna.trial.Trial) -> float:
-            model = PredictionStrategy.from_dict(strategy_type     = search_space.prediction_strategy_type,
-                                                 dict              = self._get_parameters(trial, search_space.dimensions),
-                                                 input_features    = search_space.input_features,
-                                                 predicted_feature = search_space.predicted_feature,
-                                                 biasing_model     = search_space.biasing_model)
+            model = build_prediction_strategy(strategy_type     = search_space.prediction_strategy_type,
+                                              dict              = self._get_parameters(trial, search_space.dimensions),
+                                              input_features    = search_space.input_features,
+                                              predicted_feature = search_space.predicted_feature,
+                                              biasing_model     = search_space.biasing_model)
 
             rms = []
             kf = KFold(n_splits=number_of_folds, shuffle=True)
