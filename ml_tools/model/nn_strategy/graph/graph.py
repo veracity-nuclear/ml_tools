@@ -34,7 +34,7 @@ class Graph(ABC):
     ordering : {'feature_major','node_major'}, optional
         Layout of per-timestep feature vectors; default ``'feature_major'``.
     pre_node_layers : LayerSequence | list[Layer] | None, optional
-        Per-node encoder applied identically to each node before propagation.
+        Pre-node encoder applied identically to each node before propagation.
     spatial_feature_size : int | None, optional
         Per-spatial-node feature width ``S`` when using global nodes.
     global_feature_count : int, optional

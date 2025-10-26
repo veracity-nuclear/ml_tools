@@ -146,18 +146,36 @@ class SAGE(Graph):
     ordering : {'feature_major','node_major'}, optional
         Feature layout; default ``'feature_major'``.
     pre_node_layers : LayerSequence | list, optional
-        Per-node encoder to apply before message passing.
+        Pre-node encoder to apply before message passing.
     spatial_feature_size : int | None, optional
         Per-spatial-node width ``S`` (required when using globals).
     global_feature_count : int, optional
         Number of virtual global nodes; default 0.
-    connectivity, self_loops, normalize, distance_weighted,
-    connect_global_to_all, connect_global_to_global, global_edge_weight :
-        See ``Graph``.
+    connectivity : {'1d-2','2d-4','2d-8','3d-6','3d-18','3d-26'}, optional
+        Grid neighborhood used to construct adjacency; default ``'2d-4'``.
+    self_loops : bool, optional
+        Whether to include self-loops in adjacency; default ``True``.
+    normalize : bool, optional
+        Apply symmetric degree normalization to adjacency; default ``True``.
+    distance_weighted : bool, optional
+        Use inverse Manhattan neighbor weights; default ``False``.
+    connect_global_to_all : bool, optional
+        Connect virtual global nodes to all spatial nodes; default ``True``.
+    connect_global_to_global : bool, optional
+        Fully connect global nodes among themselves; default ``False``.
+    global_edge_weight : float, optional
+        Weight applied to edges incident to global nodes; default ``1.0``.
     aggregator : {'mean','sum'}, optional
         SAGE neighbor aggregation; default ``'mean'``.
     use_bias : bool, optional
-        Include bias in the SAGE conv; default True.
+        Include bias in the SAGE conv; default ``True``.
+
+    Attributes
+    ----------
+    aggregator : str
+        SAGE neighbor aggregation method.
+    use_bias : bool
+        Whether to include bias in the SAGE convolution.
     """
 
     @property

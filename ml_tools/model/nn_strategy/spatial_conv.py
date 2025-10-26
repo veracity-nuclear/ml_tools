@@ -256,6 +256,10 @@ class SpatialConv(Layer):
         def _to_tuple(v):
             if isinstance(v, (list, tuple)):
                 return tuple(int(x) for x in v)
+            if isinstance(v, dict):
+                # Accept dicts like {dim_0: H, dim_1: W, dim_2: D}
+                keys = sorted(v.keys())
+                return tuple(int(v[k]) for k in keys)
             return (int(v),)
 
         if "input_shape" in params:
@@ -449,6 +453,9 @@ class SpatialMaxPool(Layer):
         def _to_tuple(v):
             if isinstance(v, (list, tuple)):
                 return tuple(int(x) for x in v)
+            if isinstance(v, dict):
+                keys = sorted(v.keys())
+                return tuple(int(v[k]) for k in keys)
             return (int(v),)
 
         for key in ("input_shape", "pool_size", "strides"):

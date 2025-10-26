@@ -169,6 +169,12 @@ class Transformer(Layer):
             params["ff_dim"] = params.pop("feed_forward_dimensions")
         if "activation" not in params and "activation_function" in params:
             params["activation"] = params.pop("activation_function")
+
+        # Ignore normalization flags if present; Transformer does not use them
+        if "batch_normalize" in params:
+            params.pop("batch_normalize")
+        if "layer_normalize" in params:
+            params.pop("layer_normalize")
         return cls(**params)
 
     def to_dict(self) -> dict:
