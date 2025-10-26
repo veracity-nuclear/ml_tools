@@ -52,13 +52,15 @@ def main() -> None:
 
     dense_layer = DenseDim(units      = IntDimension(16, 128),
                            activation = CategoricalDimension(["relu", "tanh"]))
-    nn_space = NNSearchSpace(NNSearchSpace.Dimension(layers                = [dense_layer, dense_layer],
-                                                     initial_learning_rate = FloatDimension(1e-4, 1e-1, log=True),
-                                                     learning_decay_rate   = FloatDimension(1.0,   2.0          ),
-                                                     epoch_limit           = IntDimension(   200, 3000, log=True),
-                                                     convergence_criteria  = FloatDimension(1e-8, 1e-4, log=True),
-                                                     convergence_patience  = IntDimension(    50,  200          ),
-                                                     batch_size_log2       = IntDimension(     8,   11          )))
+    nn_space = NNSearchSpace(input_features    = input_features,
+                             predicted_feature = predicted_feature,
+                             dimensions        = NNSearchSpace.Dimension(layers                = [dense_layer, dense_layer],
+                                                                         initial_learning_rate = FloatDimension(1e-4, 1e-1, log=True),
+                                                                         learning_decay_rate   = FloatDimension(1.0,   2.0          ),
+                                                                         epoch_limit           = IntDimension(   200, 3000, log=True),
+                                                                         convergence_criteria  = FloatDimension(1e-8, 1e-4, log=True),
+                                                                         convergence_patience  = IntDimension(    50,  200          ),
+                                                                         batch_size_log2       = IntDimension(     8,   11          )))
     dnn_opt = OptunaStrategy()
     models['DNN'] = dnn_opt.search(search_space      = nn_space,
                                    series_collection = random.sample(series_collection, 10000),
@@ -91,7 +93,9 @@ def main() -> None:
                                                      epoch_limit           = IntDimension(   200, 3000, log=True),
                                                      convergence_criteria  = FloatDimension(1e-8, 1e-4, log=True),
                                                      convergence_patience  = IntDimension(    50,  200          ),
-                                                     batch_size_log2       = IntDimension(     8,   11          )))
+                                                     batch_size_log2       = IntDimension(     8,   11          )),
+                                  input_features    = input_features,
+                                  predicted_feature = predicted_feature)
     cnn_opt = OptunaStrategy()
     models['CNN'] = cnn_opt.search(search_space      = cnn_space,
                                    series_collection = random.sample(series_collection, 10000),

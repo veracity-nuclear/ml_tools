@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 from math import isclose
 
 from ml_tools.model import _PREDICTION_STRATEGY_REGISTRY
+from ml_tools.model.prediction_strategy import PredictionStrategy, FeatureProcessor
 
 class SearchSpace(ABC):
     """ Abstract base class for defining hyperparameter search spaces.
@@ -17,6 +18,25 @@ class SearchSpace(ABC):
         The type of prediction strategy to be used.
     dimensions : Struct
         The root hyperparameter search space to explore
+    input_features : Dict[str, FeatureProcessor]
+        Input feature processors keyed by feature name.
+    predicted_feature : str
+        Name of the target feature to predict.
+    biasing_model : Optional[PredictionStrategy]
+        Optional biasing/initial model for predictions.
+
+    Parameters
+    ----------
+    prediction_strategy_type : str
+        Registered PredictionStrategy type name (e.g., "NNStrategy").
+    dimensions : StructDimension
+        Root struct of the parameter domains (not sampled values).
+    input_features : Dict[str, FeatureProcessor]
+        Input feature processors keyed by feature name.
+    predicted_feature : str
+        Name of the target feature to predict.
+    biasing_model : Optional[PredictionStrategy], optional
+        Optional prior model to bias predictions, by default None.
     """
 
     class Dimension(ABC):
@@ -31,13 +51,35 @@ class SearchSpace(ABC):
     def dimensions(self) -> StructDimension:
         return self._dimensions
 
+    @property
+    def input_features(self) -> Dict[str, FeatureProcessor]:
+        return self._input_features
+
+    @property
+    def predicted_feature(self) -> str:
+        return self._predicted_feature
+
+    @property
+    def biasing_model(self) -> Optional[PredictionStrategy]:
+        return self._biasing_model
+
     def __init__(self,
                  prediction_strategy_type: str,
-                 dimensions:               StructDimension) -> None:
+                 dimensions:               StructDimension,
+                 input_features:           Dict[str, FeatureProcessor],
+                 predicted_feature:        str,
+                 biasing_model:            Optional[PredictionStrategy] = None) -> None:
         assert prediction_strategy_type in _PREDICTION_STRATEGY_REGISTRY, \
             f"Unknown prediction strategy: {prediction_strategy_type}"
         self._prediction_strategy_type = prediction_strategy_type
         self._dimensions               = dimensions
+        assert isinstance(input_features, dict) and len(input_features) > 0, \
+            "input_features must be a non-empty dict"
+        assert isinstance(predicted_feature, str) and len(predicted_feature) > 0, \
+            "predicted_feature must be a non-empty string"
+        self._input_features    = input_features
+        self._predicted_feature = predicted_feature
+        self._biasing_model     = biasing_model
 
 class IntDimension(SearchSpace.Dimension):
     """ Integer hyperparameter dimension.

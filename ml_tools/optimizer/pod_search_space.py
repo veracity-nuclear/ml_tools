@@ -14,6 +14,12 @@ class PODSearchSpace(SearchSpace):
     ----------
     dimensions : PODSearchSpace.Dimension
         The root hyperparameter search space to explore.
+    input_features : Dict[str, FeatureProcessor]
+        Input feature processors keyed by feature name.
+    predicted_feature : str
+        Name of the target feature to predict.
+    biasing_model : Optional[PredictionStrategy], optional
+        Optional prior model to bias predictions, by default None.
 
     Notes
     -----
@@ -95,8 +101,16 @@ class PODSearchSpace(SearchSpace):
 
             super().__init__(self.fields)
 
-    def __init__(self, dimensions: StructDimension) -> None:
+    def __init__(self,
+                 dimensions: StructDimension,
+                 input_features=None,
+                 predicted_feature=None,
+                 biasing_model=None) -> None:
         assert isinstance(dimensions, PODSearchSpace.Dimension), (
             f"dimensions must be a PODSearchSpace.Dimension, got {type(dimensions)}"
         )
-        super().__init__(prediction_strategy_type="PODStrategy", dimensions=dimensions)
+        super().__init__(prediction_strategy_type="PODStrategy",
+                         dimensions=dimensions,
+                         input_features=input_features,
+                         predicted_feature=predicted_feature,
+                         biasing_model=biasing_model)

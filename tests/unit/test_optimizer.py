@@ -65,7 +65,9 @@ def test_gbm_optimizer():
         stopping_rounds   = IntDimension(5, 10),
     )
 
-    search_space = GBMSearchSpace(dims)
+    search_space = GBMSearchSpace(dims,
+                                  input_features={"x": NoProcessing()},
+                                  predicted_feature="y")
 
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
@@ -102,7 +104,9 @@ def test_pod_optimizer():
                                     nclusters          = IntDimension(1, 1),
                                     max_svd_size       = CategoricalDimension([None]),
                                     ndims              = CategoricalDimension([None]),)
-    search_space = PODSearchSpace(dims)
+    search_space = PODSearchSpace(dims,
+                                  input_features={"x": NoProcessing()},
+                                  predicted_feature="y")
 
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
@@ -131,7 +135,9 @@ def test_nn_optimizer_Dense():
                                                          epoch_limit           = IntDimension(100, 10000, log=True),
                                                          convergence_criteria  = FloatDimension(1e-6, 1e-5, log=True),
                                                          convergence_patience  = IntDimension(10, 20),
-                                                         batch_size_log2       = IntDimension(4, 8)))
+                                                         batch_size_log2       = IntDimension(4, 8)),
+                                     input_features={"x": NoProcessing()},
+                                     predicted_feature="y")
 
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
@@ -163,7 +169,9 @@ def test_nn_optimizer_LSTM():
                                                          epoch_limit           = IntDimension(100, 10000, log=True),
                                                          convergence_criteria  = FloatDimension(1e-6, 1e-5, log=True),
                                                          convergence_patience  = IntDimension(10, 20),
-                                                         batch_size_log2       = IntDimension(4, 8)))
+                                                         batch_size_log2       = IntDimension(4, 8)),
+                                     input_features={"x": NoProcessing()},
+                                     predicted_feature="y")
 
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
@@ -197,7 +205,9 @@ def test_nn_optimizer_Transformer():
                                                          epoch_limit           = IntDimension(100, 10000, log=True),
                                                          convergence_criteria  = FloatDimension(1e-6, 1e-5, log=True),
                                                          convergence_patience  = IntDimension(10, 20),
-                                                         batch_size_log2       = IntDimension(4, 8)))
+                                                         batch_size_log2       = IntDimension(4, 8)),
+                                     input_features={"x": NoProcessing()},
+                                     predicted_feature="y")
 
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
@@ -238,7 +248,9 @@ def test_nn_optimizer_CNN():
                                                          epoch_limit           = IntDimension(100, 10000, log=True),
                                                          convergence_criteria  = FloatDimension(1e-6, 1e-5, log=True),
                                                          convergence_patience  = IntDimension(10, 20),
-                                                         batch_size_log2       = IntDimension(4, 8)))
+                                                         batch_size_log2       = IntDimension(4, 8)),
+                                     input_features={"x": NoProcessing()},
+                                     predicted_feature="y")
 
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
@@ -270,7 +282,9 @@ def test_nn_optimizer_LayerSequence():
                                                          epoch_limit           = IntDimension(100, 10000, log=True),
                                                          convergence_criteria  = FloatDimension(1e-6, 1e-5, log=True),
                                                          convergence_patience  = IntDimension(10, 20),
-                                                         batch_size_log2       = IntDimension(4, 8)))
+                                                         batch_size_log2       = IntDimension(4, 8)),
+                                     input_features={"x": NoProcessing()},
+                                     predicted_feature="y")
 
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
@@ -305,7 +319,9 @@ def test_nn_optimizer_CompoundLayer():
                                                          epoch_limit           = IntDimension(100, 10000, log=True),
                                                          convergence_criteria  = FloatDimension(1e-6, 1e-5, log=True),
                                                          convergence_patience  = IntDimension(10, 20),
-                                                         batch_size_log2       = IntDimension(4, 8)))
+                                                         batch_size_log2       = IntDimension(4, 8)),
+                                     input_features={"x": NoProcessing()},
+                                     predicted_feature="y")
 
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
@@ -343,7 +359,9 @@ def test_nn_optimizer_GNN_SAGE():
                                                          epoch_limit           = IntDimension(100, 10000, log=True),
                                                          convergence_criteria  = FloatDimension(1e-6, 1e-5, log=True),
                                                          convergence_patience  = IntDimension(10, 20),
-                                                         batch_size_log2       = IntDimension(4, 8)))
+                                                         batch_size_log2       = IntDimension(4, 8)),
+                                     input_features={"x": NoProcessing()},
+                                     predicted_feature="y")
 
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
@@ -397,7 +415,9 @@ def test_nn_optimizer_GNN_GAT():
                                                          epoch_limit           = IntDimension(100, 10000, log=True),
                                                          convergence_criteria  = FloatDimension(1e-6, 1e-5, log=True),
                                                          convergence_patience  = IntDimension(10, 20),
-                                                         batch_size_log2       = IntDimension(4, 8)))
+                                                         batch_size_log2       = IntDimension(4, 8)),
+                                     input_features={"x": NoProcessing()},
+                                     predicted_feature="y")
 
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
