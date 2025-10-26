@@ -98,7 +98,7 @@ class NNStrategy(PredictionStrategy):
 
     @learning_decay_rate.setter
     def learning_decay_rate(self, learning_decay_rate: float):
-        assert 0. <= learning_decay_rate <= 1., f"learning_decay_rate = {learning_decay_rate}"
+        assert 0. < learning_decay_rate <= 1., f"learning_decay_rate = {learning_decay_rate}"
         self._learning_decay_rate = learning_decay_rate
 
     @property
