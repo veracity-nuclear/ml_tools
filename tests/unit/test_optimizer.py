@@ -10,16 +10,14 @@ from ml_tools.model.nn_strategy.spatial_conv import SpatialConv, SpatialMaxPool
 from ml_tools.model.nn_strategy.compound_layer import CompoundLayer
 from ml_tools.model.nn_strategy.graph import SAGE, GAT
 from ml_tools.model.nn_strategy.graph_conv import GraphConv
+from ml_tools.model.gbm_strategy import GBMStrategy
+from ml_tools.model.pod_strategy import PODStrategy
 
 from ml_tools.optimizer.optuna_strategy import OptunaStrategy
-from ml_tools.optimizer.search_space import (
-    StructDimension,
-    FloatDimension,
-    IntDimension,
-    CategoricalDimension,
-    ListDimension,
-    BoolDimension,
-)
+from ml_tools.optimizer.search_space import (FloatDimension,
+                                             IntDimension,
+                                             CategoricalDimension,
+                                             BoolDimension)
 from ml_tools.optimizer.nn_search_space.nn_search_space import NNSearchSpace
 from ml_tools.optimizer.nn_search_space.dense import Dense as DenseDim
 from ml_tools.optimizer.nn_search_space.lstm import LSTM as LSTMDim
@@ -29,52 +27,97 @@ from ml_tools.optimizer.nn_search_space.compound_layer import CompoundLayer as C
 from ml_tools.optimizer.nn_search_space.graph_conv import GraphConv as GraphConvDim
 from ml_tools.optimizer.nn_search_space.graph.sage import SAGE as SAGEDim
 from ml_tools.optimizer.nn_search_space.graph.gat import GAT as GATDim
-from ml_tools.optimizer.search_space import StructDimension, BoolDimension
-from ml_tools.optimizer.nn_search_space.layer_sequence import LayerSequence as LayerSequenceDim
+from ml_tools.optimizer.gbm_search_space import GBMSearchSpace
+from ml_tools.optimizer.pod_search_space import PODSearchSpace
+from ml_tools.optimizer.search_space import BoolDimension
 
 class MockOptunaTrial:
     """ A mock optuna.trial.Trial.
     """
 
-    def suggest_int(self, name, low, high, log=False, step=None):  # noqa: ARG002
+    def suggest_int(self, name, low, high, log=False, step=None):
         return low
 
-    def suggest_float(self, name, low, high, log=False, step=None):  # noqa: ARG002
+    def suggest_float(self, name, low, high, log=False, step=None):
         return low
 
-    def suggest_categorical(self, name, choices):  # noqa: ARG002
+    def suggest_categorical(self, name, choices):
         return choices[0]
 
 
-def test_nn_optimizer_LayerSequence():
-    dense_layer = DenseDim(units      = IntDimension(8, 20),
-                           activation = CategoricalDimension(["relu", "tanh", "sigmoid"]))
 
-    search_space = NNSearchSpace(NNSearchSpace.Dimension(layers                = [dense_layer, dense_layer],
-                                                         initial_learning_rate = FloatDimension(0.001, 0.1, log=True),
-                                                         learning_decay_rate   = FloatDimension(1.0, 2.0),
-                                                         epoch_limit           = IntDimension(100, 10000, log=True),
-                                                         convergence_criteria  = FloatDimension(1e-6, 1e-5, log=True),
-                                                         convergence_patience  = IntDimension(10, 20),
-                                                         batch_size_log2       = IntDimension(4, 8)))
+def test_gbm_optimizer():
+    dims = GBMSearchSpace.Dimension(
+        boosting_type     = CategoricalDimension(["gbdt"]),
+        objective         = CategoricalDimension(["regression"]),
+        metric            = CategoricalDimension(["rmse"]),
+        num_leaves        = IntDimension(31, 64),
+        learning_rate     = FloatDimension(0.05, 0.1),
+        n_estimators      = IntDimension(100, 1000),
+        max_depth         = IntDimension(3, 6),
+        min_child_samples = IntDimension(10, 20),
+        subsample         = FloatDimension(0.5, 0.8),
+        colsample_bytree  = FloatDimension(0.5, 0.8),
+        reg_alpha         = FloatDimension(0.0, 0.1),
+        reg_lambda        = FloatDimension(0.0, 0.1),
+        verbose           = IntDimension(-1, -1),
+        num_boost_round   = IntDimension(10, 50),
+        stopping_rounds   = IntDimension(5, 10),
+    )
+
+    search_space = GBMSearchSpace(dims)
 
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
-    model    = build_prediction_strategy(strategy_type     = "NNStrategy",
+    model    = build_prediction_strategy(strategy_type     = "GBMStrategy",
                                          dict              = params,
                                          input_features    = {"x": NoProcessing()},
                                          predicted_feature = "y",
                                          biasing_model     = None)
 
-    expected = NNStrategy(input_features        = {"x": NoProcessing()},
-                          predicted_feature     = "y",
-                          layers                = [Dense(units=8, activation="relu"), Dense(units=8, activation="relu")],
-                          initial_learning_rate = 0.001,
-                          learning_decay_rate   = 1.0,
-                          epoch_limit           = 100,
-                          convergence_criteria  = 1e-6,
-                          convergence_patience  = 10,
-                          batch_size            = 2 ** 4)
+    expected = GBMStrategy(input_features    = {"x": NoProcessing()},
+                           predicted_feature = "y",
+                           boosting_type     = "gbdt",
+                           objective         = "regression",
+                           metric            = "rmse",
+                           num_leaves        = 31,
+                           learning_rate     = 0.05,
+                           n_estimators      = 100,
+                           max_depth         = 3,
+                           min_child_samples = 10,
+                           subsample         = 0.5,
+                           colsample_bytree  = 0.5,
+                           reg_alpha         = 0.0,
+                           reg_lambda        = 0.0,
+                           verbose           = -1,
+                           num_boost_round   = 10,
+                           stopping_rounds   = 5)
+
+    assert model == expected
+
+
+def test_pod_optimizer():
+    fmap = CategoricalDimension([[[1.0]]])
+    dims = PODSearchSpace.Dimension(fine_to_coarse_map = fmap,
+                                    nclusters          = IntDimension(1, 1),
+                                    max_svd_size       = CategoricalDimension([None]),
+                                    ndims              = CategoricalDimension([None]),)
+    search_space = PODSearchSpace(dims)
+
+    strategy = OptunaStrategy()
+    params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
+    model    = build_prediction_strategy(strategy_type     = "PODStrategy",
+                                         dict              = params,
+                                         input_features    = {"x": NoProcessing()},
+                                         predicted_feature = "y",
+                                         biasing_model     = None)
+
+    expected = PODStrategy(input_feature     = "x",
+                           predicted_feature = "y",
+                           fine_to_coarse_map = __import__('numpy').array([[1.0]]),
+                           nclusters          = 1,
+                           max_svd_size       = None,
+                           ndims              = None)
     assert model == expected
 
 
@@ -209,6 +252,37 @@ def test_nn_optimizer_CNN():
                           predicted_feature     = "y",
                           layers                = [SpatialConv(input_shape=(3,3), kernel_size=(2,2), filters=4, activation='relu', padding=False),
                                                    SpatialMaxPool(input_shape=(3,3), pool_size=(2,2), padding=False)],
+                          initial_learning_rate = 0.001,
+                          learning_decay_rate   = 1.0,
+                          epoch_limit           = 100,
+                          convergence_criteria  = 1e-6,
+                          convergence_patience  = 10,
+                          batch_size            = 2 ** 4)
+    assert model == expected
+
+def test_nn_optimizer_LayerSequence():
+    dense_layer = DenseDim(units      = IntDimension(8, 20),
+                           activation = CategoricalDimension(["relu", "tanh", "sigmoid"]))
+
+    search_space = NNSearchSpace(NNSearchSpace.Dimension(layers                = [dense_layer, dense_layer],
+                                                         initial_learning_rate = FloatDimension(0.001, 0.1, log=True),
+                                                         learning_decay_rate   = FloatDimension(1.0, 2.0),
+                                                         epoch_limit           = IntDimension(100, 10000, log=True),
+                                                         convergence_criteria  = FloatDimension(1e-6, 1e-5, log=True),
+                                                         convergence_patience  = IntDimension(10, 20),
+                                                         batch_size_log2       = IntDimension(4, 8)))
+
+    strategy = OptunaStrategy()
+    params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
+    model    = build_prediction_strategy(strategy_type     = "NNStrategy",
+                                         dict              = params,
+                                         input_features    = {"x": NoProcessing()},
+                                         predicted_feature = "y",
+                                         biasing_model     = None)
+
+    expected = NNStrategy(input_features        = {"x": NoProcessing()},
+                          predicted_feature     = "y",
+                          layers                = [Dense(units=8, activation="relu"), Dense(units=8, activation="relu")],
                           initial_learning_rate = 0.001,
                           learning_decay_rate   = 1.0,
                           epoch_limit           = 100,
