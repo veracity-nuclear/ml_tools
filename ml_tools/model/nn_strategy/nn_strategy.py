@@ -48,6 +48,9 @@ class NNStrategy(PredictionStrategy):
         The limit on the number of training epochs conducted during training
     convergence_criteria : float
         The convergence criteria for training
+    convergence_patience : int
+        Number of epochs with no improvement (i.e. error improves by greater than the convergence_criteria)
+        after which training will be stopped
     batch_size : int
         The training batch sizes
 

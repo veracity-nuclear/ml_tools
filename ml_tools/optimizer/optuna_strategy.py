@@ -1,21 +1,21 @@
-from typing import Dict, Optional
+from typing import Dict, Any
 
 import optuna
 import numpy as np
 from sklearn.model_selection import KFold
 
-from ml_tools.data.series_collection import SeriesCollection
+from ml_tools.model.state import SeriesCollection
 from ml_tools.model.prediction_strategy import PredictionStrategy
 from ml_tools.model import build_prediction_strategy
 from ml_tools.optimizer.search_strategy import SearchStrategy
-from ml_tools.optimizer.search_space import SearchSpace, \
-    Int         as IntDimension, \
-    Float       as FloatDimension, \
-    Categorical as CategoricalDimension, \
-    Bool        as BoolDimension, \
-    Struct      as StructDimension, \
-    Choice      as ChoiceDimension, \
-    ListDim     as ListDimDimension
+from ml_tools.optimizer.search_space import (SearchSpace,
+                                             IntDimension,
+                                             FloatDimension,
+                                             CategoricalDimension,
+                                             BoolDimension,
+                                             StructDimension,
+                                             ChoiceDimension,
+                                             ListDimension)
 
 class OptunaStrategy(SearchStrategy):
     """ A class implementing the Optuna hyperparameter optimization strategy
@@ -80,7 +80,7 @@ class OptunaStrategy(SearchStrategy):
 
         def objective(trial: optuna.trial.Trial) -> float:
             model = build_prediction_strategy(strategy_type     = search_space.prediction_strategy_type,
-                                              dict              = self._get_parameters(trial, search_space.dimensions),
+                                              dict              = self._get_sample(trial, search_space.dimensions),
                                               input_features    = search_space.input_features,
                                               predicted_feature = search_space.predicted_feature,
                                               biasing_model     = search_space.biasing_model)
@@ -113,7 +113,7 @@ class OptunaStrategy(SearchStrategy):
         return objective
 
 
-    def _get_parameters(self, trial: optuna.trial.Trial, dimensions: StructDimension) -> Dict:
+    def _get_sample(self, trial: optuna.trial.Trial, dimensions: StructDimension) -> Dict:
         """ Method for using an Optuna trial to sample hyperparameters from the search space
 
         Parameters
@@ -133,31 +133,40 @@ class OptunaStrategy(SearchStrategy):
             return child if not parent else f"{parent}.{child}"
 
         def index(parent: str, i: int) -> str:
-            return f"{parent}[{i}]" if parent else f"[{i}]"
+            return f"{parent}_{i}" if parent else f"[{i}]"
 
-        def sample(name: str, dim) -> Dict:
+        def sample(name: str, dim) -> Any:
+            # Primitive dimensions return raw values
             if isinstance(dim, IntDimension):
-                log = bool(getattr(dim, 'log', False))
-                return {name: trial.suggest_int(name or 'value', dim.low, dim.high, log=log)}
+                return trial.suggest_int(name or 'int', dim.low, dim.high, log=dim.log)
             if isinstance(dim, FloatDimension):
-                log = bool(getattr(dim, 'log', False))
-                return {name: trial.suggest_float(name or 'value', dim.low, dim.high, log=log)}
+                return trial.suggest_float(name or 'float', dim.low, dim.high, log=dim.log)
             if isinstance(dim, BoolDimension):
-                return {name: trial.suggest_categorical(name or 'value', [False, True])}
+                return trial.suggest_categorical(name or 'bool', dim.choices)
             if isinstance(dim, CategoricalDimension):
-                return {name: trial.suggest_categorical(name or 'value', dim.choices)}
+                return trial.suggest_categorical(name or 'categorical', dim.choices)
+
+            # Composite dimensions return nested structures
             if isinstance(dim, StructDimension):
-                return {k: sample(join(name, k), child) for k, child in dim.fields.items()}
+                d = {k: sample(join(name, k), child) for k, child in dim.fields.items()}
+                if dim.struct_type:
+                    d['type'] = dim.struct_type
+                return d
             if isinstance(dim, ChoiceDimension):
                 labels = list(dim.options.keys())
-                label = trial.suggest_categorical(join(name, 'type') if name else 'type', labels)
-                value = sample(join(name, label), dim.options[label])
-                return {label: value}
-            if isinstance(dim, ListDimDimension):
-                items = getattr(dim, 'items', None)
-                return {index(name, i): sample('', d) for i, d in enumerate(items)}
+                label = trial.suggest_categorical(join(name, 'choice') if name else 'choice', labels)
+                return sample(join(name, label), dim.options[label])
+            if isinstance(dim, ListDimension):
+                items = getattr(dim, 'items', None) or []
+                d = {}
+                for i, item in enumerate(items):
+                    label = f"{dim.label}_{i}" if dim.label else f"item_{i}"
+                    d[label] = sample(index(name, label), item)
+                return d
 
             raise TypeError(f"Unsupported dimension type at {name or '<root>'}: {type(dim)}")
 
         result = sample('', dimensions)
-        return result if isinstance(result, dict) else {"value": result}
+        if not isinstance(result, dict):
+            raise TypeError("Root StructDimension must sample to a dict of parameters")
+        return result

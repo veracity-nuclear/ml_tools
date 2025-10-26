@@ -1,9 +1,7 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Optional
 
-from ml_tools.model.prediction_strategy import FeatureProcessor
-from ml_tools.data.series_collection import SeriesCollection
-from ml_tools.optimizer.prediction_strategy import PredictionStrategy
+from ml_tools.model.state import SeriesCollection
+from ml_tools.model.prediction_strategy import PredictionStrategy
 from ml_tools.optimizer.search_space import SearchSpace
 
 class SearchStrategy(ABC):
