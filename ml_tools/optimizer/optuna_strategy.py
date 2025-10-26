@@ -36,7 +36,7 @@ class OptunaStrategy(SearchStrategy):
                        output_file,
                        num_procs)
 
-        def log_progress(study, trial):
+        def log_progress(_study, trial):
             with open(output_file, "a") as output:
                 output.write(f"Trial {trial.number}: Params: {trial.params}, Value: {trial.value}\n")
             print(f"Trial {trial.number} completed: Value: {trial.value}")
@@ -57,7 +57,7 @@ class OptunaStrategy(SearchStrategy):
 
         best_params = study.best_params
         best_model  = build_prediction_strategy(strategy_type     = search_space.prediction_strategy_type,
-                                                dict              = best_params,
+                                                params            = best_params,
                                                 input_features    = search_space.input_features,
                                                 predicted_feature = search_space.predicted_feature,
                                                 biasing_model     = search_space.biasing_model)
@@ -92,7 +92,7 @@ class OptunaStrategy(SearchStrategy):
 
         def objective(trial: optuna.trial.Trial) -> float:
             model = build_prediction_strategy(strategy_type     = search_space.prediction_strategy_type,
-                                              dict              = self._get_sample(trial, search_space.dimensions),
+                                              params            = self._get_sample(trial, search_space.dimensions),
                                               input_features    = search_space.input_features,
                                               predicted_feature = search_space.predicted_feature,
                                               biasing_model     = search_space.biasing_model)
@@ -148,35 +148,36 @@ class OptunaStrategy(SearchStrategy):
             return f"{parent}_{i}" if parent else f"[{i}]"
 
         def sample(name: str, dim) -> Any:
-            # Primitive dimensions return raw values
+            # Primitive and composite dimensions sampled into a single result
+            result: Any = None
             if isinstance(dim, IntDimension):
-                return trial.suggest_int(name or 'int', dim.low, dim.high, log=dim.log)
-            if isinstance(dim, FloatDimension):
-                return trial.suggest_float(name or 'float', dim.low, dim.high, log=dim.log)
-            if isinstance(dim, BoolDimension):
-                return trial.suggest_categorical(name or 'bool', dim.choices)
-            if isinstance(dim, CategoricalDimension):
-                return trial.suggest_categorical(name or 'categorical', dim.choices)
-
-            # Composite dimensions return nested structures
-            if isinstance(dim, StructDimension):
+                result = trial.suggest_int(name or 'int', dim.low, dim.high, log=dim.log)
+            elif isinstance(dim, FloatDimension):
+                result = trial.suggest_float(name or 'float', dim.low, dim.high, log=dim.log)
+            elif isinstance(dim, BoolDimension):
+                result = trial.suggest_categorical(name or 'bool', dim.choices)
+            elif isinstance(dim, CategoricalDimension):
+                result = trial.suggest_categorical(name or 'categorical', dim.choices)
+            elif isinstance(dim, StructDimension):
                 d = {k: sample(join(name, k), child) for k, child in dim.fields.items()}
                 if dim.struct_type:
                     d['type'] = dim.struct_type
-                return d
-            if isinstance(dim, ChoiceDimension):
+                result = d
+            elif isinstance(dim, ChoiceDimension):
                 labels = list(dim.options.keys())
                 label = trial.suggest_categorical(join(name, 'choice') if name else 'choice', labels)
-                return sample(join(name, label), dim.options[label])
-            if isinstance(dim, ListDimension):
+                result = sample(join(name, label), dim.options[label])
+            elif isinstance(dim, ListDimension):
                 items = getattr(dim, 'items', None) or []
                 d = {}
                 for i, item in enumerate(items):
                     label = f"{dim.label}_{i}" if dim.label else f"item_{i}"
                     d[label] = sample(index(name, label), item)
-                return d
+                result = d
+            else:
+                raise TypeError(f"Unsupported dimension type at {name or '<root>'}: {type(dim)}")
 
-            raise TypeError(f"Unsupported dimension type at {name or '<root>'}: {type(dim)}")
+            return result
 
         result = sample('', dimensions)
         if not isinstance(result, dict):

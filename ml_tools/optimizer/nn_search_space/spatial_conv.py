@@ -1,7 +1,7 @@
-from ml_tools.optimizer.nn_search_space.layer import Layer
-from ml_tools.optimizer.search_space import IntDimension, CategoricalDimension, FloatDimension, BoolDimension
 from typing import get_args
 
+from ml_tools.optimizer.nn_search_space.layer import Layer
+from ml_tools.optimizer.search_space import IntDimension, CategoricalDimension, FloatDimension, BoolDimension
 from ml_tools.model.nn_strategy.layer import Activation
 
 

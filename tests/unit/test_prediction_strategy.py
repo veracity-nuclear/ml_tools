@@ -63,7 +63,7 @@ def test_gbm_strategy():
     assert_allclose(state["cips_index"], new_cips_calculator.predict([[state]])[0][0], atol=1E-5)
 
     new_cips_calculator = build_prediction_strategy(strategy_type     = 'GBMStrategy',
-                                                    dict              = cips_calculator.to_dict(),
+                                                    params            = cips_calculator.to_dict(),
                                                     input_features    = input_features,
                                                     predicted_feature = output_feature,
                                                     biasing_model     = None)
@@ -81,7 +81,7 @@ def test_pod_strategy():
     assert np.allclose(state["fine_detector"], detector_predictor.predict([[state]])[0][0], atol=1E-2)
 
     new_detector_predictor = build_prediction_strategy(strategy_type     = 'PODStrategy',
-                                                       dict              = detector_predictor.to_dict(),
+                                                       params            = detector_predictor.to_dict(),
                                                        input_features    = {'measured_rh_detector': NoProcessing()},
                                                        predicted_feature ='fine_detector',
                                                        biasing_model     = None)
@@ -106,7 +106,7 @@ def test_nn_strategy_Dense():
     assert_allclose(state["cips_index"], new_cips_calculator.predict([[state]])[0][0], atol=1E-2)
 
     new_cips_calculator = build_prediction_strategy(strategy_type     = 'NNStrategy',
-                                                    dict              = cips_calculator.to_dict(),
+                                                    params            = cips_calculator.to_dict(),
                                                     input_features    = input_features,
                                                     predicted_feature = output_feature,
                                                     biasing_model     = None)
@@ -126,7 +126,7 @@ def test_nn_strategy_LSTM():
     assert_allclose(state["cips_index"], new_cips_calculator.predict([[state]*100])[0][-1], atol=1E-2)
 
     new_cips_calculator = build_prediction_strategy(strategy_type     = 'NNStrategy',
-                                                    dict              = cips_calculator.to_dict(),
+                                                    params            = cips_calculator.to_dict(),
                                                     input_features    = input_features,
                                                     predicted_feature = output_feature,
                                                     biasing_model     = None)
@@ -146,7 +146,7 @@ def test_nn_strategy_Transformer():
     assert_allclose(state["cips_index"], new_cips_calculator.predict([[state]*100])[0][-1], atol=1E-2)
 
     new_cips_calculator = build_prediction_strategy(strategy_type     = 'NNStrategy',
-                                                    dict              = cips_calculator.to_dict(),
+                                                    params            = cips_calculator.to_dict(),
                                                     input_features    = input_features,
                                                     predicted_feature = output_feature,
                                                     biasing_model     = None)
@@ -167,7 +167,7 @@ def test_nn_strategy_CNN():
     assert_allclose(state["cips_index"], new_cips_calculator.predict([[state]])[0][0], atol=1E-2)
 
     new_cips_calculator = build_prediction_strategy(strategy_type     = 'NNStrategy',
-                                                    dict              = cips_calculator.to_dict(),
+                                                    params            = cips_calculator.to_dict(),
                                                     input_features    = input_features,
                                                     predicted_feature = output_feature,
                                                     biasing_model     = None)
@@ -188,7 +188,7 @@ def test_nn_strategy_LayerSequence():
     assert_allclose(state["cips_index"], new_cips_calculator.predict([[state]])[0][0], atol=1E-2)
 
     new_cips_calculator = build_prediction_strategy(strategy_type     = 'NNStrategy',
-                                                    dict              = cips_calculator.to_dict(),
+                                                    params            = cips_calculator.to_dict(),
                                                     input_features    = input_features,
                                                     predicted_feature = output_feature,
                                                     biasing_model     = None)
@@ -209,7 +209,7 @@ def test_nn_strategy_CompoundLayer():
     assert_allclose(state["cips_index"], new_cips_calculator.predict([[state]])[0][0], atol=1E-2)
 
     new_cips_calculator = build_prediction_strategy(strategy_type     = 'NNStrategy',
-                                                    dict              = cips_calculator.to_dict(),
+                                                    params            = cips_calculator.to_dict(),
                                                     input_features    = input_features,
                                                     predicted_feature = output_feature,
                                                     biasing_model     = None)
@@ -230,7 +230,7 @@ def test_nn_strategy_GNN_SAGE():
     assert_allclose(state["cips_index"], new_cips_calculator.predict([[state]])[0][0], atol=1E-2)
 
     new_cips_calculator = build_prediction_strategy(strategy_type     = 'NNStrategy',
-                                                    dict              = cips_calculator.to_dict(),
+                                                    params            = cips_calculator.to_dict(),
                                                     input_features    = input_features,
                                                     predicted_feature = output_feature,
                                                     biasing_model     = None)
@@ -252,7 +252,7 @@ def test_nn_strategy_GNN_GAT():
     assert_allclose(state["cips_index"], new_cips_calculator.predict([[state]])[0][0], atol=1E-2)
 
     new_cips_calculator = build_prediction_strategy(strategy_type     = 'NNStrategy',
-                                                    dict              = cips_calculator.to_dict(),
+                                                    params            = cips_calculator.to_dict(),
                                                     input_features    = input_features,
                                                     predicted_feature = output_feature,
                                                     biasing_model     = None)

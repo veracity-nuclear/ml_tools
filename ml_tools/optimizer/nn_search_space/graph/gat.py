@@ -113,4 +113,3 @@ class GAT(Graph):
         self.fields['alpha']       = alpha
         self.fields['temperature'] = temperature
         self.fields['use_bias']    = use_bias
-

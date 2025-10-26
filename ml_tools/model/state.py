@@ -168,18 +168,18 @@ class State:
             # Allow nested HDF5 paths for the state group (e.g., SERIES/STATE/ASSEM)
             try:
                 state_group = h5_file[state]
-            except KeyError:
-                raise AssertionError(f"'{state}' not found in {file_name}")
+            except KeyError as exc:
+                raise AssertionError(f"'{state}' not found in {file_name}") from exc
 
             state_data = {}
             for feature in features:
                 # Support nested feature paths relative to the state group (e.g., 'outputs/cips_index')
                 try:
                     data = state_group[feature][()]
-                except KeyError:
+                except KeyError as exc:
                     raise AssertionError(
                         f"'{feature}' not found under '{state}' in {file_name}"
-                    )
+                    ) from exc
                 feature = os.path.basename(feature)
                 state_data[feature] = data
                 if np.isscalar(state_data[feature]):

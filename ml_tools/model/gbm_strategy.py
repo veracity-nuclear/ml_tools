@@ -1,11 +1,12 @@
 from __future__ import annotations
 from typing import Dict, Optional, Type
 import os
+from math import isclose
+
 import h5py
 import lightgbm as lgb
 import numpy as np
 import pylab as plt
-from math import isclose
 
 from ml_tools.model.state import SeriesCollection
 from ml_tools.model.prediction_strategy import PredictionStrategy
@@ -436,10 +437,10 @@ class GBMStrategy(PredictionStrategy):
 
     @classmethod
     def from_dict(cls,
-                  dict: Dict,
-                  input_features: Dict[str, FeatureProcessor],
+                  params:            Dict,
+                  input_features:    Dict[str, FeatureProcessor],
                   predicted_feature: str,
-                  biasing_model: Optional[PredictionStrategy] = None) -> GBMStrategy:
+                  biasing_model:     Optional[PredictionStrategy] = None) -> GBMStrategy:
 
         known_keys = {
             "boosting_type", "objective", "metric", "num_leaves", "learning_rate",
@@ -447,7 +448,7 @@ class GBMStrategy(PredictionStrategy):
             "colsample_bytree", "reg_alpha", "reg_lambda", "verbose",
             "num_boost_round", "stopping_rounds"
         }
-        kwargs = {k: v for k, v in (dict or {}).items() if k in known_keys}
+        kwargs = {k: v for k, v in (params or {}).items() if k in known_keys}
         instance = cls(input_features    = input_features,
                        predicted_feature = predicted_feature,
                        **kwargs)

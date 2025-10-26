@@ -102,4 +102,3 @@ class PODSearchSpace(SearchSpace):
             f"dimensions must be a PODSearchSpace.Dimension, got {type(dimensions)}"
         )
         super().__init__(prediction_strategy_type="PODStrategy", dimensions=dimensions)
-

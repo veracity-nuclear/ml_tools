@@ -19,7 +19,7 @@ def register_prediction_strategy(name: Optional[str] = None):
 
 
 def build_prediction_strategy(strategy_type:     str,
-                              dict:              dict,
+                              params:            dict,
                               input_features:    Dict[str, FeatureProcessor],
                               predicted_feature: str,
                               biasing_model:     Optional[PredictionStrategy] = None):
@@ -28,9 +28,8 @@ def build_prediction_strategy(strategy_type:     str,
         raise KeyError(f"Unknown PredictionStrategy type: {strategy_type}")
     cls = _PREDICTION_STRATEGY_REGISTRY[strategy_type]
     if hasattr(cls, 'from_dict') and callable(getattr(cls, 'from_dict')):
-        return cls.from_dict(dict              = dict,
+        return cls.from_dict(params            = params,
                              input_features    = input_features,
                              predicted_feature = predicted_feature,
                              biasing_model     = biasing_model)
-    else:
-        raise NotImplementedError(f"Class {cls.__name__} does not implement from_dict method")
+    raise NotImplementedError(f"Class {cls.__name__} does not implement from_dict method")

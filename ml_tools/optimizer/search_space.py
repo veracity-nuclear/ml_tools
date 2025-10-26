@@ -1,5 +1,5 @@
 from __future__ import annotations
-from abc import ABC, abstractmethod
+from abc import ABC
 from typing import Any, Dict, List, Optional
 from math import isclose
 
@@ -22,7 +22,6 @@ class SearchSpace(ABC):
     class Dimension(ABC):
         """ Abstract base class for defining a hyperparameter dimension in the search space.
         """
-        pass
 
     @property
     def prediction_strategy_type(self) -> str:
@@ -35,7 +34,8 @@ class SearchSpace(ABC):
     def __init__(self,
                  prediction_strategy_type: str,
                  dimensions:               StructDimension) -> None:
-        assert prediction_strategy_type in _PREDICTION_STRATEGY_REGISTRY, f"Unknown prediction strategy: {prediction_strategy_type}"
+        assert prediction_strategy_type in _PREDICTION_STRATEGY_REGISTRY, \
+            f"Unknown prediction strategy: {prediction_strategy_type}"
         self._prediction_strategy_type = prediction_strategy_type
         self._dimensions               = dimensions
 
@@ -123,7 +123,8 @@ class BoolDimension(CategoricalDimension):
     """ Boolean hyperparameter dimension (categorical over [False, True])."""
 
     def __init__(self, choices: List[bool]) -> None:
-        assert all(choice in [False, True] for choice in choices), f"BoolDimension choices must be [False, True], got {choices}"
+        assert all(choice in [False, True] for choice in choices), \
+            f"BoolDimension choices must be [False, True], got {choices}"
         super().__init__([False, True])
 
 

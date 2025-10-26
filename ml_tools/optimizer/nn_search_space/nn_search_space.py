@@ -136,5 +136,6 @@ class NNSearchSpace(SearchSpace):
 
 
     def __init__(self, dimensions: StructDimension) -> None:
-        assert isinstance(dimensions, NNSearchSpace.Dimension), f"dimensions must be a NNSearchSpace.Dimension, got {type(dimensions)}"
+        assert isinstance(dimensions, NNSearchSpace.Dimension), \
+            f"dimensions must be a NNSearchSpace.Dimension, got {type(dimensions)}"
         super().__init__(prediction_strategy_type="NNStrategy", dimensions=dimensions)

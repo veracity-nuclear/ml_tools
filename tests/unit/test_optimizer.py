@@ -70,7 +70,7 @@ def test_gbm_optimizer():
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
     model    = build_prediction_strategy(strategy_type     = "GBMStrategy",
-                                         dict              = params,
+                                         params            = params,
                                          input_features    = {"x": NoProcessing()},
                                          predicted_feature = "y",
                                          biasing_model     = None)
@@ -107,7 +107,7 @@ def test_pod_optimizer():
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
     model    = build_prediction_strategy(strategy_type     = "PODStrategy",
-                                         dict              = params,
+                                         params            = params,
                                          input_features    = {"x": NoProcessing()},
                                          predicted_feature = "y",
                                          biasing_model     = None)
@@ -136,7 +136,7 @@ def test_nn_optimizer_Dense():
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
     model    = build_prediction_strategy(strategy_type     = "NNStrategy",
-                                         dict              = params,
+                                         params            = params,
                                          input_features    = {"x": NoProcessing()},
                                          predicted_feature = "y",
                                          biasing_model     = None)
@@ -168,7 +168,7 @@ def test_nn_optimizer_LSTM():
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
     model    = build_prediction_strategy(strategy_type     = "NNStrategy",
-                                         dict              = params,
+                                         params            = params,
                                          input_features    = {"x": NoProcessing()},
                                          predicted_feature = "y",
                                          biasing_model     = None)
@@ -202,7 +202,7 @@ def test_nn_optimizer_Transformer():
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
     model    = build_prediction_strategy(strategy_type     = "NNStrategy",
-                                         dict              = params,
+                                         params            = params,
                                          input_features    = {"x": NoProcessing()},
                                          predicted_feature = "y",
                                          biasing_model     = None)
@@ -243,7 +243,7 @@ def test_nn_optimizer_CNN():
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
     model    = build_prediction_strategy(strategy_type     = "NNStrategy",
-                                         dict              = params,
+                                         params            = params,
                                          input_features    = {"x": NoProcessing()},
                                          predicted_feature = "y",
                                          biasing_model     = None)
@@ -275,7 +275,7 @@ def test_nn_optimizer_LayerSequence():
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
     model    = build_prediction_strategy(strategy_type     = "NNStrategy",
-                                         dict              = params,
+                                         params            = params,
                                          input_features    = {"x": NoProcessing()},
                                          predicted_feature = "y",
                                          biasing_model     = None)
@@ -310,7 +310,7 @@ def test_nn_optimizer_CompoundLayer():
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
     model    = build_prediction_strategy(strategy_type     = "NNStrategy",
-                                         dict              = params,
+                                         params            = params,
                                          input_features    = {"x": NoProcessing()},
                                          predicted_feature = "y",
                                          biasing_model     = None)
@@ -348,7 +348,7 @@ def test_nn_optimizer_GNN_SAGE():
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
     model    = build_prediction_strategy(strategy_type     = "NNStrategy",
-                                         dict              = params,
+                                         params            = params,
                                          input_features    = {"x": NoProcessing()},
                                          predicted_feature = "y",
                                          biasing_model     = None)
@@ -402,7 +402,7 @@ def test_nn_optimizer_GNN_GAT():
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
     model    = build_prediction_strategy(strategy_type     = "NNStrategy",
-                                         dict              = params,
+                                         params            = params,
                                          input_features    = {"x": NoProcessing()},
                                          predicted_feature = "y",
                                          biasing_model     = None)

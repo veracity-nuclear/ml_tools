@@ -1,9 +1,9 @@
 from __future__ import annotations
 from typing import List, Dict, Type, Optional
 import os
+from math import isclose
 import h5py
 import numpy as np
-from math import isclose
 
 # Pylint appears to not be handling the tensorflow imports correctly
 # pylint: disable=import-error, no-name-in-module, no-member
@@ -289,28 +289,28 @@ class NNStrategy(PredictionStrategy):
 
     @classmethod
     def from_dict(cls,
-                  dict:              Dict,
+                  params:            Dict,
                   input_features:    Dict[str, FeatureProcessor],
                   predicted_feature: str,
                   biasing_model:     Optional[PredictionStrategy] = None) -> NNStrategy:
 
-        nn_cfg = dict.get('neural_network')
+        nn_cfg = params.get('neural_network')
         if nn_cfg is None:
-            if 'layers' in dict:
-                nn_cfg = { 'layers': dict['layers'] }
+            if 'layers' in params:
+                nn_cfg = { 'layers': params['layers'] }
             else:
                 raise KeyError("NNStrategy.from_dict requires 'neural_network' or 'layers'")
 
         layers                = LayerSequence.from_dict(nn_cfg).layers
-        initial_learning_rate = dict.get("initial_learning_rate", 0.01)
-        learning_decay_rate   = dict.get("learning_decay_rate", 1.0)
-        epoch_limit           = dict.get("epoch_limit", 1000)
-        convergence_criteria  = dict.get("convergence_criteria", 1e-14)
-        convergence_patience  = dict.get("convergence_patience", 100)
-        if "batch_size" in dict:
-            batch_size = dict["batch_size"]
-        elif "batch_size_log2" in dict:
-            batch_size = 2 ** int(dict["batch_size_log2"])
+        initial_learning_rate = params.get("initial_learning_rate", 0.01)
+        learning_decay_rate   = params.get("learning_decay_rate", 1.0)
+        epoch_limit           = params.get("epoch_limit", 1000)
+        convergence_criteria  = params.get("convergence_criteria", 1e-14)
+        convergence_patience  = params.get("convergence_patience", 100)
+        if "batch_size" in params:
+            batch_size = params["batch_size"]
+        elif "batch_size_log2" in params:
+            batch_size = 2 ** int(params["batch_size_log2"])
         else:
             batch_size = 32
 

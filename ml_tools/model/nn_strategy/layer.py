@@ -251,10 +251,9 @@ class Layer(ABC):
 
         for layer_name in layer_names:
             layer_type = data[layer_name]['type']
-            layer_dict = {k: v for k, v in data[layer_name].items() if not(k == 'type')}
+            layer_dict = {k: v for k, v in data[layer_name].items() if k != 'type'}
             if layer_type not in Layer._registry:
                 raise ValueError(f"Unknown layer type: {layer_type}")
             layers.append(Layer._registry[layer_type].from_dict(layer_dict))
 
         return layers
-

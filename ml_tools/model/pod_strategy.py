@@ -224,7 +224,7 @@ class PODStrategy(PredictionStrategy):
 
     @classmethod
     def from_dict(cls,
-                  dict:              Dict,
+                  params:            Dict,
                   input_features:    Dict[str, FeatureProcessor],
                   predicted_feature: str,
                   biasing_model:     Optional[PredictionStrategy] = None) -> PODStrategy:
@@ -233,11 +233,11 @@ class PODStrategy(PredictionStrategy):
             "PODStrategy requires exactly one input feature"
         input_feature = list(input_features.keys())[0]
         kwargs = {
-            "fine_to_coarse_map": (np.asarray(dict.get("fine_to_coarse_map"), dtype=float)
-                                    if dict.get("fine_to_coarse_map") is not None else None),
-            "nclusters": dict.get("nclusters", 1),
-            "max_svd_size": dict.get("max_svd_size", None),
-            "ndims": dict.get("ndims", None),
+            "fine_to_coarse_map": (np.asarray(params.get("fine_to_coarse_map"), dtype=float)
+                                    if params.get("fine_to_coarse_map") is not None else None),
+            "nclusters": params.get("nclusters", 1),
+            "max_svd_size": params.get("max_svd_size", None),
+            "ndims": params.get("ndims", None),
         }
         instance = cls(input_feature     = input_feature,
                        predicted_feature = predicted_feature,

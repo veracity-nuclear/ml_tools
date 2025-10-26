@@ -165,22 +165,14 @@ class PredictionStrategy(ABC):
 
         assert isinstance(other, PredictionStrategy)
 
-        if self.predicted_feature != other.predicted_feature:
-            return False
+        same_pred = self.predicted_feature == other.predicted_feature
+        same_inputs = (set(self.input_features) == set(other.input_features) and
+                       all(proc == other.input_features[key]
+                           for key, proc in self.input_features.items()))
+        same_bias = (self.hasBiasingModel == other.hasBiasingModel and
+                    (not self.hasBiasingModel or self.biasing_model == other.biasing_model))
 
-        if set(self.input_features.keys()) != set(other.input_features.keys()):
-            return False
-        for key in self.input_features.keys():
-            if self.input_features[key] != other.input_features[key]:
-                return False
-
-        if self.hasBiasingModel != other.hasBiasingModel:
-            return False
-        if self.hasBiasingModel:
-            if self.biasing_model != other.biasing_model:
-                return False
-
-        return True
+        return same_pred and same_inputs and same_bias
 
     def base_save_model(self, h5_file: h5py.File) -> None:
         """ A method for saving base-class data for a trained model
@@ -299,7 +291,7 @@ class PredictionStrategy(ABC):
     @classmethod
     @abstractmethod
     def from_dict(cls,
-                  dict: Dict,
+                  params: Dict,
                   input_features: Dict[str, FeatureProcessor],
                   predicted_feature: str,
                   biasing_model: Optional[PredictionStrategy] = None) -> PredictionStrategy:
