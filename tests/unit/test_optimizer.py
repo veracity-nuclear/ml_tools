@@ -1,6 +1,7 @@
 import pytest
 
 from ml_tools.model import build_prediction_strategy
+from ml_tools import NNStrategy
 from ml_tools.model.feature_processor import NoProcessing
 from ml_tools.model.nn_strategy.dense import Dense
 
@@ -50,17 +51,14 @@ def test_nn_optimization():
                                          predicted_feature = "y",
                                          biasing_model     = None)
 
-    # Assert hyperparameters
-    assert model.initial_learning_rate == 0.001
-    assert model.learning_decay_rate   == 1.0
-    assert model.epoch_limit           == 100
-    assert model.convergence_criteria  == pytest.approx(1e-6)
-    assert model.convergence_patience  == 10
-    assert model.batch_size            == 2 ** 4
-
-    # Assert layers
-    assert len(model.layers) == 2
-    for layer in model.layers:
-        assert isinstance(layer, Dense)
-        assert layer.units      == 8
-        assert layer.activation == "relu"
+    # Build an expected NNStrategy and compare via __eq__
+    expected = NNStrategy(input_features        = {"x": NoProcessing()},
+                          predicted_feature     = "y",
+                          layers                = [Dense(units=8, activation="relu"), Dense(units=8, activation="relu")],
+                          initial_learning_rate = 0.001,
+                          learning_decay_rate   = 1.0,
+                          epoch_limit           = 100,
+                          convergence_criteria  = 1e-6,
+                          convergence_patience  = 10,
+                          batch_size            = 2 ** 4)
+    assert model == expected
