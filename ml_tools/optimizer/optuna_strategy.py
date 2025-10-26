@@ -2,7 +2,7 @@ from typing import Dict, Any
 
 import optuna
 import numpy as np
-from sklearn.model_selection import KFold
+from sklearn.model_selection import KFold, train_test_split
 
 from ml_tools.model.state import SeriesCollection
 from ml_tools.model.prediction_strategy import PredictionStrategy
@@ -55,7 +55,19 @@ class OptunaStrategy(SearchStrategy):
 
         print(f"Best parameters: {study.best_params}")
 
-        best_model = None
+        best_params = study.best_params
+        best_model  = build_prediction_strategy(strategy_type     = search_space.prediction_strategy_type,
+                                                dict              = best_params,
+                                                input_features    = search_space.input_features,
+                                                predicted_feature = search_space.predicted_feature,
+                                                biasing_model     = search_space.biasing_model)
+
+        # Train with all data (split only where strategies require it)
+        if search_space.prediction_strategy_type == 'GBMStrategy':
+            train_data, val_data = train_test_split(series_collection, test_size=0.2)
+            best_model.train(train_data, val_data, num_procs=num_procs)
+        else:
+            best_model.train(series_collection, num_procs=num_procs)
 
         return best_model
 

@@ -1,6 +1,4 @@
-from abc import ABC, abstractmethod
-
-from ml_tools.optimizer.search_space import SearchSpace, StructDimension, FloatDimension, BoolDimension
+from ml_tools.optimizer.search_space import StructDimension, FloatDimension, BoolDimension
 
 class Layer(StructDimension):
     """ An abstract base class for defining search space neural network layer dimensions
