@@ -180,6 +180,16 @@ class PODStrategy(PredictionStrategy):
 
         return results[:, np.newaxis]
 
+    def __eq__(self, other: object) -> bool:
+        if not super().__eq__(other):
+            return False
+        assert isinstance(other, PODStrategy)
+        return (self.input_feature == other.input_feature and
+                self.nclusters     == other.nclusters     and
+                self.max_svd_size  == other.max_svd_size  and
+                self.ndims         == other.ndims         and
+                np.allclose(self.fine_to_coarse_map, other.fine_to_coarse_map))
+
 
     def save_model(self, file_name: str) -> None:
         """ A method for saving a trained model

@@ -3,6 +3,7 @@ from typing import List, Dict, Type, Optional
 import os
 import h5py
 import numpy as np
+from math import isclose
 
 # Pylint appears to not be handling the tensorflow imports correctly
 # pylint: disable=import-error, no-name-in-module, no-member
@@ -211,6 +212,19 @@ class NNStrategy(PredictionStrategy):
         X = tf.convert_to_tensor(state_series, dtype=tf.float32)
 
         return self._model.predict(X)
+
+    def __eq__(self, other: object) -> bool:
+        if not super().__eq__(other):
+            return False
+        assert isinstance(other, NNStrategy)
+        return (len(self.layers) == len(other.layers)                   and
+                all(a == b for a, b in zip(self.layers, other.layers))  and
+                self.epoch_limit          == other.epoch_limit          and
+                self.convergence_patience == other.convergence_patience and
+                self.batch_size           == other.batch_size           and
+                isclose(self.initial_learning_rate, other.initial_learning_rate, rel_tol=1e-9) and
+                isclose(self.learning_decay_rate,   other.learning_decay_rate,   rel_tol=1e-9) and
+                isclose(self.convergence_criteria,  other.convergence_criteria,  rel_tol=1e-9))
 
 
     def save_model(self, file_name: str) -> None:

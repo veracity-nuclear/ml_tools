@@ -151,6 +151,37 @@ class PredictionStrategy(ABC):
 
         return padded
 
+    def __eq__(self, other: object) -> bool:
+        """Structural equality for prediction strategies.
+
+        Compares class/type, predicted feature, input feature mapping (keys and
+        processors), and biasing model (if present). Subclasses should call
+        super().__eq__(other) and then compare their own configuration fields.
+        """
+        if self is other:
+            return True
+        if type(self) is not type(other):
+            return False
+
+        assert isinstance(other, PredictionStrategy)
+
+        if self.predicted_feature != other.predicted_feature:
+            return False
+
+        if set(self.input_features.keys()) != set(other.input_features.keys()):
+            return False
+        for key in self.input_features.keys():
+            if self.input_features[key] != other.input_features[key]:
+                return False
+
+        if self.hasBiasingModel != other.hasBiasingModel:
+            return False
+        if self.hasBiasingModel:
+            if self.biasing_model != other.biasing_model:
+                return False
+
+        return True
+
     def base_save_model(self, h5_file: h5py.File) -> None:
         """ A method for saving base-class data for a trained model
 

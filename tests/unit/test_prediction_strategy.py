@@ -37,19 +37,6 @@ for cm_min, cm_max in coarse_mesh:
     fine_to_coarse_map.append(row)
 
 
-def assert_nn_equal(lhs: NNStrategy, rhs: NNStrategy) -> None:
-    """Reusable assertions for NNStrategy objects across read_from_file and dict round-trips."""
-    assert len(rhs.layers) == len(lhs.layers)
-    assert all(a                     == b for a, b in zip(lhs.layers, rhs.layers))
-    assert lhs.input_features.keys() == rhs.input_features.keys()
-    assert all(rhs.input_features[f] == lhs.input_features[f] for f in lhs.input_features.keys())
-    assert rhs.epoch_limit           == lhs.epoch_limit
-    assert rhs.batch_size            == lhs.batch_size
-    assert_allclose(rhs.initial_learning_rate, lhs.initial_learning_rate)
-    assert_allclose(rhs.learning_decay_rate, lhs.learning_decay_rate)
-    assert_allclose(rhs.convergence_criteria, lhs.convergence_criteria)
-
-
 
 def test_preprocess_inputs():
 
@@ -71,25 +58,8 @@ def test_gbm_strategy():
 
     cips_calculator.save_model('test_gbm_model.h5')
 
-    def assert_gbm_equal(lhs: GBMStrategy, rhs: GBMStrategy) -> None:
-        assert rhs.boosting_type          == lhs.boosting_type
-        assert rhs.objective              == lhs.objective
-        assert rhs.metric                 == lhs.metric
-        assert rhs.num_leaves             == lhs.num_leaves
-        assert rhs.n_estimators           == lhs.n_estimators
-        assert rhs.max_depth              == lhs.max_depth
-        assert rhs.min_child_samples      == lhs.min_child_samples
-        assert rhs.verbose                == lhs.verbose
-        assert rhs.num_boost_round        == lhs.num_boost_round
-        assert rhs.stopping_rounds        == lhs.stopping_rounds
-        assert_allclose(rhs.learning_rate,    lhs.learning_rate)
-        assert_allclose(rhs.subsample,        lhs.subsample)
-        assert_allclose(rhs.colsample_bytree, lhs.colsample_bytree)
-        assert_allclose(rhs.reg_alpha,        lhs.reg_alpha)
-        assert_allclose(rhs.reg_lambda,       lhs.reg_lambda)
-
     new_cips_calculator = GBMStrategy.read_from_file('test_gbm_model.h5')
-    assert_gbm_equal(cips_calculator, new_cips_calculator)
+    assert new_cips_calculator == cips_calculator
     assert_allclose(state["cips_index"], new_cips_calculator.predict([[state]])[0][0], atol=1E-5)
 
     new_cips_calculator = build_prediction_strategy(strategy_type     = 'GBMStrategy',
@@ -97,7 +67,7 @@ def test_gbm_strategy():
                                                     input_features    = input_features,
                                                     predicted_feature = output_feature,
                                                     biasing_model     = None)
-    assert_gbm_equal(cips_calculator, new_cips_calculator)
+    assert new_cips_calculator == cips_calculator
 
     os.remove('test_gbm_model.h5')
     os.remove('test_gbm_model.lgbm')
@@ -115,6 +85,7 @@ def test_pod_strategy():
                                                        input_features    = {'measured_rh_detector': NoProcessing()},
                                                        predicted_feature ='fine_detector',
                                                        biasing_model     = None)
+    assert new_detector_predictor == detector_predictor
     assert new_detector_predictor.input_feature == detector_predictor.input_feature
     assert new_detector_predictor.nclusters     == detector_predictor.nclusters
     assert new_detector_predictor.max_svd_size  == detector_predictor.max_svd_size
@@ -131,7 +102,7 @@ def test_nn_strategy_Dense():
 
     cips_calculator.save_model('test_nn_model')
     new_cips_calculator = NNStrategy.read_from_file('test_nn_model')
-    assert_nn_equal(cips_calculator, new_cips_calculator)
+    assert cips_calculator == new_cips_calculator
     assert_allclose(state["cips_index"], new_cips_calculator.predict([[state]])[0][0], atol=1E-2)
 
     new_cips_calculator = build_prediction_strategy(strategy_type     = 'NNStrategy',
@@ -139,7 +110,7 @@ def test_nn_strategy_Dense():
                                                     input_features    = input_features,
                                                     predicted_feature = output_feature,
                                                     biasing_model     = None)
-    assert_nn_equal(cips_calculator, new_cips_calculator)
+    assert cips_calculator == new_cips_calculator
 
 
 def test_nn_strategy_LSTM():
@@ -151,7 +122,7 @@ def test_nn_strategy_LSTM():
 
     cips_calculator.save_model('test_nn_model')
     new_cips_calculator = NNStrategy.read_from_file('test_nn_model')
-    assert_nn_equal(cips_calculator, new_cips_calculator)
+    assert cips_calculator == new_cips_calculator
     assert_allclose(state["cips_index"], new_cips_calculator.predict([[state]*100])[0][-1], atol=1E-2)
 
     new_cips_calculator = build_prediction_strategy(strategy_type     = 'NNStrategy',
@@ -159,7 +130,7 @@ def test_nn_strategy_LSTM():
                                                     input_features    = input_features,
                                                     predicted_feature = output_feature,
                                                     biasing_model     = None)
-    assert_nn_equal(cips_calculator, new_cips_calculator)
+    assert cips_calculator == new_cips_calculator
 
 
 def test_nn_strategy_Transformer():
@@ -171,7 +142,7 @@ def test_nn_strategy_Transformer():
 
     cips_calculator.save_model('test_nn_model')
     new_cips_calculator = NNStrategy.read_from_file('test_nn_model')
-    assert_nn_equal(cips_calculator, new_cips_calculator)
+    assert cips_calculator == new_cips_calculator
     assert_allclose(state["cips_index"], new_cips_calculator.predict([[state]*100])[0][-1], atol=1E-2)
 
     new_cips_calculator = build_prediction_strategy(strategy_type     = 'NNStrategy',
@@ -179,7 +150,7 @@ def test_nn_strategy_Transformer():
                                                     input_features    = input_features,
                                                     predicted_feature = output_feature,
                                                     biasing_model     = None)
-    assert_nn_equal(cips_calculator, new_cips_calculator)
+    assert cips_calculator == new_cips_calculator
 
 
 def test_nn_strategy_CNN():
@@ -192,7 +163,7 @@ def test_nn_strategy_CNN():
 
     cips_calculator.save_model('test_nn_model')
     new_cips_calculator = NNStrategy.read_from_file('test_nn_model')
-    assert_nn_equal(cips_calculator, new_cips_calculator)
+    assert cips_calculator == new_cips_calculator
     assert_allclose(state["cips_index"], new_cips_calculator.predict([[state]])[0][0], atol=1E-2)
 
     new_cips_calculator = build_prediction_strategy(strategy_type     = 'NNStrategy',
@@ -200,7 +171,7 @@ def test_nn_strategy_CNN():
                                                     input_features    = input_features,
                                                     predicted_feature = output_feature,
                                                     biasing_model     = None)
-    assert_nn_equal(cips_calculator, new_cips_calculator)
+    assert cips_calculator == new_cips_calculator
 
 
 def test_nn_strategy_LayerSequence():
@@ -212,7 +183,8 @@ def test_nn_strategy_LayerSequence():
 
     cips_calculator.save_model('test_nn_model')
     new_cips_calculator = NNStrategy.read_from_file('test_nn_model')
-    assert_nn_equal(cips_calculator, new_cips_calculator)
+    assert cips_calculator == new_cips_calculator
+    assert cips_calculator == new_cips_calculator
     assert_allclose(state["cips_index"], new_cips_calculator.predict([[state]])[0][0], atol=1E-2)
 
     new_cips_calculator = build_prediction_strategy(strategy_type     = 'NNStrategy',
@@ -220,7 +192,8 @@ def test_nn_strategy_LayerSequence():
                                                     input_features    = input_features,
                                                     predicted_feature = output_feature,
                                                     biasing_model     = None)
-    assert_nn_equal(cips_calculator, new_cips_calculator)
+    assert cips_calculator == new_cips_calculator
+    assert cips_calculator == new_cips_calculator
 
 
 def test_nn_strategy_CompoundLayer():
@@ -232,7 +205,7 @@ def test_nn_strategy_CompoundLayer():
 
     cips_calculator.save_model('test_nn_model')
     new_cips_calculator = NNStrategy.read_from_file('test_nn_model')
-    assert_nn_equal(cips_calculator, new_cips_calculator)
+    assert cips_calculator == new_cips_calculator
     assert_allclose(state["cips_index"], new_cips_calculator.predict([[state]])[0][0], atol=1E-2)
 
     new_cips_calculator = build_prediction_strategy(strategy_type     = 'NNStrategy',
@@ -240,7 +213,7 @@ def test_nn_strategy_CompoundLayer():
                                                     input_features    = input_features,
                                                     predicted_feature = output_feature,
                                                     biasing_model     = None)
-    assert_nn_equal(cips_calculator, new_cips_calculator)
+    assert cips_calculator == new_cips_calculator
 
 def test_nn_strategy_GNN_SAGE():
 
@@ -253,6 +226,7 @@ def test_nn_strategy_GNN_SAGE():
     cips_calculator.save_model('test_nn_model')
     new_cips_calculator = NNStrategy.read_from_file('test_nn_model')
     assert all(old_layer == new_layer for old_layer, new_layer in zip(cips_calculator.layers, new_cips_calculator.layers))
+    assert cips_calculator == new_cips_calculator
     assert_allclose(state["cips_index"], new_cips_calculator.predict([[state]])[0][0], atol=1E-2)
 
     new_cips_calculator = build_prediction_strategy(strategy_type     = 'NNStrategy',
@@ -260,7 +234,7 @@ def test_nn_strategy_GNN_SAGE():
                                                     input_features    = input_features,
                                                     predicted_feature = output_feature,
                                                     biasing_model     = None)
-    assert_nn_equal(cips_calculator, new_cips_calculator)
+    assert cips_calculator == new_cips_calculator
 
 
 def test_nn_strategy_GNN_GAT():
@@ -274,6 +248,7 @@ def test_nn_strategy_GNN_GAT():
     cips_calculator.save_model('test_nn_model')
     new_cips_calculator = NNStrategy.read_from_file('test_nn_model')
     assert all(old_layer == new_layer for old_layer, new_layer in zip(cips_calculator.layers, new_cips_calculator.layers))
+    assert cips_calculator == new_cips_calculator
     assert_allclose(state["cips_index"], new_cips_calculator.predict([[state]])[0][0], atol=1E-2)
 
     new_cips_calculator = build_prediction_strategy(strategy_type     = 'NNStrategy',
@@ -281,7 +256,7 @@ def test_nn_strategy_GNN_GAT():
                                                     input_features    = input_features,
                                                     predicted_feature = output_feature,
                                                     biasing_model     = None)
-    assert_nn_equal(cips_calculator, new_cips_calculator)
+    assert cips_calculator == new_cips_calculator
 
     for file in glob.glob('test_nn_model.*'):
         os.remove(file)

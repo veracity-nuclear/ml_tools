@@ -5,6 +5,7 @@ import h5py
 import lightgbm as lgb
 import numpy as np
 import pylab as plt
+from math import isclose
 
 from ml_tools.model.state import SeriesCollection
 from ml_tools.model.prediction_strategy import PredictionStrategy
@@ -347,6 +348,27 @@ class GBMStrategy(PredictionStrategy):
             y = y[:, np.newaxis]
 
         return y.reshape(n_series, n_timesteps, -1)
+
+    def __eq__(self, other: object) -> bool:
+        if not super().__eq__(other):
+            return False
+
+        assert isinstance(other, GBMStrategy)
+        return (self.boosting_type     == other.boosting_type     and
+                self.objective         == other.objective         and
+                self.metric            == other.metric            and
+                self.num_leaves        == other.num_leaves        and
+                self.n_estimators      == other.n_estimators      and
+                self.max_depth         == other.max_depth         and
+                self.min_child_samples == other.min_child_samples and
+                self.verbose           == other.verbose           and
+                self.num_boost_round   == other.num_boost_round   and
+                self.stopping_rounds   == other.stopping_rounds   and
+                isclose(self.learning_rate,    other.learning_rate,    rel_tol=1e-9) and
+                isclose(self.subsample,        other.subsample,        rel_tol=1e-9) and
+                isclose(self.colsample_bytree, other.colsample_bytree, rel_tol=1e-9) and
+                isclose(self.reg_alpha,        other.reg_alpha,        rel_tol=1e-9) and
+                isclose(self.reg_lambda,       other.reg_lambda,       rel_tol=1e-9))
 
 
     def save_model(self, file_name: str) -> None:
