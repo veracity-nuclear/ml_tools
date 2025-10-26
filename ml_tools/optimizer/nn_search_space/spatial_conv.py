@@ -6,22 +6,22 @@ from ml_tools.model.nn_strategy.layer import Activation
 
 
 class SpatialConv(Layer):
-    """A search-space dimension for a SpatialConv CNN layer.
+    """Search-space dimension for a SpatialConv CNN layer (domains, not values).
 
     Parameters
     ----------
     input_shape : CategoricalDimension
-        Choice of spatial input shape tuples matching `ShapeType` (e.g., `(H, W)` or `(H, W, D)`).
+        Choices of spatial input shape tuples matching `ShapeType` (e.g., `(H, W)` or `(H, W, D)`).
     activation : CategoricalDimension
-        Choice of activation function name. Must be one of the allowed `Activation` values.
+        Choices of activation function name. Must be among allowed `Activation` values.
     filters : IntDimension
-        Number of convolution filters.
+        Inclusive range for number of convolution filters.
     kernel_size : CategoricalDimension
-        Choice of convolution kernel sizes as tuples matching `ShapeType`.
+        Choices of convolution kernel sizes as tuples matching `ShapeType`.
     strides : CategoricalDimension
-        Choice of convolution strides as tuples matching `ShapeType`.
+        Choices of convolution strides as tuples matching `ShapeType`.
     padding : BoolDimension
-        Whether to apply padding (`True` -> same, `False` -> valid).
+        Domain for whether to apply padding (`True` -> same, `False` -> valid).
     dropout_rate : FloatDimension, optional
         Dropout rate after activation. Defaults to 0.0.
     batch_normalize : BoolDimension, optional
@@ -32,17 +32,17 @@ class SpatialConv(Layer):
     Attributes
     ----------
     input_shape : CategoricalDimension
-        Spatial input shape choices.
+        Domain for spatial input shape choices.
     activation : CategoricalDimension
-        Activation function choices.
+        Domain for activation function choices.
     filters : IntDimension
-        Number of filters.
+        Domain for number of filters.
     kernel_size : CategoricalDimension
-        Kernel size choices.
+        Domain for kernel size choices.
     strides : CategoricalDimension
-        Stride choices.
+        Domain for stride choices.
     padding : BoolDimension
-        Padding choice.
+        Domain for padding choice.
     """
 
     @property
@@ -120,18 +120,18 @@ class SpatialConv(Layer):
 
 
 class SpatialMaxPool(Layer):
-    """A search-space dimension for a SpatialMaxPool layer.
+    """Search-space dimension for a SpatialMaxPool layer (domains, not values).
 
     Parameters
     ----------
     input_shape : CategoricalDimension
-        Choice of spatial input shape tuples matching `ShapeType` (e.g., `(H, W)` or `(H, W, D)`).
+        Choices of spatial input shape tuples matching `ShapeType` (e.g., `(H, W)` or `(H, W, D)`).
     pool_size : CategoricalDimension
-        Choice of pooling window sizes as tuples matching `ShapeType`.
+        Choices of pooling window sizes as tuples matching `ShapeType`.
     strides : CategoricalDimension
-        Choice of pooling strides as tuples matching `ShapeType`.
+        Choices of pooling strides as tuples matching `ShapeType`.
     padding : BoolDimension
-        Whether to apply padding (`True` -> same, `False` -> valid).
+        Domain for whether to apply padding (`True` -> same, `False` -> valid).
     dropout_rate : FloatDimension, optional
         Dropout rate after pooling. Defaults to 0.0.
     batch_normalize : BoolDimension, optional
@@ -142,7 +142,7 @@ class SpatialMaxPool(Layer):
     Attributes
     ----------
     input_shape : CategoricalDimension
-        Spatial input shape choices.
+        Domain for spatial input shape choices.
     pool_size : CategoricalDimension
         Pool size choices.
     strides : CategoricalDimension

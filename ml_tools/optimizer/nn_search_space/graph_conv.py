@@ -8,27 +8,28 @@ from ml_tools.optimizer.search_space import (
 
 
 class GraphConv(Layer):
-    """Search-space dimension for GraphConv layer.
+    """Search-space dimension for a GraphConv layer (domains, not values).
 
     Parameters
     ----------
     graph : Graph
-        Graph configuration struct (e.g., an instance of graph.SAGE).
+        Graph search-space struct describing graph connectivity/encoding domains
+        (e.g., an instance of graph.SAGE or graph.GAT).
     activation : CategoricalDimension, optional
-        Activation applied after graph propagation; default ['relu'].
+        Domain of activation choices applied after propagation (default ['relu']).
     dropout_rate : FloatDimension, optional
-        Dropout after activation; default 0.0.
+        Domain for dropout after activation (default 0.0).
     batch_normalize : BoolDimension, optional
-        Apply TimeDistributed(BatchNormalization); default False.
+        Domain for whether to apply TimeDistributed(BatchNormalization) (default False).
     layer_normalize : BoolDimension, optional
-        Apply TimeDistributed(LayerNormalization); default False.
+        Domain for whether to apply TimeDistributed(LayerNormalization) (default False).
 
     Attributes
     ----------
     graph : Graph
-        Graph configuration.
+        Domain struct defining graph-related sub-dimensions.
     activation : CategoricalDimension
-        Activation choices.
+        Domain for activation choices.
     """
 
     @property

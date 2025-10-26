@@ -4,47 +4,47 @@ from ml_tools.optimizer.search_space import IntDimension, CategoricalDimension, 
 
 
 class SAGE(Graph):
-    """Search-space struct for the SAGE graph variant used by GraphConv.
+    """Search-space struct for the SAGE graph variant (domains, not values).
 
     Parameters
     ----------
     input_shape : CategoricalDimension
-        Choice of spatial input shape tuples (H,), (H, W), or (H, W, D).
+        Choices of spatial input shape tuples (H,), (H, W), or (H, W, D).
     units : IntDimension
-        Per-node output feature dimension.
+        Inclusive range for per-node output feature dimension.
     ordering : CategoricalDimension, optional
-        Feature layout; default ['feature_major'].
+        Choices for feature layout; default ['feature_major'].
     pre_node_layers : LayerSequenceDim | None, optional
-        Per-node encoder applied identically to each node before propagation.
+        LayerSequence dimension applied identically per node before propagation (or None).
     spatial_feature_size : IntDimension | None, optional
-        Per-spatial-node width S (required when using globals). Use None for absent.
+        Inclusive range for per-spatial-node width S (or None if absent).
     global_feature_count : IntDimension, optional
-        Number of virtual global nodes; default IntDimension(0, 0).
+        Inclusive range for number of virtual global nodes; default IntDimension(0, 0).
     connectivity : CategoricalDimension, optional
-        Grid neighborhood (e.g., '2d-4'); default ['2d-4'].
+        Choices for grid neighborhood (e.g., '2d-4'); default ['2d-4'].
     self_loops : BoolDimension, optional
-        Whether to include self-loops; default [True].
+        Domain for including self-loops; default [True].
     normalize : BoolDimension, optional
-        Apply symmetric degree normalization; default [True].
+        Domain for symmetric degree normalization; default [True].
     distance_weighted : BoolDimension, optional
-        Use inverse Manhattan neighbor weights; default [False].
+        Domain for inverse Manhattan neighbor weights; default [False].
     connect_global_to_all : BoolDimension, optional
-        Connect globals to all spatial nodes; default [True].
+        Domain for connecting globals to all spatial nodes; default [True].
     connect_global_to_global : BoolDimension, optional
-        Fully connect global nodes among themselves; default [False].
+        Domain for fully connecting global nodes among themselves; default [False].
     global_edge_weight : FloatDimension | None, optional
-        Weight for edges incident to globals; default FloatDimension(1.0, 1.0).
+        Inclusive range for edges incident to globals (or None); default FloatDimension(1.0, 1.0).
     aggregator : CategoricalDimension, optional
-        SAGE neighbor aggregation; default ['mean'].
+        Choices for SAGE neighbor aggregation; default ['mean'].
     use_bias : BoolDimension, optional
-        Include bias in the SAGE conv; default [True].
+        Domain for including bias in the SAGE conv; default [True].
 
     Attributes
     ----------
     aggregator : CategoricalDimension
-        SAGE neighbor aggregation choices.
+        Domain for SAGE neighbor aggregation choices.
     use_bias : BoolDimension
-        Whether to include bias in the SAGE convolution.
+        Domain for including bias in the SAGE convolution.
     """
 
     @property

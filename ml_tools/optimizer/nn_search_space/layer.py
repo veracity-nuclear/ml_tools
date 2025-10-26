@@ -1,27 +1,27 @@
 from ml_tools.optimizer.search_space import StructDimension, FloatDimension, BoolDimension
 
 class Layer(StructDimension):
-    """ An abstract base class for defining search space neural network layer dimensions
+    """Base class for NN layer search-space dimensions (domains, not values).
 
     Parameters
     ----------
     dropout_rate : FloatDimension
-        The dropout rate to use in the layer (defaults to 0.0, meaning no dropout)
+        Domain for dropout fraction applied after the layer; inclusive bounds in [0, 1].
     batch_normalize : BoolDimension
-        Whether to apply batch normalization after the layer (defaults to False)
+        Domain for whether to apply batch normalization after the layer.
     layer_normalize : BoolDimension
-        Whether to apply layer normalization after the layer (defaults to False)
+        Domain for whether to apply layer normalization after the layer.
 
     Attributes
     ----------
     layer_type : str
-        The type of layer (e.g. "Dense", "Conv2D", etc.)
+        Identifier for the layer type (e.g., "Dense", "SpatialConv").
     dropout_rate : FloatDimension
-        The dropout rate to use in the layer (defaults to 0.0, meaning no dropout)
+        Domain for dropout fraction.
     batch_normalize : BoolDimension
-        Whether to apply batch normalization after the layer (defaults to False)
+        Domain for applying batch normalization.
     layer_normalize : BoolDimension
-        Whether to apply layer normalization after the layer (defaults to False)
+        Domain for applying layer normalization.
     """
 
     @property
@@ -34,7 +34,8 @@ class Layer(StructDimension):
 
     @dropout_rate.setter
     def dropout_rate(self, value: FloatDimension) -> None:
-        assert 0.0 <= value.low <= 1.0, f"dropout_rate = {value.low}"
+        assert 0.0 <= value.low <= 1.0, f"dropout_rate.low = {value.low}"
+        assert 0.0 <= value.high <= 1.0, f"dropout_rate.high = {value.high}"
         self.fields["dropout_rate"] = value
 
     @property

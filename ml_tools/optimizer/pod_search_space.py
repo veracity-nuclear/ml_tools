@@ -22,33 +22,31 @@ class PODSearchSpace(SearchSpace):
     """
 
     class Dimension(StructDimension):
-        """POD hyperparameter dimensions.
+        """POD hyperparameter domains (to be sampled; not final values).
 
         Parameters
         ----------
         fine_to_coarse_map : CategoricalDimension
-            Choice of fine-to-coarse mapping matrices as nested lists. Each
+            Choices over fine-to-coarse mapping matrices as nested lists. Each
             row must sum to 1.0 in the final model, and have shape (M, N).
         nclusters : IntDimension, optional
-            Number of k-means clusters to create separate POD models for.
+            Inclusive range for the number of k-means clusters used to partition data.
         max_svd_size : CategoricalDimension, optional
-            Optional maximum number of training samples to use for the SVD of a
-            cluster POD model. May be ``None``.
+            Choices for an optional maximum number of training samples to use for the SVD of a
+            cluster POD model. May include ``None``.
         ndims : CategoricalDimension, optional
-            Optional number of dimensions for PCA projection prior to clustering.
+            Choices for dimensionality of PCA projection prior to clustering. May include ``None``.
 
         Attributes
         ----------
         fine_to_coarse_map : CategoricalDimension
-            Choice of fine-to-coarse mapping matrices as nested lists. Each
-            row must sum to 1.0 in the final model, and have shape (M, N).
+            Domain for mapping matrix choices (nested lists with rows summing to 1.0).
         nclusters : IntDimension
-            Number of k-means clusters to create separate POD models for.
+            Domain for number of clusters.
         max_svd_size : CategoricalDimension
-            Optional maximum number of training samples to use for the SVD of a
-            cluster POD model. May be ``None``.
+            Domain for optional SVD sample cap (including ``None``).
         ndims : CategoricalDimension
-            Optional number of dimensions for PCA projection prior to clustering.
+            Domain for optional PCA dimensionality (including ``None``).
         """
 
         @property

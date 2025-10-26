@@ -24,73 +24,73 @@ class GBMSearchSpace(SearchSpace):
     """
 
     class Dimension(StructDimension):
-        """GBM hyperparameter dimensions.
+        """GBM hyperparameter domains (to be sampled; not final values).
 
         Parameters
         ----------
         boosting_type : CategoricalDimension, optional
-            Boosting method; default ['gbdt'].
+            Choices for boosting method; default ['gbdt'].
         objective : CategoricalDimension, optional
-            Loss function; default ['regression'].
+            Choices for objective/loss; default ['regression'].
         metric : CategoricalDimension, optional
-            Evaluation metric; default ['rmse'].
+            Choices for evaluation metric; default ['rmse'].
         num_leaves : IntDimension, optional
-            Maximum number of leaves in one tree; default IntDimension(64, 64).
+            Inclusive range for maximum leaves per tree; default IntDimension(64, 64).
         learning_rate : FloatDimension, optional
-            Learning/shrinkage rate; default FloatDimension(0.07, 0.07).
+            Inclusive range for learning/shrinkage rate; default FloatDimension(0.07, 0.07).
         n_estimators : IntDimension, optional
-            Number of boosting iterations; default IntDimension(1000, 1000).
+            Inclusive range for boosting iterations; default IntDimension(1000, 1000).
         max_depth : IntDimension, optional
-            Max depth limit for tree model; default IntDimension(4, 4).
+            Inclusive range for tree depth; default IntDimension(4, 4).
         min_child_samples : IntDimension, optional
-            Minimum data in one leaf to split; default IntDimension(20, 20).
+            Inclusive range for minimum data per leaf; default IntDimension(20, 20).
         subsample : FloatDimension, optional
-            Bagging fraction; default FloatDimension(0.8, 0.8).
+            Inclusive range for bagging fraction; default FloatDimension(0.8, 0.8).
         colsample_bytree : FloatDimension, optional
-            Feature fraction for each tree; default FloatDimension(0.8, 0.8).
+            Inclusive range for feature fraction per tree; default FloatDimension(0.8, 0.8).
         reg_alpha : FloatDimension, optional
-            L1 regularization; default FloatDimension(0.0, 0.0).
+            Inclusive range for L1 regularization; default FloatDimension(0.0, 0.0).
         reg_lambda : FloatDimension, optional
-            L2 regularization; default FloatDimension(0.0, 0.0).
+            Inclusive range for L2 regularization; default FloatDimension(0.0, 0.0).
         verbose : IntDimension, optional
-            LightGBM verbosity; default IntDimension(-1, -1).
+            Inclusive range for LightGBM verbosity; default IntDimension(-1, -1).
         num_boost_round : IntDimension, optional
-            Number of boosting iterations; default IntDimension(20, 20).
+            Inclusive range for boosting iterations; default IntDimension(20, 20).
         stopping_rounds : IntDimension, optional
-            Early-stopping rounds; default IntDimension(5, 5).
+            Inclusive range for early-stopping rounds; default IntDimension(5, 5).
 
         Attributes
         ----------
         boosting_type : CategoricalDimension
-            Boosting method.
+            Domain for boosting method.
         objective : CategoricalDimension
-            Loss function.
+            Domain for objective/loss.
         metric : CategoricalDimension
-            Evaluation metric.
+            Domain for evaluation metric.
         num_leaves : IntDimension
-            Maximum number of leaves in one tree.
+            Domain for max leaves per tree.
         learning_rate : FloatDimension
-            Learning/shrinkage rate.
+            Domain for learning/shrinkage rate.
         n_estimators : IntDimension
-            Number of boosting iterations.
+            Domain for number of boosting iterations.
         max_depth : IntDimension
-            Max depth limit for tree model.
+            Domain for tree depth.
         min_child_samples : IntDimension
-            Minimum data in one leaf to split.
+            Domain for minimum data per leaf.
         subsample : FloatDimension
-            Bagging fraction.
+            Domain for bagging fraction.
         colsample_bytree : FloatDimension
-            Feature fraction for each tree.
+            Domain for feature fraction per tree.
         reg_alpha : FloatDimension
-            L1 regularization.
+            Domain for L1 regularization.
         reg_lambda : FloatDimension
-            L2 regularization.
+            Domain for L2 regularization.
         verbose : IntDimension
-            LightGBM verbosity.
+            Domain for LightGBM verbosity.
         num_boost_round : IntDimension
-            Number of boosting iterations.
+            Domain for boosting iterations.
         stopping_rounds : IntDimension
-            Early-stopping rounds.
+            Domain for early-stopping rounds.
         """
 
         @property
@@ -163,6 +163,8 @@ class GBMSearchSpace(SearchSpace):
 
         @subsample.setter
         def subsample(self, value: FloatDimension) -> None:
+            assert 0.0 <= value.low <= 1.0 and 0.0 <= value.high <= 1.0, \
+                f"subsample domain must be within [0,1], got [{value.low}, {value.high}]"
             self.fields["subsample"] = value
 
         @property
@@ -171,6 +173,8 @@ class GBMSearchSpace(SearchSpace):
 
         @colsample_bytree.setter
         def colsample_bytree(self, value: FloatDimension) -> None:
+            assert 0.0 <= value.low <= 1.0 and 0.0 <= value.high <= 1.0, \
+                f"colsample_bytree domain must be within [0,1], got [{value.low}, {value.high}]"
             self.fields["colsample_bytree"] = value
 
         @property

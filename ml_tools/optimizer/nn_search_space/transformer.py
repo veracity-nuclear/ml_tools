@@ -6,31 +6,31 @@ from ml_tools.optimizer.search_space import IntDimension, CategoricalDimension, 
 
 
 class Transformer(Layer):
-    """A search-space dimension for a Transformer layer.
+    """Search-space dimension for a Transformer layer (domains, not values).
 
     Parameters
     ----------
     num_heads : IntDimension
-        Number of attention heads.
+        Inclusive range for the number of attention heads.
     model_dim : IntDimension
-        Model dimensionality (embedding dimension).
+        Inclusive range for the model/embedding dimension.
     ff_dim : IntDimension
-        Feed-forward network hidden dimensionality.
+        Inclusive range for the FFN hidden dimension.
     activation : CategoricalDimension, optional
-        Activation function for the FFN. Defaults to ['relu'].
+        Choices for FFN activation (default ['relu']).
     dropout_rate : FloatDimension, optional
-        Dropout rate applied within the transformer block. Defaults to 0.0.
+        Domain for dropout within the transformer block (default 0.0).
 
     Attributes
     ----------
     num_heads : IntDimension
-        Attention head count.
+        Domain for attention head count.
     model_dim : IntDimension
-        Embedding dimension.
+        Domain for embedding dimension.
     ff_dim : IntDimension
-        FFN hidden dimension.
+        Domain for FFN hidden dimension.
     activation : CategoricalDimension
-        FFN activation choices.
+        Domain for FFN activation choices.
     """
 
     @property

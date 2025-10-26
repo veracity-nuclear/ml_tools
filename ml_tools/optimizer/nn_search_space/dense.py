@@ -5,27 +5,27 @@ from ml_tools.optimizer.nn_search_space.layer import Layer
 from ml_tools.optimizer.search_space import IntDimension, CategoricalDimension, FloatDimension, BoolDimension
 
 class Dense(Layer):
-    """ A class representing a dense layer in a neural network hyperparameter search space
+    """Search-space dimension for a Dense layer (domains, not values).
 
     Parameters
     ----------
     units : IntDimension
-        The number of units in the dense layer
+        Inclusive range for the number of units in the layer.
     activation : CategoricalDimension
-        The activation function to use in the dense layer (defaults to "relu")
+        Choices over allowed activation names (e.g., 'relu', 'tanh').
     dropout_rate : FloatDimension
-        The dropout rate to use in the layer (defaults to 0.0, meaning no dropout)
+        Domain for dropout fraction after the layer output.
     batch_normalize : BoolDimension
-        Whether to apply batch normalization after the layer (defaults to False)
+        Domain for whether to apply batch normalization.
     layer_normalize : BoolDimension
-        Whether to apply layer normalization after the layer (defaults to False)
+        Domain for whether to apply layer normalization.
 
     Attributes
     ----------
     units : IntDimension
-        The number of units in the dense layer
+        Domain for unit count.
     activation : CategoricalDimension
-        The activation function to use in the dense layer
+        Domain for activation choices.
     """
 
     @property

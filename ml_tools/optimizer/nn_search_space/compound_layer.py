@@ -5,7 +5,7 @@ from ml_tools.optimizer.search_space import ListDimension, CategoricalDimension,
 
 
 class CompoundLayer(Layer):
-    """A search-space dimension for a CompoundLayer (parallel sub-layers with merged output).
+    """Search-space dimension for a CompoundLayer (domains, not values).
 
     Parameters
     ----------
@@ -27,8 +27,8 @@ class CompoundLayer(Layer):
     layers : ListDimension
         Dimension describing the parallel sub-layers.
     input_specifications : CategoricalDimension
-        Single categorical choice holding the full list-of-lists of indices, enabling the
-        sampler to pass the literal structure through unchanged.
+        Single categorical choice containing the full list-of-lists of indices, enabling the
+        sampler to pass the literal structure through unchanged (no resampling of structure).
     """
 
     @property

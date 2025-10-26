@@ -5,51 +5,54 @@ from typing import List
 from ml_tools.optimizer.search_space import SearchSpace, StructDimension, IntDimension, FloatDimension, ListDimension
 from ml_tools.optimizer.nn_search_space.layer import Layer
 
+
 class NNSearchSpace(SearchSpace):
-    """ A class representing a neural network hyperparameter search space
+    """Neural network hyperparameter search space.
 
     Parameters
     ----------
     dimensions : NNSearchSpace.Dimension
-        The root hyperparameter search space to explore
+        Root struct of dimensions to sample. Each field is a
+        SearchSpace dimension (range or choices), not a finalized value.
     """
 
     class Dimension(StructDimension):
-        """ A class representing the dimensions of a neural network hyperparameter search space
+        """Dimensions for neural network optimization (domains, not values).
 
         Parameters
         ----------
         layers : List[Layer]
-            A sequence of neural network layers
+            Sequence of layer dimension objects. Wrapped internally as a
+            ListDimension; each element is itself a layer dimension to sample.
         initial_learning_rate : FloatDimension
-            The initial learning rate for training (default 0.1)
+            Range/domain for the initial learning rate (inclusive bounds; may be log-scaled if `log=True`).
         learning_decay_rate : FloatDimension
-            The learning rate decay factor (default 1.0, meaning no decay)
+            Range/domain for multiplicative LR decay per step/epoch (e.g., 1.0 means no decay).
         epoch_limit : IntDimension
-            The maximum number of training epochs (default 1000)
+            Inclusive range for the maximum number of training epochs to allow.
         convergence_criteria : FloatDimension
-            The convergence criteria for early stopping (default 1e-3)
+            Range/domain for early-stopping tolerance (smaller -> stricter stopping).
         convergence_patience : IntDimension
-            The number of epochs with no improvement to wait before stopping (default 5)
+            Inclusive range for patience (epochs without improvement) before stopping.
         batch_size_log2 : IntDimension
-            The base-2 logarithm of the batch size to use during training (default 7, meaning batch size of 128)
+            Inclusive range for log2(batch size). For example, 7 -> batch size of 128.
 
         Attributes
         ----------
         layers : List[Layer]
-            A sequence of neural network layers
+            Underlying list of layer dimensions (via ListDimension wrapper).
         initial_learning_rate : FloatDimension
-            The initial learning rate for training (default 0.1)
+            Domain for initial LR to sample from.
         learning_decay_rate : FloatDimension
-            The learning rate decay factor (default 1.0, meaning no decay)
+            Domain for LR decay factor to sample from.
         epoch_limit : IntDimension
-            The maximum number of training epochs (default 1000)
+            Domain for epoch limit to sample from.
         convergence_criteria : FloatDimension
-            The convergence criteria for early stopping (default 1e-3)
+            Domain for early-stopping tolerance to sample from.
         convergence_patience : IntDimension
-            The number of epochs with no improvement to wait before stopping (default 5)
+            Domain for early-stopping patience to sample from.
         batch_size_log2 : IntDimension
-            The base-2 logarithm of the batch size to use during training (default 7, meaning batch size of 128)
+            Domain for log2(batch size) to sample from.
         """
 
         @property
@@ -76,6 +79,7 @@ class NNSearchSpace(SearchSpace):
         @learning_decay_rate.setter
         def learning_decay_rate(self, value: FloatDimension) -> None:
             assert value.low > 0, f"learning_decay_rate lower bound {value.low} must be > 0"
+            assert value.high <= 1.0, f"learning_decay_rate upper bound {value.high} must be <= 1.0"
             self.fields["learning_decay_rate"] = value
 
         @property

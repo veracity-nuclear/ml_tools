@@ -9,45 +9,44 @@ from ml_tools.optimizer.nn_search_space.layer_sequence import LayerSequence
 
 
 class Graph(StructDimension):
-    """Abstract base search-space for graph variants used by GraphConv.
+    """Abstract base search-space for GraphConv graph variants (domains, not values).
 
-    Owns common graph configuration fields; variants (e.g., SAGE) add only
-    their specific parameters (such as ``aggregator`` or ``use_bias``).
+    Owns common graph configuration domains; variants (e.g., SAGE, GAT) add only
+    their specific domains (such as ``aggregator`` or ``use_bias``).
 
     Parameters
     ----------
     input_shape : CategoricalDimension
-        Choice of spatial input shape tuples (H,), (H, W), or (H, W, D).
+        Choices of spatial input shape tuples (H,), (H, W), or (H, W, D).
     units : IntDimension
-        Per-node output feature dimension.
+        Inclusive range for per-node output feature dimension.
     ordering : CategoricalDimension, optional
-        Feature layout; default ['feature_major'].
+        Choices for feature layout; default ['feature_major'].
         Acceptable values must mirror model graph ordering:
         {'feature_major', 'node_major'}. See
         ml_tools.model.nn_strategy.graph.Graph for details.
     pre_node_layers : LayerSequence | None, optional
-        Per-node encoder applied identically to each node before propagation.
+        LayerSequence dimension applied identically per node before propagation (or None).
     spatial_feature_size : IntDimension | None, optional
-        Per-spatial-node width S (required when using globals). Use None for absent.
+        Inclusive range for per-spatial-node width S when using globals (or None if absent).
     global_feature_count : IntDimension, optional
-        Number of virtual global nodes; default IntDimension(0, 0).
+        Inclusive range for the number of virtual global nodes; default IntDimension(0, 0).
     connectivity : CategoricalDimension, optional
-        Grid neighborhood; default ['2d-4'].
+        Choices for grid neighborhood; default ['2d-4'].
         Acceptable values must mirror model graph connectivity:
-        {'1d-2','2d-4','2d-8','3d-6','3d-18','3d-26'}. See
-        ml_tools.model.nn_strategy.graph.Graph for details.
+        {'1d-2','2d-4','2d-8','3d-6','3d-18','3d-26'}.
     self_loops : BoolDimension, optional
-        Whether to include self-loops; default [True].
+        Domain for including self-loops; default [True].
     normalize : BoolDimension, optional
-        Apply symmetric degree normalization; default [True].
+        Domain for applying symmetric degree normalization; default [True].
     distance_weighted : BoolDimension, optional
-        Use inverse Manhattan neighbor weights; default [False].
+        Domain for using inverse Manhattan neighbor weights; default [False].
     connect_global_to_all : BoolDimension, optional
-        Connect globals to all spatial nodes; default [True].
+        Domain for connecting globals to all spatial nodes; default [True].
     connect_global_to_global : BoolDimension, optional
-        Fully connect global nodes among themselves; default [False].
+        Domain for fully connecting global nodes among themselves; default [False].
     global_edge_weight : FloatDimension, optional
-        Weight for edges incident to globals; default FloatDimension(1.0, 1.0).
+        Inclusive range for weight on edges incident to globals; default FloatDimension(1.0, 1.0).
 
     Notes
     -----

@@ -6,35 +6,35 @@ from ml_tools.optimizer.search_space import IntDimension, CategoricalDimension, 
 
 
 class LSTM(Layer):
-    """A search-space dimension for an LSTM layer.
+    """Search-space dimension for an LSTM layer (domains, not values).
 
     Parameters
     ----------
     units : IntDimension
-        Dimensionality of the output space.
+        Inclusive range for the output dimensionality (units).
     activation : CategoricalDimension
-        Activation function to use for the output/apply step.
+        Choices for the output/apply activation function.
     recurrent_activation : CategoricalDimension, optional
-        Activation for the recurrent step. Defaults to ['sigmoid'].
+        Choices for the recurrent activation (default ['sigmoid']).
     recurrent_dropout_rate : FloatDimension, optional
-        Recurrent dropout fraction. Defaults to 0.0.
+        Domain for recurrent dropout fraction (default 0.0).
     dropout_rate : FloatDimension, optional
-        Dropout rate after the layer output. Defaults to 0.0.
+        Domain for dropout fraction after the layer output (default 0.0).
     batch_normalize : BoolDimension, optional
-        Whether to apply batch normalization. Defaults to False.
+        Domain for whether to apply batch normalization (default False).
     layer_normalize : BoolDimension, optional
-        Whether to apply layer normalization. Defaults to False.
+        Domain for whether to apply layer normalization (default False).
 
     Attributes
     ----------
     units : IntDimension
-        Output dimensionality.
+        Domain for output dimensionality.
     activation : CategoricalDimension
-        Output activation choices.
+        Domain for output activation choices.
     recurrent_activation : CategoricalDimension
-        Recurrent activation choices.
+        Domain for recurrent activation choices.
     recurrent_dropout_rate : FloatDimension
-        Recurrent dropout rate.
+        Domain for recurrent dropout fraction.
     """
 
     @property
@@ -75,6 +75,7 @@ class LSTM(Layer):
     @recurrent_dropout_rate.setter
     def recurrent_dropout_rate(self, value: FloatDimension) -> None:
         assert 0.0 <= value.low <= 1.0, f"recurrent_dropout_rate.low = {value.low}"
+        assert 0.0 <= value.high <= 1.0, f"recurrent_dropout_rate.high = {value.high}"
         self.fields["recurrent_dropout_rate"] = value
 
     def __init__(self,

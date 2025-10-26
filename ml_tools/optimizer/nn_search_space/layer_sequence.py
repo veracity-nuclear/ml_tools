@@ -3,18 +3,20 @@ from typing import List
 from ml_tools.optimizer.nn_search_space.layer import Layer
 from ml_tools.optimizer.search_space import ListDimension
 
+
 class LayerSequence(Layer):
-    """ A class representing a sequence of neural network layers in a hyperparameter search space
+    """Search-space dimension for a sequence of layers (domains, not values).
 
     Parameters
     ----------
     layers : List[Layer]
-        A list of Layer instances representing a layer in the sequence
+        List of layer dimension instances that form the sequence; wrapped
+        as a ListDimension to represent a list of sub-dimensions.
 
     Attributes
     ----------
     layers : List[Layer]
-        A list of Layer instances representing a layer in the sequence
+        Domain describing the list of layers (via ListDimension).
     """
 
     @property
