@@ -877,30 +877,25 @@ class SeriesCollection:
         assert os.path.exists(file_name), f"File does not exist: {file_name}"
 
         # If series_collection is not provided, infer structure from file
-        if series_collection is None:
+        if series_collection is None or features is None:
             with h5py.File(file_name, "r") as h5_file:
-                series_collection = []
-                # Look for series_XXX groups
-                series_keys = sorted([k for k in h5_file.keys() if k.startswith("series_")])
+                if series_collection is None:
+                    series_collection = []
+                    # Look for series_XXX groups
+                    series_keys = sorted([k for k in h5_file.keys() if k.startswith("series_")])
 
-                for series_key in series_keys:
-                    series_group = h5_file[series_key]
-                    # Look for state_XXXXXX groups within each series
-                    state_keys = sorted([k for k in series_group.keys() if k.startswith("state_")])
-                    # Build full paths: series_XXX/state_XXXXXX
-                    state_paths = [f"{series_key}/{state_key}" for state_key in state_keys]
-                    series_collection.append(state_paths)
+                    for series_key in series_keys:
+                        series_group = h5_file[series_key]
+                        # Look for state_XXXXXX groups within each series
+                        state_keys = sorted([k for k in series_group.keys() if k.startswith("state_")])
+                        # Build full paths: series_XXX/state_XXXXXX
+                        state_paths = [f"{series_key}/{state_key}" for state_key in state_keys]
+                        series_collection.append(state_paths)
 
                 # If features are not provided, infer them from the first state
-                if features is None and series_collection and series_collection[0]:
+                if features is None and series_collection[0]:
                     first_state_path = series_collection[0][0]
                     features = list(h5_file[first_state_path].keys())
-
-        # If features still not provided (custom structure), get from first available state
-        if features is None:
-            with h5py.File(file_name, "r") as h5_file:
-                first_state_path = series_collection[0][0]
-                features = list(h5_file[first_state_path].keys())
 
         # Flatten all state names and keep track of their series indices
         flattened_states = []

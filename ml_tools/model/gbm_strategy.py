@@ -307,7 +307,7 @@ class GBMStrategy(PredictionStrategy):
                               valid_sets      = lgb_eval,
                               callbacks       = [lgb.early_stopping(stopping_rounds=self.stopping_rounds)])
 
-    def plot_importances(self, fig_name: str = None) -> None:
+    def plot_importances(self, fig_name: Optional[str] = None) -> None:
         """ A method for plotting the importance of each input feature for a given state series
 
         This currently only supports plotting 20 state input features.  This should be more than
