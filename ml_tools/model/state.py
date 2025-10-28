@@ -844,8 +844,8 @@ class SeriesCollection:
     def from_hdf5(
         cls,
         file_name: str,
-        features: List[str],
-        series_collection: List[List[str]],
+        features: Optional[List[str]] = None,
+        series_collection: Optional[List[List[str]]] = None,
         silent: bool = False,
         num_procs: int = 1,
     ) -> SeriesCollection:
@@ -856,12 +856,14 @@ class SeriesCollection:
         ----------
         file_name : str
             The name of the HDF5 file from which to read and build the state series from
-        features : List[str]
-            The list of features expected to be read in for each state
-        series_collection : List[List[str]]
+        features : Optional[List[str]]
+            The list of features expected to be read in for each state. If None, all features
+            in the HDF5 file will be read.
+        series_collection : Optional[List[List[str]]]
             A list of lists of HDF5 group paths, where each group path represents a single state.
             The nested list structure defines the organization: each inner list becomes a StateSeries,
-            and the collection of StateSeries forms the SeriesCollection.
+            and the collection of StateSeries forms the SeriesCollection. If None, assumes the file
+            was written with to_hdf5() and reads the series_XXX/state_XXXXXX structure.
         silent : bool
             Whether to suppress progress output
         num_procs : int
@@ -872,6 +874,34 @@ class SeriesCollection:
         SeriesCollection
             The SeriesCollection read from the HDF5 file
         """
+        assert os.path.exists(file_name), f"File does not exist: {file_name}"
+
+        # If series_collection is not provided, infer structure from file
+        if series_collection is None:
+            with h5py.File(file_name, "r") as h5_file:
+                series_collection = []
+                # Look for series_XXX groups
+                series_keys = sorted([k for k in h5_file.keys() if k.startswith("series_")])
+
+                for series_key in series_keys:
+                    series_group = h5_file[series_key]
+                    # Look for state_XXXXXX groups within each series
+                    state_keys = sorted([k for k in series_group.keys() if k.startswith("state_")])
+                    # Build full paths: series_XXX/state_XXXXXX
+                    state_paths = [f"{series_key}/{state_key}" for state_key in state_keys]
+                    series_collection.append(state_paths)
+
+                # If features are not provided, infer them from the first state
+                if features is None and series_collection and series_collection[0]:
+                    first_state_path = series_collection[0][0]
+                    features = list(h5_file[first_state_path].keys())
+
+        # If features still not provided (custom structure), get from first available state
+        if features is None:
+            with h5py.File(file_name, "r") as h5_file:
+                first_state_path = series_collection[0][0]
+                features = list(h5_file[first_state_path].keys())
+
         # Flatten all state names and keep track of their series indices
         flattened_states = []
         series_lengths = []
