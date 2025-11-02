@@ -57,8 +57,6 @@ class OptunaStrategy(SearchStrategy):
 
         print(f"Best parameters: {study.best_params}")
 
-        # Reconstruct nested params structure using a FixedTrial so model builders
-        # receive the same dict shape used during objective sampling.
         best_params = self._get_sample(FixedTrial(study.best_params), search_space.dimensions)
         best_model  = build_prediction_strategy(strategy_type     = search_space.prediction_strategy_type,
                                                 params            = best_params,
