@@ -90,8 +90,8 @@ class IntDimension(SearchSpace.Dimension):
         Inclusive lower bound.
     high : int
         Inclusive upper bound.
-        log : bool
-        Whether to sample on a logarithmic scale (default: False).
+    log : Optional[int]
+        Optional logarithmic sampling base (>1) for exponent sampling. When None, sample linearly.
 
     Attributes
     ----------
@@ -99,13 +99,16 @@ class IntDimension(SearchSpace.Dimension):
         Inclusive lower bound.
     high : int
         Inclusive upper bound.
-    log : bool
-        Whether to sample on a logarithmic scale (default: False).
+    log : Optional[int]
+        Optional logarithmic sampling base (>1) for exponent sampling. When None, sample linearly.
     """
 
-    def __init__(self, low: int, high: int, log: bool = False) -> None:
+    def __init__(self, low: int, high: int, log: Optional[int] = None) -> None:
         assert isinstance(low, int) and isinstance(high, int), "Int bounds must be integers"
         assert low <= high, f"low ({low}) must be <= high ({high})"
+        if log is not None:
+            assert isinstance(log, int) and log > 1, f"IntDimension.log base must be int > 1, got {log}"
+            assert low > 0 and high > 0, "IntDimension.log sampling requires low, high > 0"
 
         self.low  = low
         self.high = high
@@ -121,8 +124,8 @@ class FloatDimension(SearchSpace.Dimension):
         Inclusive lower bound.
     high : float
         Inclusive upper bound.
-    log : bool
-        Whether to sample on a logarithmic scale (default: False).
+    log : Optional[int]
+        Optional logarithmic sampling base (>1) for exponent sampling. When None, sample linearly.
 
     Attributes
     ----------
@@ -130,16 +133,19 @@ class FloatDimension(SearchSpace.Dimension):
         Inclusive lower bound.
     high : float
         Inclusive upper bound.
-    log : bool
-        Whether to sample on a logarithmic scale (default: False).
+    log : Optional[int]
+        Optional logarithmic sampling base (>1) for exponent sampling. When None, sample linearly.
     """
 
-    def __init__(self, low: float, high: float, log: bool = False) -> None:
+    def __init__(self, low: float, high: float, log: Optional[int] = None) -> None:
         assert isinstance(low, (int, float)) and isinstance(high, (int, float)), "Float bounds must be numeric"
         assert float(low) < float(high) or isclose(float(low), float(high)), f"low ({low}) must be <= high ({high})"
+        if log is not None:
+            assert isinstance(log, int) and log > 1, f"FloatDimension.log base must be int > 1, got {log}"
+            assert float(low) > 0.0 and float(high) > 0.0, "FloatDimension.log sampling requires low, high > 0"
         self.low  = float(low)
         self.high = float(high)
-        self.log  = bool(log)
+        self.log  = log
 
 
 class CategoricalDimension(SearchSpace.Dimension):

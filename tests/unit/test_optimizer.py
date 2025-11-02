@@ -7,6 +7,7 @@ from ml_tools.model.nn_strategy.dense import Dense
 from ml_tools.model.nn_strategy.lstm import LSTM
 from ml_tools.model.nn_strategy.transformer import Transformer
 from ml_tools.model.nn_strategy.spatial_conv import SpatialConv, SpatialMaxPool
+from ml_tools.model.nn_strategy.pass_through import PassThrough
 from ml_tools.model.nn_strategy.compound_layer import CompoundLayer
 from ml_tools.model.nn_strategy.graph import SAGE, GAT
 from ml_tools.model.nn_strategy.graph_conv import GraphConv
@@ -24,6 +25,7 @@ from ml_tools.optimizer.nn_search_space.lstm import LSTM as LSTMDim
 from ml_tools.optimizer.nn_search_space.transformer import Transformer as TransformerDim
 from ml_tools.optimizer.nn_search_space.spatial_conv import SpatialConv as SpatialConvDim, SpatialMaxPool as SpatialMaxPoolDim
 from ml_tools.optimizer.nn_search_space.compound_layer import CompoundLayer as CompoundLayerDim
+from ml_tools.optimizer.nn_search_space.pass_through import PassThrough as PassThroughDim
 from ml_tools.optimizer.nn_search_space.graph_conv import GraphConv as GraphConvDim
 from ml_tools.optimizer.nn_search_space.graph.sage import SAGE as SAGEDim
 from ml_tools.optimizer.nn_search_space.graph.gat import GAT as GATDim
@@ -130,10 +132,10 @@ def test_nn_optimizer_Dense():
                            activation = CategoricalDimension(["relu", "tanh", "sigmoid"]))
 
     search_space = NNSearchSpace(NNSearchSpace.Dimension(layers                = [dense_layer],
-                                                         initial_learning_rate = FloatDimension(0.001, 0.1, log=True),
+                                                         initial_learning_rate = FloatDimension(0.001, 0.1, log=10),
                                                          learning_decay_rate   = FloatDimension(0.1, 1.0),
-                                                         epoch_limit           = IntDimension(100, 10000, log=True),
-                                                         convergence_criteria  = FloatDimension(1e-6, 1e-5, log=True),
+                                                         epoch_limit           = IntDimension(100, 10000),
+                                                         convergence_criteria  = FloatDimension(1e-6, 1e-5, log=10),
                                                          convergence_patience  = IntDimension(10, 20),
                                                          batch_size_log2       = IntDimension(4, 8)),
                                      input_features={"x": NoProcessing()},
@@ -164,10 +166,10 @@ def test_nn_optimizer_LSTM():
                          activation = CategoricalDimension(["relu", "tanh"]))
 
     search_space = NNSearchSpace(NNSearchSpace.Dimension(layers                = [lstm_layer],
-                                                         initial_learning_rate = FloatDimension(0.001, 0.1, log=True),
+                                                         initial_learning_rate = FloatDimension(0.001, 0.1, log=10),
                                                          learning_decay_rate   = FloatDimension(0.1, 1.0),
-                                                         epoch_limit           = IntDimension(100, 10000, log=True),
-                                                         convergence_criteria  = FloatDimension(1e-6, 1e-5, log=True),
+                                                         epoch_limit           = IntDimension(100, 10000),
+                                                         convergence_criteria  = FloatDimension(1e-6, 1e-5, log=10),
                                                          convergence_patience  = IntDimension(10, 20),
                                                          batch_size_log2       = IntDimension(4, 8)),
                                      input_features={"x": NoProcessing()},
@@ -200,10 +202,10 @@ def test_nn_optimizer_Transformer():
                                  activation = CategoricalDimension(["relu", "tanh"]))
 
     search_space = NNSearchSpace(NNSearchSpace.Dimension(layers                = [transformer],
-                                                         initial_learning_rate = FloatDimension(0.001, 0.1, log=True),
+                                                         initial_learning_rate = FloatDimension(0.001, 0.1, log=10),
                                                          learning_decay_rate   = FloatDimension(0.1, 1.0),
-                                                         epoch_limit           = IntDimension(100, 10000, log=True),
-                                                         convergence_criteria  = FloatDimension(1e-6, 1e-5, log=True),
+                                                         epoch_limit           = IntDimension(100, 10000),
+                                                         convergence_criteria  = FloatDimension(1e-6, 1e-5, log=10),
                                                          convergence_patience  = IntDimension(10, 20),
                                                          batch_size_log2       = IntDimension(4, 8)),
                                      input_features={"x": NoProcessing()},
@@ -243,10 +245,10 @@ def test_nn_optimizer_CNN():
                              padding     = BoolDimension([False]))
 
     search_space = NNSearchSpace(NNSearchSpace.Dimension(layers                = [conv, pool],
-                                                         initial_learning_rate = FloatDimension(0.001, 0.1, log=True),
+                                                         initial_learning_rate = FloatDimension(0.001, 0.1, log=10),
                                                          learning_decay_rate   = FloatDimension(0.1, 1.0),
-                                                         epoch_limit           = IntDimension(100, 10000, log=True),
-                                                         convergence_criteria  = FloatDimension(1e-6, 1e-5, log=True),
+                                                         epoch_limit           = IntDimension(100, 10000),
+                                                         convergence_criteria  = FloatDimension(1e-6, 1e-5, log=10),
                                                          convergence_patience  = IntDimension(10, 20),
                                                          batch_size_log2       = IntDimension(4, 8)),
                                      input_features={"x": NoProcessing()},
@@ -275,12 +277,13 @@ def test_nn_optimizer_CNN():
 def test_nn_optimizer_LayerSequence():
     dense_layer = DenseDim(units      = IntDimension(8, 20),
                            activation = CategoricalDimension(["relu", "tanh", "sigmoid"]))
+    passthrough = PassThroughDim()
 
-    search_space = NNSearchSpace(NNSearchSpace.Dimension(layers                = [dense_layer, dense_layer],
-                                                         initial_learning_rate = FloatDimension(0.001, 0.1, log=True),
+    search_space = NNSearchSpace(NNSearchSpace.Dimension(layers                = [dense_layer, passthrough, dense_layer],
+                                                         initial_learning_rate = FloatDimension(0.001, 0.1, log=10),
                                                          learning_decay_rate   = FloatDimension(0.1, 1.0),
-                                                         epoch_limit           = IntDimension(100, 10000, log=True),
-                                                         convergence_criteria  = FloatDimension(1e-6, 1e-5, log=True),
+                                                         epoch_limit           = IntDimension(100, 10000),
+                                                         convergence_criteria  = FloatDimension(1e-6, 1e-5, log=10),
                                                          convergence_patience  = IntDimension(10, 20),
                                                          batch_size_log2       = IntDimension(4, 8)),
                                      input_features={"x": NoProcessing()},
@@ -296,7 +299,7 @@ def test_nn_optimizer_LayerSequence():
 
     expected = NNStrategy(input_features        = {"x": NoProcessing()},
                           predicted_feature     = "y",
-                          layers                = [Dense(units=8, activation="relu"), Dense(units=8, activation="relu")],
+                          layers                = [Dense(units=8, activation="relu"), PassThrough(), Dense(units=8, activation="relu")],
                           initial_learning_rate = 0.001,
                           learning_decay_rate   = 0.1,
                           epoch_limit           = 100,
@@ -314,10 +317,10 @@ def test_nn_optimizer_CompoundLayer():
                                       input_specifications=[slice(0, 9), slice(9, 19)])
 
     search_space = NNSearchSpace(NNSearchSpace.Dimension(layers                = [compound_layer],
-                                                         initial_learning_rate = FloatDimension(0.001, 0.1, log=True),
+                                                         initial_learning_rate = FloatDimension(0.001, 0.1, log=10),
                                                          learning_decay_rate   = FloatDimension(0.1, 1.0),
-                                                         epoch_limit           = IntDimension(100, 10000, log=True),
-                                                         convergence_criteria  = FloatDimension(1e-6, 1e-5, log=True),
+                                                         epoch_limit           = IntDimension(100, 10000),
+                                                         convergence_criteria  = FloatDimension(1e-6, 1e-5, log=10),
                                                          convergence_patience  = IntDimension(10, 20),
                                                          batch_size_log2       = IntDimension(4, 8)),
                                      input_features={"x": NoProcessing()},
@@ -354,10 +357,10 @@ def test_nn_optimizer_GNN_SAGE():
     layer = GraphConvDim(graph=graph, activation=CategoricalDimension(['relu']))
 
     search_space = NNSearchSpace(NNSearchSpace.Dimension(layers                = [layer],
-                                                         initial_learning_rate = FloatDimension(0.001, 0.1, log=True),
+                                                         initial_learning_rate = FloatDimension(0.001, 0.1, log=10),
                                                          learning_decay_rate   = FloatDimension(0.1, 1.0),
-                                                         epoch_limit           = IntDimension(100, 10000, log=True),
-                                                         convergence_criteria  = FloatDimension(1e-6, 1e-5, log=True),
+                                                         epoch_limit           = IntDimension(100, 10000),
+                                                         convergence_criteria  = FloatDimension(1e-6, 1e-5, log=10),
                                                          convergence_patience  = IntDimension(10, 20),
                                                          batch_size_log2       = IntDimension(4, 8)),
                                      input_features={"x": NoProcessing()},
@@ -410,10 +413,10 @@ def test_nn_optimizer_GNN_GAT():
     layer = GraphConvDim(graph=graph, activation=CategoricalDimension(['relu']))
 
     search_space = NNSearchSpace(NNSearchSpace.Dimension(layers                = [layer],
-                                                         initial_learning_rate = FloatDimension(0.001, 0.1, log=True),
+                                                         initial_learning_rate = FloatDimension(0.001, 0.1, log=10),
                                                          learning_decay_rate   = FloatDimension(0.1, 1.0),
-                                                         epoch_limit           = IntDimension(100, 10000, log=True),
-                                                         convergence_criteria  = FloatDimension(1e-6, 1e-5, log=True),
+                                                         epoch_limit           = IntDimension(100, 10000),
+                                                         convergence_criteria  = FloatDimension(1e-6, 1e-5, log=10),
                                                          convergence_patience  = IntDimension(10, 20),
                                                          batch_size_log2       = IntDimension(4, 8)),
                                      input_features={"x": NoProcessing()},
@@ -453,3 +456,4 @@ def test_nn_optimizer_GNN_GAT():
                           convergence_patience  = 10,
                           batch_size            = 2 ** 4)
     assert model == expected
+

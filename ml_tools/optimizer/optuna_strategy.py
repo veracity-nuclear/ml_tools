@@ -1,4 +1,5 @@
 from typing import Dict, Any
+from math import log, ceil, floor
 
 import optuna
 import numpy as np
@@ -151,9 +152,21 @@ class OptunaStrategy(SearchStrategy):
             # Primitive and composite dimensions sampled into a single result
             result: Any = None
             if isinstance(dim, IntDimension):
-                result = trial.suggest_int(name or 'int', dim.low, dim.high, log=dim.log)
+                if dim.log is None:
+                    result = trial.suggest_int(name or 'int', dim.low, dim.high)
+                else:
+                    base = int(dim.log)
+                    exp_name = (name + f".log{base}.exp") if name else f'int.log{base}.exp'
+                    e = trial.suggest_int(exp_name, ceil(log(dim.low, base)), floor(log(dim.high, base)))
+                    result = int(base ** e)
             elif isinstance(dim, FloatDimension):
-                result = trial.suggest_float(name or 'float', dim.low, dim.high, log=dim.log)
+                if dim.log is None:
+                    result = trial.suggest_float(name or 'float', dim.low, dim.high)
+                else:
+                    base = int(dim.log)
+                    exp_name = (name + f".log{base}.exp") if name else f'float.log{base}.exp'
+                    e = trial.suggest_float(exp_name, log(dim.low, base), log(dim.high, base))
+                    result = float(base ** e)
             elif isinstance(dim, BoolDimension):
                 result = trial.suggest_categorical(name or 'bool', dim.choices)
             elif isinstance(dim, CategoricalDimension):

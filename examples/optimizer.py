@@ -34,10 +34,10 @@ def build_dnn_optimizer(input_features: Dict[str, FeatureProcessor],
                                     "layers_5": make_dense_layer_sequence(5),})
 
     dims = NNSearchSpace.Dimension(layers                = [dense_layers],
-                                   initial_learning_rate = FloatDimension(1e-4, 1e-1, log=True),
+                                   initial_learning_rate = FloatDimension(1e-4, 1e-1, log=10),
                                    learning_decay_rate   = FloatDimension(0.1,   1.0          ),
-                                   epoch_limit           = IntDimension(   200, 3000, log=True),
-                                   convergence_criteria  = FloatDimension(1e-8, 1e-4, log=True),
+                                   epoch_limit           = IntDimension(   200, 3000, log=2),
+                                   convergence_criteria  = FloatDimension(1e-8, 1e-4, log=10),
                                    convergence_patience  = IntDimension(    50,  200          ),
                                    batch_size_log2       = IntDimension(     8,   11          ))
 
@@ -67,10 +67,10 @@ def build_cnn_optimizer(input_features: Dict[str, FeatureProcessor],
                              padding     = BoolDimension([False]))
 
     dims = NNSearchSpace.Dimension(layers                = [conv, pool],
-                                   initial_learning_rate = FloatDimension(1e-4, 1e-1, log=True),
+                                   initial_learning_rate = FloatDimension(1e-4, 1e-1, log=10),
                                    learning_decay_rate   = FloatDimension(0.1,  1.0           ),
-                                   epoch_limit           = IntDimension(   200, 3000, log=True),
-                                   convergence_criteria  = FloatDimension(1e-8, 1e-4, log=True),
+                                   epoch_limit           = IntDimension(   200, 3000, log=2),
+                                   convergence_criteria  = FloatDimension(1e-8, 1e-4, log=10),
                                    convergence_patience  = IntDimension(    50,  200          ),
                                    batch_size_log2       = IntDimension(     8,   11          ))
 
@@ -80,3 +80,4 @@ def build_cnn_optimizer(input_features: Dict[str, FeatureProcessor],
                                  biasing_model     = biasing_model)
 
     return Optimizer(search_space=search_space, search_strategy=OptunaStrategy())
+
