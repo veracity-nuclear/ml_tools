@@ -16,11 +16,7 @@ from ml_tools import MinMaxNormalize, SeriesCollection, PredictionStrategy, GBMS
                      NormalPerturbator, RelativeNormalPerturbator
 from ml_tools.utils.plotting import plot_ref_vs_pred, plot_hist, plot_sensitivities, print_metrics, plot_corr_matrix, \
                                     plot_ice_pdp, plot_shap
-from ml_tools.optimizer.optuna_strategy import OptunaStrategy
-from ml_tools.optimizer.nn_search_space.nn_search_space import NNSearchSpace
-from ml_tools.optimizer.nn_search_space.dense import Dense as DenseDim
-from ml_tools.optimizer.nn_search_space.spatial_conv import SpatialConv as SpatialConvDim, SpatialMaxPool as SpatialMaxPoolDim
-from ml_tools.optimizer.search_space import IntDimension, FloatDimension, CategoricalDimension, BoolDimension
+from ml_tools.examples.optimizer import build_dnn_optimizer, build_cnn_optimizer
 
 from data_reader import DataReader
 
@@ -50,24 +46,12 @@ def main() -> None:
     models = {}
     models['GBM'] = GBMStrategy(input_features, predicted_feature)
 
-    dense_layer = DenseDim(units      = IntDimension(16, 128),
-                           activation = CategoricalDimension(["relu", "tanh"]))
-    nn_space = NNSearchSpace(input_features    = input_features,
-                             predicted_feature = predicted_feature,
-                             dimensions        = NNSearchSpace.Dimension(layers                = [dense_layer, dense_layer],
-                                                                         initial_learning_rate = FloatDimension(1e-4, 1e-1, log=True),
-                                                                         learning_decay_rate   = FloatDimension(1.0,   2.0          ),
-                                                                         epoch_limit           = IntDimension(   200, 3000, log=True),
-                                                                         convergence_criteria  = FloatDimension(1e-8, 1e-4, log=True),
-                                                                         convergence_patience  = IntDimension(    50,  200          ),
-                                                                         batch_size_log2       = IntDimension(     8,   11          )))
-    dnn_opt = OptunaStrategy()
-    models['DNN'] = dnn_opt.search(search_space      = nn_space,
-                                   series_collection = random.sample(series_collection, 10000),
-                                   num_trials        = 50,
-                                   number_of_folds   = 5,
-                                   output_file       = "dnn_optimizer.out",
-                                   num_procs         = 20)
+    dnn_opt = build_dnn_optimizer(input_features, predicted_feature)
+    models['DNN'] = dnn_opt.optimize(series_collection = random.sample(series_collection, 10000),
+                                     num_trials        = 50,
+                                     number_of_folds   = 5,
+                                     output_file       = "dnn_optimizer.out",
+                                     num_procs         = 20)
 
     with open("dnn.pkl", 'wb') as file:
         pickle.dump(models['DNN'], file)
@@ -77,32 +61,12 @@ def main() -> None:
 
 
 
-    conv = SpatialConvDim(input_shape = CategoricalDimension([(3, 3)]),
-                          activation  = CategoricalDimension(["relu", "tanh"]),
-                          filters     = IntDimension(4, 8),
-                          kernel_size = CategoricalDimension([(2, 2)]),
-                          strides     = CategoricalDimension([(1, 1)]),
-                          padding     = BoolDimension([False]))
-    pool = SpatialMaxPoolDim(input_shape = CategoricalDimension([(3, 3)]),
-                             pool_size   = CategoricalDimension([(2, 2)]),
-                             strides     = CategoricalDimension([(1, 1)]),
-                             padding     = BoolDimension([False]))
-    cnn_space = NNSearchSpace(NNSearchSpace.Dimension(layers                = [conv, pool],
-                                                     initial_learning_rate = FloatDimension(1e-4, 1e-1, log=True),
-                                                     learning_decay_rate   = FloatDimension( 1.0,  2.0          ),
-                                                     epoch_limit           = IntDimension(   200, 3000, log=True),
-                                                     convergence_criteria  = FloatDimension(1e-8, 1e-4, log=True),
-                                                     convergence_patience  = IntDimension(    50,  200          ),
-                                                     batch_size_log2       = IntDimension(     8,   11          )),
-                                  input_features    = input_features,
-                                  predicted_feature = predicted_feature)
-    cnn_opt = OptunaStrategy()
-    models['CNN'] = cnn_opt.search(search_space      = cnn_space,
-                                   series_collection = random.sample(series_collection, 10000),
-                                   num_trials        = 50,
-                                   number_of_folds   = 5,
-                                   output_file       = "cnn_optimizer.out",
-                                   num_procs         = 20)
+    cnn_opt = build_cnn_optimizer(input_features, predicted_feature)
+    models['CNN'] = cnn_opt.optimize(series_collection = random.sample(series_collection, 10000),
+                                     num_trials        = 50,
+                                     number_of_folds   = 5,
+                                     output_file       = "cnn_optimizer.out",
+                                     num_procs         = 20)
 
     with open("cnn.pkl", 'wb') as file:
         pickle.dump(models['CNN'], file)

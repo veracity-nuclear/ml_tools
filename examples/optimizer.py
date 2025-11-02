@@ -1,0 +1,70 @@
+from __future__ import annotations
+from typing import Dict, Optional
+
+from ml_tools.model.prediction_strategy import PredictionStrategy, FeatureProcessor
+from ml_tools.optimizer.optimizer import Optimizer
+from ml_tools.optimizer.optuna_strategy import OptunaStrategy
+from ml_tools.optimizer.search_space import FloatDimension, IntDimension, CategoricalDimension, BoolDimension
+from ml_tools.optimizer.nn_search_space.nn_search_space import NNSearchSpace
+from ml_tools.optimizer.nn_search_space.dense import Dense as DenseDim
+from ml_tools.optimizer.nn_search_space.spatial_conv import SpatialConv as SpatialConvDim, \
+                                                            SpatialMaxPool as SpatialMaxPoolDim
+
+
+def build_dnn_optimizer(input_features: Dict[str, FeatureProcessor],
+                        predicted_feature: str,
+                        biasing_model: Optional[PredictionStrategy] = None) -> Optimizer:
+    """Build an Optuna-backed optimizer for a simple DNN search space.
+    """
+
+    dense_layer = DenseDim(units      = IntDimension(16, 128),
+                           activation = CategoricalDimension(["relu", "tanh"]))
+
+    dims = NNSearchSpace.Dimension(layers                = [dense_layer, dense_layer],
+                                   initial_learning_rate = FloatDimension(1e-4, 1e-1, log=True),
+                                   learning_decay_rate   = FloatDimension(0.1,   1.0          ),
+                                   epoch_limit           = IntDimension(   200, 3000, log=True),
+                                   convergence_criteria  = FloatDimension(1e-8, 1e-4, log=True),
+                                   convergence_patience  = IntDimension(    50,  200          ),
+                                   batch_size_log2       = IntDimension(     8,   11          ))
+
+    search_space = NNSearchSpace(dims,
+                                 input_features    = input_features,
+                                 predicted_feature = predicted_feature,
+                                 biasing_model     = biasing_model)
+
+    return Optimizer(search_space=search_space, search_strategy=OptunaStrategy())
+
+
+def build_cnn_optimizer(input_features: Dict[str, FeatureProcessor],
+                        predicted_feature: str,
+                        biasing_model: Optional[PredictionStrategy] = None) -> Optimizer:
+    """Build an Optuna-backed optimizer for the CNN search space used in the example.
+    """
+
+    conv = SpatialConvDim(input_shape = CategoricalDimension([(3, 3)]),
+                          activation  = CategoricalDimension(["relu", "tanh"]),
+                          filters     = IntDimension(4, 8),
+                          kernel_size = CategoricalDimension([(2, 2)]),
+                          strides     = CategoricalDimension([(1, 1)]),
+                          padding     = BoolDimension([False]))
+    pool = SpatialMaxPoolDim(input_shape = CategoricalDimension([(3, 3)]),
+                             pool_size   = CategoricalDimension([(2, 2)]),
+                             strides     = CategoricalDimension([(1, 1)]),
+                             padding     = BoolDimension([False]))
+
+    dims = NNSearchSpace.Dimension(layers                = [conv, pool],
+                                   initial_learning_rate = FloatDimension(1e-4, 1e-1, log=True),
+                                   learning_decay_rate   = FloatDimension(0.1,  1.0           ),
+                                   epoch_limit           = IntDimension(   200, 3000, log=True),
+                                   convergence_criteria  = FloatDimension(1e-8, 1e-4, log=True),
+                                   convergence_patience  = IntDimension(    50,  200          ),
+                                   batch_size_log2       = IntDimension(     8,   11          ))
+
+    search_space = NNSearchSpace(dims,
+                                 input_features    = input_features,
+                                 predicted_feature = predicted_feature,
+                                 biasing_model     = biasing_model)
+
+    return Optimizer(search_space=search_space, search_strategy=OptunaStrategy())
+
