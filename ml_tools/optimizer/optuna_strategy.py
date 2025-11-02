@@ -55,7 +55,9 @@ class OptunaStrategy(SearchStrategy):
 
         study.optimize(objective, n_trials=num_trials, callbacks=[log_progress])
 
-        print(f"Best parameters: {study.best_params}")
+        with open(output_file, 'a') as output:
+            output.write("\nBEST PARAMETERS\n----------------\n")
+            output.write(f"{study.best_params}\n")
 
         best_params = self._get_sample(FixedTrial(study.best_params), search_space.dimensions)
         best_model  = build_prediction_strategy(strategy_type     = search_space.prediction_strategy_type,
