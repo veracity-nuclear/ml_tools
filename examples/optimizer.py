@@ -4,9 +4,10 @@ from typing import Dict, Optional
 from ml_tools.model.prediction_strategy import PredictionStrategy, FeatureProcessor
 from ml_tools.optimizer.optimizer import Optimizer
 from ml_tools.optimizer.optuna_strategy import OptunaStrategy
-from ml_tools.optimizer.search_space import FloatDimension, IntDimension, CategoricalDimension, BoolDimension
+from ml_tools.optimizer.search_space import FloatDimension, IntDimension, CategoricalDimension, BoolDimension, ChoiceDimension
 from ml_tools.optimizer.nn_search_space.nn_search_space import NNSearchSpace
 from ml_tools.optimizer.nn_search_space.dense import Dense as DenseDim
+from ml_tools.optimizer.nn_search_space.layer_sequence import LayerSequence as LayerSeqDim
 from ml_tools.optimizer.nn_search_space.spatial_conv import SpatialConv as SpatialConvDim, \
                                                             SpatialMaxPool as SpatialMaxPoolDim
 
@@ -14,13 +15,25 @@ from ml_tools.optimizer.nn_search_space.spatial_conv import SpatialConv as Spati
 def build_dnn_optimizer(input_features: Dict[str, FeatureProcessor],
                         predicted_feature: str,
                         biasing_model: Optional[PredictionStrategy] = None) -> Optimizer:
-    """Build an Optuna-backed optimizer for a simple DNN search space.
+    """Build an Optuna-backed optimizer for a DNN search space with variable depth.
+
+    Chooses among LayerSequence lengths 1..5, each composed of Dense layers.
     """
 
-    dense_layer = DenseDim(units      = IntDimension(16, 128),
-                           activation = CategoricalDimension(["relu", "tanh"]))
+    def dense_dim() -> DenseDim:
+        return DenseDim(units      = IntDimension(16, 128),
+                        activation = CategoricalDimension(["relu", "tanh"]))
 
-    dims = NNSearchSpace.Dimension(layers                = [dense_layer, dense_layer],
+    def make_dense_layer_sequence(n: int) -> LayerSeqDim:
+        return LayerSeqDim(layers=[dense_dim() for _ in range(n)])
+
+    dense_layers = ChoiceDimension({"layers_1": make_dense_layer_sequence(1),
+                                    "layers_2": make_dense_layer_sequence(2),
+                                    "layers_3": make_dense_layer_sequence(3),
+                                    "layers_4": make_dense_layer_sequence(4),
+                                    "layers_5": make_dense_layer_sequence(5),})
+
+    dims = NNSearchSpace.Dimension(layers                = [dense_layers],
                                    initial_learning_rate = FloatDimension(1e-4, 1e-1, log=True),
                                    learning_decay_rate   = FloatDimension(0.1,   1.0          ),
                                    epoch_limit           = IntDimension(   200, 3000, log=True),
@@ -67,4 +80,3 @@ def build_cnn_optimizer(input_features: Dict[str, FeatureProcessor],
                                  biasing_model     = biasing_model)
 
     return Optimizer(search_space=search_space, search_strategy=OptunaStrategy())
-
