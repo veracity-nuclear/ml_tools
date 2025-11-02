@@ -311,7 +311,7 @@ class GBMStrategy(PredictionStrategy):
                               valid_sets      = lgb_eval,
                               callbacks       = [lgb.early_stopping(stopping_rounds=self.stopping_rounds)])
 
-    def plot_importances(self) -> None:
+    def plot_importances(self, fig_name: Optional[str] = None) -> None:
         """ A method for plotting the importance of each input feature for a given state series
 
         This currently only supports plotting 20 state input features.  This should be more than
@@ -327,8 +327,10 @@ class GBMStrategy(PredictionStrategy):
 
         plt.barh([features[i] for i in idx[:]][::-1], feature_importances[idx[:]][::-1])
         plt.xlabel('Relative Feature Importance [%]')
-        plt.show()
-
+        if fig_name is not None:
+            plt.savefig(fig_name, bbox_inches='tight')
+        else:
+            plt.show()
 
     def _predict_one(self, state_series: np.ndarray) -> np.ndarray:
 
