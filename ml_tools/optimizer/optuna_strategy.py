@@ -149,7 +149,6 @@ class OptunaStrategy(SearchStrategy):
             return f"{parent}_{i}" if parent else f"[{i}]"
 
         def sample(name: str, dim) -> Any:
-            # Primitive and composite dimensions sampled into a single result
             result: Any = None
             if isinstance(dim, IntDimension):
                 if dim.log is None:
@@ -170,7 +169,18 @@ class OptunaStrategy(SearchStrategy):
             elif isinstance(dim, BoolDimension):
                 result = trial.suggest_categorical(name or 'bool', dim.choices)
             elif isinstance(dim, CategoricalDimension):
-                result = trial.suggest_categorical(name or 'categorical', dim.choices)
+                choices = dim.choices
+                def _is_simple(v):
+                    return v is None or isinstance(v, (bool, int, float, str))
+                if all(_is_simple(c) for c in choices):
+                    result = trial.suggest_categorical(name or 'categorical', choices)
+                else:
+                    # Present human-readable string representations to Optuna for storage/output,
+                    # but map back to the original Python objects for downstream model building.
+                    labels = [repr(c) for c in choices]
+                    picked = trial.suggest_categorical(name or 'categorical', labels)
+                    idx = labels.index(picked)
+                    result = choices[idx]
             elif isinstance(dim, StructDimension):
                 d = {k: sample(join(name, k), child) for k, child in dim.fields.items()}
                 if dim.struct_type:
