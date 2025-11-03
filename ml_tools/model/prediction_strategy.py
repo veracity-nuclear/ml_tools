@@ -206,7 +206,6 @@ class PredictionStrategy(ABC):
             input_features[name] = read_feature_processor(feature)
         self.input_features = input_features
 
-
     @classmethod
     @abstractmethod
     def read_from_file(cls, file_name: str) -> Type[PredictionStrategy]:
@@ -291,13 +290,29 @@ class PredictionStrategy(ABC):
     @classmethod
     @abstractmethod
     def from_dict(cls,
-                  params: Dict,
-                  input_features: Dict[str, FeatureProcessor],
+                  params:            Dict,
+                  input_features:    Dict[str, FeatureProcessor],
                   predicted_feature: str,
-                  biasing_model: Optional[PredictionStrategy] = None) -> PredictionStrategy:
-        """Construct a concrete strategy from a configuration dict.
+                  biasing_model:     Optional[PredictionStrategy] = None) -> PredictionStrategy:
+        """Construct a concrete PredictionStrategy from a parameter dict.
 
-        Concrete subclasses must implement this.
+        Parameters
+        ----------
+        params : Dict
+            Model parameters and/or architecture description. The expected
+            schema is strategy‑specific. For example, NNStrategy expects either
+            a 'neural_network' key or a top‑level 'layers' key.
+        input_features : Dict[str, FeatureProcessor]
+            Feature processors keyed by feature name.
+        predicted_feature : str
+            Target feature name to predict.
+        biasing_model : Optional[PredictionStrategy], optional
+            Optional prior model used to bias predictions.
+
+        Returns
+        -------
+        PredictionStrategy
+            A configured, untrained strategy instance.
         """
         raise NotImplementedError
 
