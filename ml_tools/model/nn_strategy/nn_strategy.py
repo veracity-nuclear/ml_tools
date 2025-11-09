@@ -169,7 +169,6 @@ class NNStrategy(PredictionStrategy):
 
     def train(self, train_data: SeriesCollection, test_data: Optional[SeriesCollection] = None, num_procs: int = 1) -> None:
         assert test_data is None, "The Neural Network Prediction Strategy does not use test data"
-        assert all(len(series) == len(train_data[0]) for series in train_data)
 
         X = self.preprocess_inputs(train_data, num_procs)
         y = self._get_targets(train_data)
