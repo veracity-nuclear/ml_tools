@@ -270,6 +270,9 @@ class PredictionStrategy(ABC):
         no bias model is present, or the error of the bias model, in the case that a
         bias model is present.
 
+        Target values are returned as a padded array if the series are of varying
+        lengths, with 0.0 used for padding.
+
         Parameters
         ----------
         state_series : SeriesCollection
@@ -281,10 +284,21 @@ class PredictionStrategy(ABC):
             The target values of each state of each series to use in training
         """
 
-        targets = np.array([[state[self.predicted_feature] for state in series] for series in state_series])
+        seq_targets: List[np.ndarray] = []
+        for series in state_series:
+            vals: List[np.ndarray] = []
+            for state in series:
+                v = np.asarray(state[self.predicted_feature])
+                v = np.atleast_1d(v).astype(np.float32)
+                vals.append(v)
+            if not vals:
+                continue
+            seq_targets.append(np.vstack(vals))
+
+        targets = self._pad_series(seq_targets, pad_value=0.0)
         if self.hasBiasingModel:
-            bias = np.asarray(self.biasing_model.predict(state_series))
-            targets -= bias
+            bias = np.asarray(self.biasing_model.predict(state_series), dtype=np.float32)
+            targets = targets - bias
         return targets
 
     @classmethod
