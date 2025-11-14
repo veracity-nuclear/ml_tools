@@ -1,5 +1,3 @@
-import pytest
-
 from ml_tools.model import build_prediction_strategy
 from ml_tools import NNStrategy
 from ml_tools.model.feature_processor import NoProcessing
