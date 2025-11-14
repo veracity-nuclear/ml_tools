@@ -23,14 +23,17 @@ jobs:
       run: |
         echo $CONDA/bin >> $GITHUB_PATH
 
+    - name: Configure conda-forge priority
+      run: |
+        conda config --prepend channels conda-forge
+        conda config --set channel_priority strict
+
     - name: Create conda environment and install dependencies
       run: |
-        conda create -n mltools python=3.11 -y
+        conda create -n mltools python=3.11 --yes
         source activate mltools
-        conda install -y \
-          -c conda-forge \
-          tensorflow keras numpy h5py scikit-learn scipy lightgbm matplotlib seaborn shap pylint pytest libarchive compilers mpi4py
-        pip install "ray[default]"
+        conda install --yes \
+          tensorflow keras numpy h5py scikit-learn scipy lightgbm matplotlib seaborn shap pylint pytest libarchive compilers mpi4py ray-default
 
     - name: Install ml_tools
       run: |
