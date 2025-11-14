@@ -31,7 +31,6 @@ from ml_tools.optimizer.nn_search_space.graph.sage import SAGE as SAGEDim
 from ml_tools.optimizer.nn_search_space.graph.gat import GAT as GATDim
 from ml_tools.optimizer.gbm_search_space import GBMSearchSpace
 from ml_tools.optimizer.pod_search_space import PODSearchSpace
-from ml_tools.optimizer.search_space import BoolDimension
 
 class MockOptunaTrial:
     """ A mock optuna.trial.Trial.

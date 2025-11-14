@@ -245,6 +245,5 @@ class ListDimension(SearchSpace.Dimension):
     def __init__(self,
                  items: Optional[List[SearchSpace.Dimension]] = None,
                  label: Optional[str] = None) -> None:
-        assert isinstance(items, list) and len(items) > 0, "items must be a non-empty list when provided"
         self.items = items if items is not None else []
         self.label = label

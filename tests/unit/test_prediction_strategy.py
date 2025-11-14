@@ -184,7 +184,6 @@ def test_nn_strategy_LayerSequence():
     cips_calculator.save_model('test_nn_model')
     new_cips_calculator = NNStrategy.read_from_file('test_nn_model')
     assert cips_calculator == new_cips_calculator
-    assert cips_calculator == new_cips_calculator
     assert_allclose(state["cips_index"], new_cips_calculator.predict([[state]])[0][0], atol=1E-2)
 
     new_cips_calculator = build_prediction_strategy(strategy_type     = 'NNStrategy',
