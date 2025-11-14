@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Optional, Type
+from typing import Optional, Type, Dict
 from math import isclose
 import numpy as np
 from sklearn.decomposition import PCA
@@ -7,8 +7,10 @@ from sklearn.cluster import KMeans
 
 from ml_tools.model.state import SeriesCollection
 from ml_tools.model.feature_processor import NoProcessing
-from ml_tools.model.prediction_strategy import PredictionStrategy
+from ml_tools.model.prediction_strategy import PredictionStrategy, FeatureProcessor
+from ml_tools.model import register_prediction_strategy
 
+@register_prediction_strategy()  # registers under 'PODStrategy'
 class PODStrategy(PredictionStrategy):
     """ A concrete class for a categorized POD-based prediction strategy
 
@@ -178,6 +180,16 @@ class PODStrategy(PredictionStrategy):
 
         return results[:, np.newaxis]
 
+    def __eq__(self, other: object) -> bool:
+        if not super().__eq__(other):
+            return False
+        assert isinstance(other, PODStrategy)
+        return (self.input_feature == other.input_feature and
+                self.nclusters     == other.nclusters     and
+                self.max_svd_size  == other.max_svd_size  and
+                self.ndims         == other.ndims         and
+                np.allclose(self.fine_to_coarse_map, other.fine_to_coarse_map))
+
 
     def save_model(self, file_name: str) -> None:
         """ A method for saving a trained model
@@ -209,3 +221,34 @@ class PODStrategy(PredictionStrategy):
             The name of the file to load the model from
         """
         raise NotImplementedError
+
+    @classmethod
+    def from_dict(cls,
+                  params:            Dict,
+                  input_features:    Dict[str, FeatureProcessor],
+                  predicted_feature: str,
+                  biasing_model:     Optional[PredictionStrategy] = None) -> PODStrategy:
+
+        assert input_features is not None and len(input_features) == 1, \
+            "PODStrategy requires exactly one input feature"
+        input_feature = list(input_features.keys())[0]
+        kwargs = {
+            "fine_to_coarse_map": (np.asarray(params.get("fine_to_coarse_map"), dtype=float)
+                                    if params.get("fine_to_coarse_map") is not None else None),
+            "nclusters": params.get("nclusters", 1),
+            "max_svd_size": params.get("max_svd_size", None),
+            "ndims": params.get("ndims", None),
+        }
+        instance = cls(input_feature     = input_feature,
+                       predicted_feature = predicted_feature,
+                       **kwargs)
+        if biasing_model is not None:
+            instance.biasing_model = biasing_model
+        return instance
+
+    def to_dict(self) -> Dict:
+        return {"input_feature":      self.input_feature,
+                "fine_to_coarse_map": (self.fine_to_coarse_map.tolist()),
+                "nclusters":          self.nclusters,
+                "max_svd_size":       self.max_svd_size,
+                "ndims":              self.ndims}

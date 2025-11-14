@@ -151,3 +151,36 @@ class Transformer(Layer):
                    ff_dim           =   int(group["feed_forward_dimensions"][()]),
                    activation       =       group["activation_function"    ][()].decode('utf-8'),
                    dropout_rate     = float(group["dropout_rate"           ][()]))
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Transformer":
+        params = dict(data or {})
+        if "dropout_rate" not in params and "dropout" in params:
+            params["dropout_rate"] = params.pop("dropout")
+        if "model_dim" not in params and "d_model" in params:
+            params["model_dim"] = params.pop("d_model")
+        if "ff_dim" not in params and "ffn_dim" in params:
+            params["ff_dim"] = params.pop("ffn_dim")
+        if "num_heads" not in params and "number_of_heads" in params:
+            params["num_heads"] = params.pop("number_of_heads")
+        if "model_dim" not in params and "model_dimensions" in params:
+            params["model_dim"] = params.pop("model_dimensions")
+        if "ff_dim" not in params and "feed_forward_dimensions" in params:
+            params["ff_dim"] = params.pop("feed_forward_dimensions")
+        if "activation" not in params and "activation_function" in params:
+            params["activation"] = params.pop("activation_function")
+
+        # Ignore normalization flags if present; Transformer does not use them
+        if "batch_normalize" in params:
+            params.pop("batch_normalize")
+        if "layer_normalize" in params:
+            params.pop("layer_normalize")
+        return cls(**params)
+
+    def to_dict(self) -> dict:
+        return {"type":                    "Transformer",
+                "number_of_heads":         self.num_heads,
+                "model_dimensions":        self.model_dim,
+                "feed_forward_dimensions": self.ff_dim,
+                "activation_function":     self.activation,
+                "dropout_rate":            self.dropout_rate}

@@ -152,3 +152,30 @@ class LSTM(Layer):
                    dropout_rate           = float(group["dropout_rate"                 ][()]),
                    batch_normalize        =  bool(group["batch_normalize"              ][()]),
                    layer_normalize        =  bool(group["layer_normalize"              ][()]))
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "LSTM":
+        params = dict(data or {})
+        if "units" not in params and "number_of_units" in params:
+            params["units"] = params.pop("number_of_units")
+        if "activation" not in params and "activation_function" in params:
+            params["activation"] = params.pop("activation_function")
+        if "recurrent_activation" not in params and "recurrent_activation_function" in params:
+            params["recurrent_activation"] = params.pop("recurrent_activation_function")
+        if "units" not in params and "neurons" in params:
+            params["units"] = params.pop("neurons")
+        if "dropout_rate" not in params and "dropout" in params:
+            params["dropout_rate"] = params.pop("dropout")
+        if "recurrent_dropout_rate" not in params and "recurrent_dropout" in params:
+            params["recurrent_dropout_rate"] = params.pop("recurrent_dropout")
+        return cls(**params)
+
+    def to_dict(self) -> dict:
+        return {"type":                          "LSTM",
+                "number_of_units":               self.units,
+                "activation_function":           self.activation,
+                "recurrent_activation_function": self.recurrent_activation,
+                "recurrent_dropout_rate":        self.recurrent_dropout_rate,
+                "dropout_rate":                  self.dropout_rate,
+                "batch_normalize":               self.batch_normalize,
+                "layer_normalize":               self.layer_normalize}

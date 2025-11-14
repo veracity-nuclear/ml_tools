@@ -1,6 +1,8 @@
 from __future__ import annotations
 from typing import Dict, Optional, Type
 import os
+from math import isclose
+
 import h5py
 import lightgbm as lgb
 import numpy as np
@@ -8,9 +10,11 @@ import pylab as plt
 
 from ml_tools.model.state import SeriesCollection
 from ml_tools.model.prediction_strategy import PredictionStrategy
+from ml_tools.model import register_prediction_strategy
 from ml_tools.model.feature_processor import FeatureProcessor
 
 
+@register_prediction_strategy()  # registers under 'GBMStrategy' by default
 class GBMStrategy(PredictionStrategy):
     """ A concrete class for a Gradient-Boosting-based prediction strategy
 
@@ -348,6 +352,27 @@ class GBMStrategy(PredictionStrategy):
 
         return y.reshape(n_series, n_timesteps, -1)
 
+    def __eq__(self, other: object) -> bool:
+        if not super().__eq__(other):
+            return False
+
+        assert isinstance(other, GBMStrategy)
+        return (self.boosting_type     == other.boosting_type     and
+                self.objective         == other.objective         and
+                self.metric            == other.metric            and
+                self.num_leaves        == other.num_leaves        and
+                self.n_estimators      == other.n_estimators      and
+                self.max_depth         == other.max_depth         and
+                self.min_child_samples == other.min_child_samples and
+                self.verbose           == other.verbose           and
+                self.num_boost_round   == other.num_boost_round   and
+                self.stopping_rounds   == other.stopping_rounds   and
+                isclose(self.learning_rate,    other.learning_rate,    rel_tol=1e-9) and
+                isclose(self.subsample,        other.subsample,        rel_tol=1e-9) and
+                isclose(self.colsample_bytree, other.colsample_bytree, rel_tol=1e-9) and
+                isclose(self.reg_alpha,        other.reg_alpha,        rel_tol=1e-9) and
+                isclose(self.reg_lambda,       other.reg_lambda,       rel_tol=1e-9))
+
 
     def save_model(self, file_name: str) -> None:
         """ A method for saving a trained model
@@ -411,3 +436,41 @@ class GBMStrategy(PredictionStrategy):
         new_gbm.load_model(h5py.File(file_name, "r"))
 
         return new_gbm
+
+    @classmethod
+    def from_dict(cls,
+                  params:            Dict,
+                  input_features:    Dict[str, FeatureProcessor],
+                  predicted_feature: str,
+                  biasing_model:     Optional[PredictionStrategy] = None) -> GBMStrategy:
+
+        known_keys = {
+            "boosting_type", "objective", "metric", "num_leaves", "learning_rate",
+            "n_estimators", "max_depth", "min_child_samples", "subsample",
+            "colsample_bytree", "reg_alpha", "reg_lambda", "verbose",
+            "num_boost_round", "stopping_rounds"
+        }
+        kwargs = {k: v for k, v in (params or {}).items() if k in known_keys}
+        instance = cls(input_features    = input_features,
+                       predicted_feature = predicted_feature,
+                       **kwargs)
+        if biasing_model is not None:
+            instance.biasing_model = biasing_model
+        return instance
+
+    def to_dict(self) -> Dict:
+        return {"boosting_type":     self.boosting_type,
+                "objective":         self.objective,
+                "metric":            self.metric,
+                "num_leaves":        self.num_leaves,
+                "learning_rate":     self.learning_rate,
+                "n_estimators":      self.n_estimators,
+                "max_depth":         self.max_depth,
+                "min_child_samples": self.min_child_samples,
+                "subsample":         self.subsample,
+                "colsample_bytree":  self.colsample_bytree,
+                "reg_alpha":         self.reg_alpha,
+                "reg_lambda":        self.reg_lambda,
+                "verbose":           self.verbose,
+                "num_boost_round":   self.num_boost_round,
+                "stopping_rounds":   self.stopping_rounds}

@@ -151,6 +151,29 @@ class PredictionStrategy(ABC):
 
         return padded
 
+    def __eq__(self, other: object) -> bool:
+        """Structural equality for prediction strategies.
+
+        Compares class/type, predicted feature, input feature mapping (keys and
+        processors), and biasing model (if present). Subclasses should call
+        super().__eq__(other) and then compare their own configuration fields.
+        """
+        if self is other:
+            return True
+        if type(self) is not type(other):
+            return False
+
+        assert isinstance(other, PredictionStrategy)
+
+        same_pred = self.predicted_feature == other.predicted_feature
+        same_inputs = (set(self.input_features) == set(other.input_features) and
+                       all(proc == other.input_features[key]
+                           for key, proc in self.input_features.items()))
+        same_bias = (self.hasBiasingModel == other.hasBiasingModel and
+                    (not self.hasBiasingModel or self.biasing_model == other.biasing_model))
+
+        return same_pred and same_inputs and same_bias
+
     def base_save_model(self, h5_file: h5py.File) -> None:
         """ A method for saving base-class data for a trained model
 
@@ -182,7 +205,6 @@ class PredictionStrategy(ABC):
         for name, feature in h5_file['input_features'].items():
             input_features[name] = read_feature_processor(feature)
         self.input_features = input_features
-
 
     @classmethod
     @abstractmethod
@@ -248,6 +270,9 @@ class PredictionStrategy(ABC):
         no bias model is present, or the error of the bias model, in the case that a
         bias model is present.
 
+        Target values are returned as a padded array if the series are of varying
+        lengths, with 0.0 used for padding.
+
         Parameters
         ----------
         state_series : SeriesCollection
@@ -259,11 +284,51 @@ class PredictionStrategy(ABC):
             The target values of each state of each series to use in training
         """
 
-        targets = np.array([[state[self.predicted_feature] for state in series] for series in state_series])
+        seq_targets: List[np.ndarray] = []
+        for series in state_series:
+            vals: List[np.ndarray] = []
+            for state in series:
+                v = np.asarray(state[self.predicted_feature])
+                v = np.atleast_1d(v).astype(np.float32)
+                vals.append(v)
+            if not vals:
+                continue
+            seq_targets.append(np.vstack(vals))
+
+        targets = self._pad_series(seq_targets, pad_value=0.0)
         if self.hasBiasingModel:
-            bias = np.asarray(self.biasing_model.predict(state_series))
-            targets -= bias
+            bias = np.asarray(self.biasing_model.predict(state_series), dtype=np.float32)
+            targets = targets - bias
         return targets
+
+    @classmethod
+    @abstractmethod
+    def from_dict(cls,
+                  params:            Dict,
+                  input_features:    Dict[str, FeatureProcessor],
+                  predicted_feature: str,
+                  biasing_model:     Optional[PredictionStrategy] = None) -> PredictionStrategy:
+        """Construct a concrete PredictionStrategy from a parameter dict.
+
+        Parameters
+        ----------
+        params : Dict
+            Model parameters and/or architecture description. The expected
+            schema is strategy‑specific. For example, NNStrategy expects either
+            a 'neural_network' key or a top‑level 'layers' key.
+        input_features : Dict[str, FeatureProcessor]
+            Feature processors keyed by feature name.
+        predicted_feature : str
+            Target feature name to predict.
+        biasing_model : Optional[PredictionStrategy], optional
+            Optional prior model used to bias predictions.
+
+        Returns
+        -------
+        PredictionStrategy
+            A configured, untrained strategy instance.
+        """
+        raise NotImplementedError
 
 
     @abstractmethod
