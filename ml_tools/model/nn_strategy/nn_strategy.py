@@ -202,13 +202,10 @@ class NNStrategy(PredictionStrategy):
     def _predict_one(self, state_series: np.ndarray) -> np.ndarray:
         return self._predict_all([state_series])[0]
 
-    def _predict_all(self, state_series: np.ndarray) -> np.ndarray:
-        """ Doing predictions as a padded `_predict_all` allows for much more optimal parallelization
-            as opposed to doing a for-loop of `_predict_one` calls over all series individually.
-        """
+    def _predict_all(self, series_collection: np.ndarray) -> np.ndarray:
         assert self.isTrained
 
-        X = tf.convert_to_tensor(state_series, dtype=tf.float32)
+        X = tf.convert_to_tensor(series_collection, dtype=tf.float32)
 
         return self._model.predict(X)
 

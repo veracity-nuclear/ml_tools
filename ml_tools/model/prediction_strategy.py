@@ -87,12 +87,12 @@ class PredictionStrategy(ABC):
         """
 
 
-    def preprocess_inputs(self, state_series: SeriesCollection, num_procs: int = 1) -> np.ndarray:
+    def preprocess_inputs(self, series_collection: SeriesCollection, num_procs: int = 1) -> np.ndarray:
         """ Preprocesses all the input state series into the series of processed input features of the model
 
         Parameters
         ----------
-        state_series : SeriesCollection
+        series_collection : SeriesCollection
             The list of state series to be pre-processed into a collection of model input series
         num_procs : int
             The number of parallel processors to use when processing the data
@@ -103,10 +103,10 @@ class PredictionStrategy(ABC):
             The preprocessed collection of state series input features. All series are padded
             with 0.0 to match the length of the longest series.
         """
-        input_features = [self.input_features] * len(state_series) # input_features for each worker
+        input_features = [self.input_features] * len(series_collection) # input_features for each worker
 
         with ProcessPoolExecutor(max_workers=num_procs) as executor:
-            processed_inputs = list(executor.map(self._process_single_series, state_series, input_features))
+            processed_inputs = list(executor.map(self._process_single_series, series_collection, input_features))
 
         return self._pad_series(processed_inputs)
 
@@ -126,13 +126,13 @@ class PredictionStrategy(ABC):
         return np.hstack(processed_inputs)
 
     @staticmethod
-    def _pad_series(state_series: List[np.ndarray], pad_value: float = 0.0) -> np.ndarray:
+    def _pad_series(series_collection: List[np.ndarray], pad_value: float = 0.0) -> np.ndarray:
         """ Pads state series data to have the same number of timesteps
 
         Parameters
         ----------
-        sequences : List[np.ndarray]
-            List of state series arrays (timesteps_i, num_features)
+        series_collection : List[np.ndarray]
+            The state series collection to be padded
         pad_value : float
             The value used for padding (Default: 0.0)
 
@@ -142,11 +142,11 @@ class PredictionStrategy(ABC):
             A padded array of shape (num_series, max_timesteps, num_features)
         """
 
-        max_len = max(series.shape[0] for series in state_series)
-        num_features = state_series[0].shape[1]
+        max_len = max(series.shape[0] for series in series_collection)
+        num_features = series_collection[0].shape[1]
 
-        padded = np.full((len(state_series), max_len, num_features), pad_value, dtype=np.float32)
-        for i, series in enumerate(state_series):
+        padded = np.full((len(series_collection), max_len, num_features), pad_value, dtype=np.float32)
+        for i, series in enumerate(series_collection):
             padded[i, :series.shape[0], :] = series
 
         return padded
@@ -219,32 +219,67 @@ class PredictionStrategy(ABC):
         raise NotImplementedError
 
 
-    def predict(self, state_series: SeriesCollection) -> np.ndarray:
-        """ The method that approximates the predicted features corresponding to a list of state series
+    def predict(self, series_collection: SeriesCollection) -> List[List[np.ndarray]]:
+        """Approximate predicted features for each state in each series.
 
         Parameters
         ----------
-        state_series : SeriesCollection
-            The input state series which to predict outputs for
+        series_collection : SeriesCollection
+            The input state series collection which to predict outputs for
+
+        Returns
+        -------
+        List[List[np.ndarray]]
+            Ragged list of predictions. The first list is over the series, the
+            second list is over the states within that series, and each element
+            is the predicted output for that state. Padding is removed, so only
+            real timesteps from the input are returned.
+        """
+        padded_predictions = self.predict_padded(series_collection)
+        series_lengths = [len(series) for series in series_collection]
+
+        ragged_predictions: List[List[np.ndarray]] = []
+        for padded, series_len in zip(padded_predictions, series_lengths):
+            ragged_predictions.append([np.asarray(padded[i]) for i in range(series_len)])
+
+        return ragged_predictions
+
+
+    def predict_padded(self, series_collection: SeriesCollection) -> np.ndarray:
+        """Predict target values with padding to the maximum series length.
+
+        Parameters
+        ----------
+        series_collection : SeriesCollection
+            Collection of input state series to predict.
 
         Returns
         -------
         np.ndarray
-            Predicted feature values for each state in each series, including any
-            padded timesteps. Users should take care to mask or ignore predictions
-            at padded positions, as they do not correspond to real input data.
+            Array of shape (num_series, max_timesteps, output_dim) containing
+            predictions for each series. Shorter series are padded with NaNs
+            past their true length.
         """
         assert self.isTrained
 
-        y = self._predict_all(self.preprocess_inputs(state_series))
+        processed_series_collection = self.preprocess_inputs(series_collection)
+
+        y = np.asarray(self._predict_all(processed_series_collection), dtype=np.float32)
 
         if self.hasBiasingModel:
-            y += self.biasing_model.predict(state_series)
+            # pylint: disable=protected-access
+            y += self.biasing_model._predict_all(processed_series_collection)
+
+        series_lengths = [len(series) for series in series_collection]
+        max_len = y.shape[1] if y.ndim >= 2 else 0
+        for idx, series_len in enumerate(series_lengths):
+            if series_len < max_len:
+                y[idx, series_len:, ...] = np.nan
         return y
 
 
-    def _predict_all(self, state_series: np.ndarray) -> np.ndarray:
-        """ The method that predicts the target values corresponding to the given state series
+    def _predict_all(self, series_collection: np.ndarray) -> np.ndarray:
+        """ The method that predicts the target values corresponding to the given state series collection
 
         Target value in this case refers either directly to the predicted feature if
         no bias model is present, or the error of the bias model, in the case that a
@@ -252,18 +287,19 @@ class PredictionStrategy(ABC):
 
         Parameters
         ----------
-        state_series : np.ndarray
-            The input state series at which to predict the target value
+        series_collection : np.ndarray
+            The preprocessed and padded state series collection in np.array format for which
+            to predict the target value
 
         Returns
         -------
         np.ndarray
             The predicted target values for each state in each series
         """
-        return np.asarray([self._predict_one(series) for series in state_series])
+        return np.asarray([self._predict_one(series) for series in series_collection])
 
 
-    def _get_targets(self, state_series: SeriesCollection) -> np.ndarray:
+    def _get_targets(self, series_collection: SeriesCollection) -> np.ndarray:
         """ The method that extracts the target values for each state for training
 
         Target value in this case refers either directly to the predicted feature if
@@ -275,8 +311,8 @@ class PredictionStrategy(ABC):
 
         Parameters
         ----------
-        state_series : SeriesCollection
-            The state series to extract / derive the target values from
+        series_collection : SeriesCollection
+            The state series collection to extract / derive the target values from
 
         Returns
         -------
@@ -285,7 +321,7 @@ class PredictionStrategy(ABC):
         """
 
         seq_targets: List[np.ndarray] = []
-        for series in state_series:
+        for series in series_collection:
             vals: List[np.ndarray] = []
             for state in series:
                 v = np.asarray(state[self.predicted_feature])
@@ -297,7 +333,8 @@ class PredictionStrategy(ABC):
 
         targets = self._pad_series(seq_targets, pad_value=0.0)
         if self.hasBiasingModel:
-            bias = np.asarray(self.biasing_model.predict(state_series), dtype=np.float32)
+            bias = np.asarray(self.biasing_model.predict_padded(series_collection), dtype=np.float32)
+            bias = np.nan_to_num(bias, nan=0.0)
             targets = targets - bias
         return targets
 
