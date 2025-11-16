@@ -160,14 +160,14 @@ class PODStrategy(PredictionStrategy):
         return self._predict_all([state_series])[0]
 
 
-    def _predict_all(self, state_series: np.ndarray) -> np.ndarray:
+    def _predict_all(self, series_collection: np.ndarray) -> np.ndarray:
 
         assert self.isTrained
         assert not self.hasBiasingModel
-        assert state_series.shape[1] == 1, \
+        assert series_collection.shape[1] == 1, \
             "All State Series must be static statepoints (i.e. len(series) == 1)"
 
-        X = state_series[:, 0, :]
+        X = series_collection[:, 0, :]
 
         if self.nclusters > 1:
             X_reduced = X if self.ndims is None else self._pca.transform(X)

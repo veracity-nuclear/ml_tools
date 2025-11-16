@@ -337,13 +337,13 @@ class GBMStrategy(PredictionStrategy):
         return self._predict_all([state_series])[0]
 
 
-    def _predict_all(self, state_series: np.ndarray) -> np.ndarray:
+    def _predict_all(self, series_collection: np.ndarray) -> np.ndarray:
 
         assert self.isTrained
 
-        n_series, n_timesteps, n_features = state_series.shape
+        n_series, n_timesteps, n_features = series_collection.shape
 
-        X = state_series.reshape(-1, n_features)
+        X = series_collection.reshape(-1, n_features)
         y = self._gbm.predict(X, num_iteration=self._gbm.best_iteration)
 
         y = np.asarray(y)

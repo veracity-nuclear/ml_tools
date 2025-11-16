@@ -114,10 +114,16 @@ class OptunaStrategy(SearchStrategy):
                 print("Training completed.")
 
                 print("Validating model...")
-                measured  = np.asarray([[series[0][search_space.predicted_feature]] for series in validation_set])
-                predicted = model.predict(validation_set)
-                diff      = measured - predicted
-                fold_rms  = np.sqrt(np.dot(diff.flatten(), diff.flatten())) / float(len(diff))
+                measured  = np.asarray([[series[0][search_space.predicted_feature]] for series in validation_set], dtype=float)
+                predicted = model.predict_padded(validation_set)
+
+                mask = ~np.isnan(predicted)
+                diff = measured - predicted
+                squared = np.square(diff, dtype=float)
+                squared = np.where(mask, squared, 0.0)
+
+                count = mask.sum()
+                fold_rms  = np.sqrt(squared.sum()) / float(count)
                 print(f"Fold {fold + 1} RMS: {fold_rms}")
 
                 rms.append(fold_rms)
