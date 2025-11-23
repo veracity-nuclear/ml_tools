@@ -1,4 +1,3 @@
-import random
 from copy import deepcopy
 from typing import Dict
 import time
@@ -9,8 +8,6 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3" # Suppress Tensorflow Warning Messages
 
 import tensorflow as tf
 tf.get_logger().setLevel("ERROR")
-
-from sklearn.model_selection import train_test_split
 
 from ml_tools import MinMaxNormalize, SeriesCollection, PredictionStrategy, GBMStrategy, \
                      NormalPerturbator, RelativeNormalPerturbator
@@ -47,7 +44,7 @@ def main() -> None:
     models['GBM'] = GBMStrategy(input_features, predicted_feature)
 
     dnn_opt = build_dnn_optimizer(input_features, predicted_feature)
-    models['DNN'] = dnn_opt.optimize(series_collection = random.sample(series_collection, 10000),
+    models['DNN'] = dnn_opt.optimize(series_collection = series_collection.random_sample(10000),
                                      num_trials        = 50,
                                      number_of_folds   = 5,
                                      output_file       = "dnn_optimizer.out",
@@ -62,7 +59,7 @@ def main() -> None:
 
 
     cnn_opt = build_cnn_optimizer(input_features, predicted_feature)
-    models['CNN'] = cnn_opt.optimize(series_collection = random.sample(series_collection, 10000),
+    models['CNN'] = cnn_opt.optimize(series_collection = series_collection.random_sample(10000),
                                      num_trials        = 50,
                                      number_of_folds   = 5,
                                      output_file       = "cnn_optimizer.out",
@@ -74,7 +71,7 @@ def main() -> None:
     with open("cnn.pkl", 'rb') as file:
         models['CNN'] = pickle.load(file)
 
-    train_collection, valid_collection = train_test_split(series_collection, test_size=0.2)
+    train_collection, valid_collection = series_collection.train_test_split(test_size=0.2)
     train(models, train_collection)
 
     models['GBM - GBM_Informed']               = deepcopy(models['GBM'])
@@ -106,7 +103,7 @@ def train(models: Dict[str, PredictionStrategy], train_collection: SeriesCollect
         print(f'Training {name:s}...')
         start = time.time()
         if name in ['GBM', 'GBM - GBM_Informed']:
-            train_data, test_data = train_test_split(train_collection, test_size=0.2)
+            train_data, test_data = train_collection.train_test_split(test_size=0.2)
             model.train(train_data, test_data)
         else:
             model.train(train_collection)
@@ -158,7 +155,7 @@ def evaluate(models: Dict[str, PredictionStrategy], valid_collection: SeriesColl
                     'average_exposure'        : RelativeNormalPerturbator(0.02),
                     'boron_concentration'     : NormalPerturbator(5.0)}
 
-    pert_collection = random.sample(valid_collection, 100)
+    pert_collection = valid_collection.random_sample(100)
 
     print('Plotting Sensitivities Plots...')
     plot_sensitivities(models                  = base_models,

@@ -199,6 +199,37 @@ def test_series_collection_random_sample():
     sampled_again = full_collection.random_sample(sample_size, seed=42)
     assert [s[0]["x"] for s in sampled] == [s[0]["x"] for s in sampled_again]
 
+def test_series_collection_train_test_split():
+    series1 = StateSeries([State({"x": 1.0})])
+    series2 = StateSeries([State({"x": 2.0})])
+    series3 = StateSeries([State({"x": 3.0})])
+    series4 = StateSeries([State({"x": 4.0})])
+    series5 = StateSeries([State({"x": 5.0})])
+
+    collection = SeriesCollection([series1, series2, series3, series4, series5])
+
+    train_split, test_split = collection.train_test_split(test_size=1, shuffle=True, seed=123)
+    assert len(train_split) == len(collection) - 1
+    assert len(test_split) == 1
+    for s in train_split:
+        assert s in collection.state_series_list
+    for s in test_split:
+        assert s in collection.state_series_list
+
+    train_again, test_again = collection.train_test_split(test_size=1, shuffle=True, seed=123)
+    assert len(train_again) == len(train_split)
+    assert len(test_again) == len(test_split)
+    for series_a, series_b in zip(test_split, test_again):
+        for i in range(len(series_a)):
+            for feat in collection.features:
+                assert_almost_equal(series_a[i][feat], series_b[i][feat])
+
+    # Test train_test_split fraction handling (no shuffle)
+    train_frac, test_frac = collection.train_test_split(test_size=0.34, shuffle=False)
+    assert len(train_frac) + len(test_frac) == len(collection)
+
+
+
 def test_series_collection():
     def compare_collections(collection1, collection2):
         assert len(collection1) == len(collection2)
@@ -274,26 +305,6 @@ def test_series_collection():
     # Test from_dataframe
     loaded_collection = SeriesCollection.from_dataframe(expected_df, features=collection.features)
     compare_collections(collection, loaded_collection)
-
-    # Test random_sample (moved from separate test)
-    sample_size = 2
-    sampled = collection.random_sample(sample_size, seed=42)
-
-    # Check sample size
-    assert len(sampled) == sample_size
-
-    # Check sampled elements are from original
-    for s in sampled:
-        assert s in collection.state_series_list
-
-    # Check deterministic behavior with seed
-    sampled_again = collection.random_sample(sample_size, seed=42)
-    assert len(sampled) == len(sampled_again)
-    for i in range(len(sampled)):
-        assert len(sampled[i]) == len(sampled_again[i])
-        for j in range(len(sampled[i])):
-            for feat in collection.features:
-                assert_almost_equal(sampled[i][j][feat], sampled_again[i][j][feat])
 
     # Test append and extend
     new_series = StateSeries([State({"feature1": 15.0, "feature2": [135.0, 136.0, 137.0]})])
