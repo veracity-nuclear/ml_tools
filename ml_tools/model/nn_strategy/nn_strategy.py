@@ -175,7 +175,10 @@ class NNStrategy(PredictionStrategy):
 
         input_tensor = tf.keras.layers.Input(shape=(None, len(X[0][0])))
 
-        x = self._layer_sequence.build(input_tensor)
+        # Mask padded timesteps (all-zero vectors) so downstream mask-aware layers (i.e., LSTMs) ignore them.
+        masked_inputs = tf.keras.layers.Masking(mask_value=0.0)(input_tensor)
+
+        x = self._layer_sequence.build(masked_inputs)
         output = tf.keras.layers.Dense(y.shape[2])(x)
 
         self._model = tf.keras.Model(inputs=input_tensor, outputs=output)
@@ -195,7 +198,7 @@ class NNStrategy(PredictionStrategy):
                                    mode                 = 'auto',
                                    restore_best_weights = True)
 
-        # Create a mask for variable-length sequences
+        # Mask the padded timesteps in the loss calculation to prevent training on them
         lengths = np.asarray([len(series) for series in train_data], dtype=np.int32)
         mask = np.zeros((len(train_data), y.shape[1]), dtype=np.float32)
         for i, L in enumerate(lengths):
