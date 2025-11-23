@@ -175,10 +175,7 @@ class NNStrategy(PredictionStrategy):
 
         input_tensor = tf.keras.layers.Input(shape=(None, len(X[0][0])))
 
-        # Mask padded timesteps (all-zero vectors) so downstream mask-aware layers (i.e., LSTMs) ignore them.
-        masked_inputs = tf.keras.layers.Masking(mask_value=0.0)(input_tensor)
-
-        x = self._layer_sequence.build(masked_inputs)
+        x = self._layer_sequence.build(input_tensor)
         output = tf.keras.layers.Dense(y.shape[2])(x)
 
         self._model = tf.keras.Model(inputs=input_tensor, outputs=output)
