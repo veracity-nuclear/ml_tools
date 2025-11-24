@@ -194,7 +194,13 @@ class NNStrategy(PredictionStrategy):
                                    verbose              = 1,
                                    mode                 = 'auto',
                                    restore_best_weights = True)
-        mask       = np.any(X != 0.0, axis=-1).astype(np.float32)
+
+        # Mask the padded timesteps in the loss calculation to prevent training on them
+        lengths = np.asarray([len(series) for series in train_data], dtype=np.int32)
+        mask = np.zeros((len(train_data), y.shape[1]), dtype=np.float32)
+        for i, L in enumerate(lengths):
+            mask[i, :L] = 1.0
+
         dataset    = tf.data.Dataset.from_tensor_slices((X, y, mask))
         dataset    = dataset.batch(self.batch_size, drop_remainder=True)
         self._model.fit(dataset, epochs=self.epoch_limit, batch_size=self.batch_size, callbacks=[early_stop])
@@ -202,13 +208,10 @@ class NNStrategy(PredictionStrategy):
     def _predict_one(self, state_series: np.ndarray) -> np.ndarray:
         return self._predict_all([state_series])[0]
 
-    def _predict_all(self, state_series: np.ndarray) -> np.ndarray:
-        """ Doing predictions as a padded `_predict_all` allows for much more optimal parallelization
-            as opposed to doing a for-loop of `_predict_one` calls over all series individually.
-        """
+    def _predict_all(self, series_collection: np.ndarray) -> np.ndarray:
         assert self.isTrained
 
-        X = tf.convert_to_tensor(state_series, dtype=tf.float32)
+        X = tf.convert_to_tensor(series_collection, dtype=tf.float32)
 
         return self._model.predict(X)
 

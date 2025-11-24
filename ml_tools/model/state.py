@@ -828,26 +828,67 @@ class SeriesCollection:
         self.state_series_list.extend(other.state_series_list)
 
     def random_sample(self, num_samples: int, seed: Optional[int] = None) -> SeriesCollection:
-        """ Method for getting a random subset of the series collection
+        """Return a random subset of this SeriesCollection.
 
         Parameters
         ----------
         num_samples : int
-            The number of samples to draw
+            Number of series to draw. Must be <= len(self).
         seed : Optional[int]
-            The number seed to use for the random number generator
+            Optional random seed for reproducibility.
 
         Returns
         -------
         SeriesCollection
-            The random subset of the original SeriesCollection
+            New SeriesCollection containing the sampled series.
         """
         assert num_samples <= len(self), \
             f"Cannot sample {num_samples} elements from SeriesCollection of length {len(self)}"
 
         rng = random.Random(seed) if seed is not None else random
-
         return SeriesCollection(rng.sample(self.state_series_list, num_samples))
+
+    def train_test_split(self,
+                         test_size: Union[int, float] = 0.2,
+                         shuffle: bool = True,
+                         seed: Optional[int] = None) -> Tuple[SeriesCollection, SeriesCollection]:
+        """Split the collection into train/test SeriesCollections.
+
+        Parameters
+        ----------
+        test_size : Union[int, float], optional
+            If float, represents the proportion of the dataset to include in the test split.
+            If int, represents the absolute number of test samples.
+        shuffle : bool, optional
+            Whether to shuffle before splitting. Default True.
+        seed : Optional[int], optional
+            Random seed used when shuffling.
+
+        Returns
+        -------
+        Tuple[SeriesCollection, SeriesCollection]
+            (train_collection, test_collection) pair.
+        """
+        total = len(self)
+        assert total >= 2, "Need at least two series to perform train/test split."
+
+        if isinstance(test_size, float):
+            assert 0.0 < test_size < 1.0, f"test_size fraction must be between 0 and 1, got {test_size}"
+            test_count = max(1, int(round(total * test_size)))
+        else:
+            test_count = int(test_size)
+
+        assert 0 < test_count < total, f"test_size must yield between 1 and {total - 1} samples."
+
+        indices = list(range(total))
+        if shuffle:
+            rng = random.Random(seed) if seed is not None else random
+            rng.shuffle(indices)
+
+        test_indices = set(indices[:test_count])
+        train = [self.state_series_list[i] for i in indices if i not in test_indices]
+        test = [self.state_series_list[i] for i in indices[:test_count]]
+        return SeriesCollection(train), SeriesCollection(test)
 
     @classmethod
     def from_hdf5(

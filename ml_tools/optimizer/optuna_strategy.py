@@ -4,7 +4,7 @@ from math import log, ceil, floor
 import optuna
 from optuna.trial import FixedTrial
 import numpy as np
-from sklearn.model_selection import KFold, train_test_split
+from sklearn.model_selection import KFold
 
 from ml_tools.model.state import SeriesCollection
 from ml_tools.model.prediction_strategy import PredictionStrategy
@@ -68,7 +68,7 @@ class OptunaStrategy(SearchStrategy):
 
         # Train with all data (split only where strategies require it)
         if search_space.prediction_strategy_type == 'GBMStrategy':
-            train_data, val_data = train_test_split(series_collection, test_size=0.2)
+            train_data, val_data = series_collection.train_test_split(test_size=0.2)
             best_model.train(train_data, val_data, num_procs=num_procs)
         else:
             best_model.train(series_collection, num_procs=num_procs)
@@ -106,18 +106,24 @@ class OptunaStrategy(SearchStrategy):
             for fold, (train_idx, val_idx) in enumerate(kf.split(series_collection)):
                 print(f"Starting fold {fold + 1}/{number_of_folds}...")
 
-                training_set   = [series_collection[i] for i in train_idx]
-                validation_set = [series_collection[i] for i in val_idx]
+                training_set   = SeriesCollection([series_collection[i] for i in train_idx])
+                validation_set = SeriesCollection([series_collection[i] for i in val_idx])
 
                 print("Training started...")
                 model.train(training_set, num_procs=num_procs)
                 print("Training completed.")
 
                 print("Validating model...")
-                measured  = np.asarray([[series[0][search_space.predicted_feature]] for series in validation_set])
-                predicted = model.predict(validation_set)
-                diff      = measured - predicted
-                fold_rms  = np.sqrt(np.dot(diff.flatten(), diff.flatten())) / float(len(diff))
+                measured  = np.asarray([[series[0][search_space.predicted_feature]] for series in validation_set], dtype=float)
+                predicted = model.predict_padded(validation_set)
+
+                mask = ~np.isnan(predicted)
+                diff = measured - predicted
+                squared = np.square(diff, dtype=float)
+                squared = np.where(mask, squared, 0.0)
+
+                count = mask.sum()
+                fold_rms  = np.sqrt(squared.sum()) / float(count)
                 print(f"Fold {fold + 1} RMS: {fold_rms}")
 
                 rms.append(fold_rms)
