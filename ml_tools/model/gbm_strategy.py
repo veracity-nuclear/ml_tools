@@ -299,6 +299,7 @@ class GBMStrategy(PredictionStrategy):
                   "colsample_bytree" : self.colsample_bytree,
                   "reg_alpha"        : self.reg_alpha,
                   "reg_lambda"       : self.reg_lambda,
+                  "num_threads"      : num_procs,
                   "verbose"          : self.verbose}
 
         self._gbm = lgb.train(params          = params,
