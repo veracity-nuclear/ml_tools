@@ -29,7 +29,7 @@ jobs:
       shell: bash -l {0}
       run: |
         conda create -n mltools python=3.11 --yes
-        source activate mltools
+        conda activate mltools
         conda install --yes \
           tensorflow keras numpy h5py scikit-learn scipy lightgbm matplotlib seaborn shap pylint pytest libarchive compilers mpi4py ray-default
 
