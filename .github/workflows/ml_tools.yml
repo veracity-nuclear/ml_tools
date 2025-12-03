@@ -31,25 +31,17 @@ jobs:
     - name: Create conda environment and install dependencies
       run: |
         conda create -n mltools python=3.11 --yes
-        conda init
-        conda activate mltools
-        conda install --yes \
+        conda install -n mltools --yes \
           tensorflow keras numpy h5py scikit-learn scipy lightgbm matplotlib seaborn shap pylint pytest libarchive compilers mpi4py ray-default
 
     - name: Install ml_tools
       run: |
-        conda init
-        conda activate mltools
-        python -m pip install -e .
+        conda run -n mltools python -m pip install -e .
 
     - name: Test with pytest
       run: |
-        conda init
-        conda activate mltools
-        python -m pytest . --disable-warnings
+        conda run -n mltools python -m pytest . --disable-warnings
 
     - name: Lint with pylint
       run: |
-        conda init
-        conda activate mltools
-        python -m pylint ./ml_tools
+        conda run -n mltools python -m pylint ./ml_tools
