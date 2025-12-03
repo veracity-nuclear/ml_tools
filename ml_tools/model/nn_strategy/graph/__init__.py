@@ -22,6 +22,28 @@ def load_graph_from_h5(group) -> Graph:
         return GAT.from_h5(group)
     raise ValueError(f"Unknown graph variant '{graph_type}' in H5 group")
 
+def build_graph_from_dict(data: dict) -> Graph:
+    """ Build a Graph variant from a parameter dict.
+
+    Parameters
+    ----------
+    data : dict
+        Dictionary containing the graph configuration.
+
+    Returns
+    -------
+    Graph
+        The constructed Graph variant instance.
+    """
+    if 'variant' not in data:
+        raise KeyError("Graph configuration must include 'variant' key")
+    variant = data['variant']
+    if variant == 'SAGE':
+        return SAGE.from_dict(data)
+    if variant == 'GAT':
+        return GAT.from_dict(data)
+    raise ValueError(f"Unknown graph variant '{variant}' in configuration")
+
 __all__ = [
     'Graph',
     'SAGE',
@@ -29,4 +51,5 @@ __all__ = [
     'GAT',
     'GraphAttentionConv',
     'load_graph_from_h5',
+    'build_graph_from_dict'
 ]

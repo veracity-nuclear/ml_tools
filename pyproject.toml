@@ -34,7 +34,8 @@ dependencies = [
     'matplotlib',
     'seaborn',
     'shap',
-    'ray'
+    'ray',
+    'optuna'
 ]
 
 [project.optional-dependencies]

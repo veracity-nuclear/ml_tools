@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import List, Dict, Type, Optional
 import os
+from math import isclose
 import h5py
 import numpy as np
 
@@ -16,6 +17,7 @@ from tensorflow.keras.callbacks import EarlyStopping
 
 from ml_tools.model.state import SeriesCollection
 from ml_tools.model.prediction_strategy import PredictionStrategy
+from ml_tools.model import register_prediction_strategy
 from ml_tools.model.feature_processor import FeatureProcessor
 from ml_tools.model.nn_strategy.layer import Layer, gather_indices
 from ml_tools.model.nn_strategy.layer_sequence import LayerSequence
@@ -24,6 +26,7 @@ from ml_tools.model.nn_strategy.graph.sage import GraphSAGEConv
 from ml_tools.model.nn_strategy.graph.gat import GraphAttentionConv
 
 
+@register_prediction_strategy()  # registers under 'NNStrategy'
 class NNStrategy(PredictionStrategy):
     """ A concrete class for a Neural-Network-based prediction strategy
 
@@ -46,6 +49,9 @@ class NNStrategy(PredictionStrategy):
         The limit on the number of training epochs conducted during training
     convergence_criteria : float
         The convergence criteria for training
+    convergence_patience : int
+        Number of epochs with no improvement (i.e. error improves by greater than the convergence_criteria)
+        after which training will be stopped
     batch_size : int
         The training batch sizes
 
@@ -92,7 +98,7 @@ class NNStrategy(PredictionStrategy):
 
     @learning_decay_rate.setter
     def learning_decay_rate(self, learning_decay_rate: float):
-        assert 0. <= learning_decay_rate <= 1., f"learning_decay_rate = {learning_decay_rate}"
+        assert 0. < learning_decay_rate <= 1., f"learning_decay_rate = {learning_decay_rate}"
         self._learning_decay_rate = learning_decay_rate
 
     @property
@@ -163,7 +169,6 @@ class NNStrategy(PredictionStrategy):
 
     def train(self, train_data: SeriesCollection, test_data: Optional[SeriesCollection] = None, num_procs: int = 1) -> None:
         assert test_data is None, "The Neural Network Prediction Strategy does not use test data"
-        assert all(len(series) == len(train_data[0]) for series in train_data)
 
         X = self.preprocess_inputs(train_data, num_procs)
         y = self._get_targets(train_data)
@@ -189,7 +194,13 @@ class NNStrategy(PredictionStrategy):
                                    verbose              = 1,
                                    mode                 = 'auto',
                                    restore_best_weights = True)
-        mask       = np.any(X != 0.0, axis=-1).astype(np.float32)
+
+        # Mask the padded timesteps in the loss calculation to prevent training on them
+        lengths = np.asarray([len(series) for series in train_data], dtype=np.int32)
+        mask = np.zeros((len(train_data), y.shape[1]), dtype=np.float32)
+        for i, L in enumerate(lengths):
+            mask[i, :L] = 1.0
+
         dataset    = tf.data.Dataset.from_tensor_slices((X, y, mask))
         dataset    = dataset.batch(self.batch_size, drop_remainder=True)
         self._model.fit(dataset, epochs=self.epoch_limit, batch_size=self.batch_size, callbacks=[early_stop])
@@ -197,15 +208,25 @@ class NNStrategy(PredictionStrategy):
     def _predict_one(self, state_series: np.ndarray) -> np.ndarray:
         return self._predict_all([state_series])[0]
 
-    def _predict_all(self, state_series: np.ndarray) -> np.ndarray:
-        """ Doing predictions as a padded `_predict_all` allows for much more optimal parallelization
-            as opposed to doing a for-loop of `_predict_one` calls over all series individually.
-        """
+    def _predict_all(self, series_collection: np.ndarray) -> np.ndarray:
         assert self.isTrained
 
-        X = tf.convert_to_tensor(state_series, dtype=tf.float32)
+        X = tf.convert_to_tensor(series_collection, dtype=tf.float32)
 
         return self._model.predict(X)
+
+    def __eq__(self, other: object) -> bool:
+        if not super().__eq__(other):
+            return False
+        assert isinstance(other, NNStrategy)
+        return (len(self.layers) == len(other.layers)                   and
+                all(a == b for a, b in zip(self.layers, other.layers))  and
+                self.epoch_limit          == other.epoch_limit          and
+                self.convergence_patience == other.convergence_patience and
+                self.batch_size           == other.batch_size           and
+                isclose(self.initial_learning_rate, other.initial_learning_rate, rel_tol=1e-9) and
+                isclose(self.learning_decay_rate,   other.learning_decay_rate,   rel_tol=1e-9) and
+                isclose(self.convergence_criteria,  other.convergence_criteria,  rel_tol=1e-9))
 
 
     def save_model(self, file_name: str) -> None:
@@ -267,3 +288,52 @@ class NNStrategy(PredictionStrategy):
         })
 
         return new_model
+
+    @classmethod
+    def from_dict(cls,
+                  params:            Dict,
+                  input_features:    Dict[str, FeatureProcessor],
+                  predicted_feature: str,
+                  biasing_model:     Optional[PredictionStrategy] = None) -> NNStrategy:
+
+        nn_cfg = params.get('neural_network')
+        if nn_cfg is None:
+            if 'layers' in params:
+                nn_cfg = { 'layers': params['layers'] }
+            else:
+                raise KeyError("NNStrategy.from_dict requires 'neural_network' or 'layers'")
+
+        layers                = LayerSequence.from_dict(nn_cfg).layers
+        initial_learning_rate = params.get("initial_learning_rate", 0.01)
+        learning_decay_rate   = params.get("learning_decay_rate", 1.0)
+        epoch_limit           = params.get("epoch_limit", 1000)
+        convergence_criteria  = params.get("convergence_criteria", 1e-14)
+        convergence_patience  = params.get("convergence_patience", 100)
+        if "batch_size" in params:
+            batch_size = params["batch_size"]
+        elif "batch_size_log2" in params:
+            batch_size = 2 ** int(params["batch_size_log2"])
+        else:
+            batch_size = 32
+
+        instance = cls(input_features        = input_features,
+                       predicted_feature     = predicted_feature,
+                       layers                = layers,
+                       initial_learning_rate = initial_learning_rate,
+                       learning_decay_rate   = learning_decay_rate,
+                       epoch_limit           = epoch_limit,
+                       convergence_criteria  = convergence_criteria,
+                       convergence_patience  = convergence_patience,
+                       batch_size            = batch_size)
+        if biasing_model is not None:
+            instance.biasing_model = biasing_model
+        return instance
+
+    def to_dict(self) -> dict:
+        return {'initial_learning_rate': self.initial_learning_rate,
+                'learning_decay_rate':   self.learning_decay_rate,
+                'epoch_limit':           self.epoch_limit,
+                'convergence_criteria':  self.convergence_criteria,
+                'convergence_patience':  self.convergence_patience,
+                'batch_size':            self.batch_size,
+                'neural_network':        self._layer_sequence.to_dict()}

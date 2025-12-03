@@ -150,3 +150,25 @@ class CompoundLayer(Layer):
                    dropout_rate         = dropout_rate,
                    batch_normalize      = batch_normalize,
                    layer_normalize      = layer_normalize)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> CompoundLayer:
+        input_specifications = data.get("input_specifications", [])
+        dropout_rate         = data.get("dropout_rate", 0.0)
+        batch_normalize      = data.get("batch_normalize", False)
+        layer_normalize      = data.get("layer_normalize", False)
+        layers               = Layer.layers_from_dict(data.get('layers', []))
+        return cls(layers               = layers,
+                   input_specifications = input_specifications,
+                   dropout_rate         = dropout_rate,
+                   batch_normalize      = batch_normalize,
+                   layer_normalize      = layer_normalize)
+
+    def to_dict(self) -> dict:
+        d = {"type":                 "CompoundLayer",
+             "input_specifications": [list(spec) for spec in self.input_specifications],
+             "dropout_rate":         self.dropout_rate,
+             "batch_normalize":      self.batch_normalize,
+             "layer_normalize":      self.layer_normalize,
+             "layers":               {f"layer_{i}": layer.to_dict() for i, layer in enumerate(self.layers)}}
+        return d

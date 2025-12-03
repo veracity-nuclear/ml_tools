@@ -143,8 +143,34 @@ class GraphAttentionConv(tf.keras.layers.Layer):
 class GAT(Graph):
     """Graph Attention Network variant implementing ``Graph.make_conv_layer``.
 
-    Parameters are the same as ``Graph`` with the following additions:
-
+    Parameters
+    ----------
+    input_shape : tuple[int, int, int]
+        Shape of per-node feature vectors (H,), (H, W), or (H, W, D).
+    units : int
+        Per-node output feature dimension.
+    ordering : str, optional
+        Feature layout; default 'feature_major'.
+    pre_node_layers : LayerSequence | list | None, optional
+        Pre-node encoder to apply before message passing.
+    spatial_feature_size : int | None, optional
+        Per-spatial-node width S (required when using globals).
+    global_feature_count : int, optional
+        Number of virtual global nodes; default 0.
+    connectivity : str, optional
+        Grid neighborhood; default '2d-4'.
+    self_loops : bool, optional
+        Whether to include self-loops; default True.
+    normalize : bool, optional
+        Apply symmetric degree normalization; default True.
+    distance_weighted : bool, optional
+        Use inverse Manhattan neighbor weights; default False.
+    connect_global_to_all : bool, optional
+        Connect globals to all spatial nodes; default True.
+    connect_global_to_global : bool, optional
+        Fully connect global nodes among themselves; default False.
+    global_edge_weight : float, optional
+        Weight for edges incident to globals; default 1.0.
     alpha : float, optional
         LeakyReLU negative slope for attention, default 0.2.
     temperature : float, optional
@@ -152,6 +178,16 @@ class GAT(Graph):
         control sharpness; 1.0 leaves logits unchanged.
     use_bias : bool, optional
         Include bias in attention layer, default True.
+
+    Attributes
+    ----------
+    alpha : float
+        LeakyReLU negative slope for attention.
+    temperature : float
+        Softmax temperature applied to attention logits (e/temperature) to
+        control sharpness; 1.0 leaves logits unchanged.
+    use_bias : bool
+        Include bias in attention layer.
     """
 
     @property
@@ -222,6 +258,11 @@ class GAT(Graph):
         group.create_dataset('temperature', data=float(self.temperature))
         group.create_dataset('use_bias',    data=bool(self.use_bias))
 
+    def _variant_to_dict(self) -> dict:
+        return {'alpha':       float(self.alpha),
+                'temperature': float(self.temperature),
+                'use_bias':    bool(self.use_bias)}
+
     @classmethod
     def from_h5(cls, group) -> GAT:
         # Base fields
@@ -256,6 +297,58 @@ class GAT(Graph):
             alpha       = 0.2
             temperature = 1.0
             use_bias    = True
+
+        return cls(input_shape              = input_shape,
+                   units                    = units,
+                   ordering                 = ordering,
+                   pre_node_layers          = pre_node_layers,
+                   spatial_feature_size     = spatial_feature_size,
+                   global_feature_count     = global_feature_count,
+                   connectivity             = connectivity,
+                   self_loops               = self_loops,
+                   normalize                = normalize,
+                   distance_weighted        = distance_weighted,
+                   connect_global_to_all    = connect_global_to_all,
+                   connect_global_to_global = connect_global_to_global,
+                   global_edge_weight       = global_edge_weight,
+                   alpha                    = alpha,
+                   temperature              = temperature,
+                   use_bias                 = use_bias)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> GAT:
+
+        if 'input_shape' not in data:
+            raise KeyError("GAT configuration must include 'input_shape' key")
+        input_shape = tuple(int(x) for x in data['input_shape'])
+        if 'units' not in data:
+            raise KeyError("GAT configuration must include 'units' key")
+
+        # Base fields
+        units                    = int(data['units'])
+        ordering                 = data.get('ordering', 'feature_major')
+        sfs                      = int(data.get('spatial_feature_size', -1))
+        spatial_feature_size     = None if sfs == -1 else sfs
+        global_feature_count     = int(data.get('global_feature_count', 0))
+        connectivity             = data.get('connectivity', '2d-4')
+        self_loops               = bool(data.get('self_loops', True))
+        normalize                = bool(data.get('normalize', True))
+        distance_weighted        = bool(data.get('distance_weighted', False))
+        connect_global_to_all    = bool(data.get('connect_global_to_all', True))
+        connect_global_to_global = bool(data.get('connect_global_to_global', False))
+        global_edge_weight       = float(data.get('global_edge_weight', 1.0))
+
+        # Pre-node sequence
+        pre_node_cfg = data.get('pre_node', None)
+        if pre_node_cfg is not None:
+            pre_node_layers = LayerSequence.from_dict(pre_node_cfg)
+        else:
+            pre_node_layers = None
+
+        # Variant fields
+        alpha       = float(data.get('alpha', 0.2))
+        temperature = float(data.get('temperature', 1.0))
+        use_bias    = bool(data.get('use_bias', True))
 
         return cls(input_shape              = input_shape,
                    units                    = units,

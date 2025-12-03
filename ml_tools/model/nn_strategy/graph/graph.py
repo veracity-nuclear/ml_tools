@@ -34,7 +34,7 @@ class Graph(ABC):
     ordering : {'feature_major','node_major'}, optional
         Layout of per-timestep feature vectors; default ``'feature_major'``.
     pre_node_layers : LayerSequence | list[Layer] | None, optional
-        Per-node encoder applied identically to each node before propagation.
+        Pre-node encoder applied identically to each node before propagation.
     spatial_feature_size : int | None, optional
         Per-spatial-node feature width ``S`` when using global nodes.
     global_feature_count : int, optional
@@ -452,6 +452,45 @@ class Graph(ABC):
         # Allow variant to persist extra fields
         vgroup = group.create_group('variant')
         self._save_variant(vgroup)
+
+    def to_dict(self) -> dict:
+        """Serialize this Graph configuration to a dict suitable for from_dict.
+
+        Includes variant name under key 'variant' and all constructor parameters
+        including pre-node layers under 'pre_node'.
+        """
+        base = {
+            'variant':                  self.variant_name(),
+            'input_shape':              tuple(self._input_shape),
+            'units':                    int(self._units),
+            'ordering':                 self._ordering,
+            'spatial_feature_size':     (self._spatial_feature_size if self._spatial_feature_size is not None else -1),
+            'global_feature_count':     int(self._global_feature_count),
+            'connectivity':             self._connectivity,
+            'self_loops':               bool(self._self_loops),
+            'normalize':                bool(self._normalize),
+            'distance_weighted':        bool(self._distance_weighted),
+            'connect_global_to_all':    bool(self._connect_global_to_all),
+            'connect_global_to_global': bool(self._connect_global_to_global),
+            'global_edge_weight':       float(self._global_edge_weight),
+        }
+        if self._spatial_feature_size is None:
+            base['spatial_feature_size'] = -1
+
+        if isinstance(self._pre_node_sequence, LayerSequence):
+            base['pre_node'] = self._pre_node_sequence.to_dict()
+
+        try:
+            extra = self._variant_to_params()
+            if isinstance(extra, dict):
+                base.update(extra)
+        except AttributeError:
+            pass
+        return base
+
+    def _variant_to_dict(self) -> dict:
+        """Return variant-specific parameters for to_dict; override in subclasses."""
+        return {}
 
     def _save_variant(self, group) -> None:
         """

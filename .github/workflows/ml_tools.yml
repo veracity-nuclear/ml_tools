@@ -20,16 +20,18 @@ jobs:
         python-version: 3.11
         auto-activate-base: false
 
+    - name: Configure conda-forge priority
+      run: |
+        conda config --prepend channels conda-forge
+        conda config --set channel_priority strict
+
     - name: Create conda environment and install dependencies
       shell: bash -l {0}
       run: |
-        eval "$(conda shell.bash hook)"
-        conda create -n mltools python=3.11 -y
-        conda activate mltools
-        conda install -y \
-          -c conda-forge \
-          tensorflow keras numpy h5py scikit-learn scipy lightgbm matplotlib seaborn shap pylint pytest libarchive compilers mpi4py
-        pip install "ray[default]"
+        conda create -n mltools python=3.11 --yes
+        source activate mltools
+        conda install --yes \
+          tensorflow keras numpy h5py scikit-learn scipy lightgbm matplotlib seaborn shap pylint pytest libarchive compilers mpi4py ray-default
 
     - name: Install ml_tools
       shell: bash -l {0}

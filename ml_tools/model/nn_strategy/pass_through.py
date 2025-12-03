@@ -66,3 +66,16 @@ class PassThrough(Layer):
         return cls(dropout_rate     = float(group["dropout_rate"    ][()]),
                    batch_normalize  =  bool(group["batch_normalize" ][()]),
                    layer_normalize  =  bool(group["layer_normalize" ][()]))
+
+    @classmethod
+    def from_dict(cls, data: dict) -> PassThrough:
+        params = dict(data or {})
+        if "dropout_rate" not in params and "dropout" in params:
+            params["dropout_rate"] = params.pop("dropout")
+        return cls(**params)
+
+    def to_dict(self) -> dict:
+        return {"type":            "PassThrough",
+                "dropout_rate":    self.dropout_rate,
+                "batch_normalize": self.batch_normalize,
+                "layer_normalize": self.layer_normalize}
