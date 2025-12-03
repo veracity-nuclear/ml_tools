@@ -39,15 +39,21 @@ jobs:
 
     - name: Install ml_tools
       run: |
+        conda init bash
+        source ~/.bashrc
         conda activate mltools
         python -m pip install -e .
 
     - name: Test with pytest
       run: |
+        conda init bash
+        source ~/.bashrc
         conda activate mltools
         python -m pytest . --disable-warnings
 
     - name: Lint with pylint
       run: |
+        conda init bash
+        source ~/.bashrc
         conda activate mltools
         python -m pylint ./ml_tools
