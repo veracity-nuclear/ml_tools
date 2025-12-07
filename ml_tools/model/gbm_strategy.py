@@ -276,6 +276,8 @@ class GBMStrategy(PredictionStrategy):
 
 
     def train(self, train_data: SeriesCollection, test_data: Optional[SeriesCollection] = None, num_procs: int = 1) -> None:
+        if test_data is None:
+            train_data, test_data = train_data.train_test_split(test_size=0.2)
 
         X_train   = self.preprocess_inputs(train_data, num_procs)
         X_train   = X_train.reshape(-1, X_train.shape[-1])
@@ -283,13 +285,11 @@ class GBMStrategy(PredictionStrategy):
         lgb_train = lgb.Dataset(X_train, y_train)
 
         lgb_eval  = None
-        test_data = [] if test_data is None else test_data
-        if len(test_data) > 0:
 
-            X_test   = self.preprocess_inputs(test_data, num_procs)
-            X_test   = X_test.reshape(-1, X_test.shape[-1])
-            y_test   = np.vstack([np.array(series) for series in self._get_targets(test_data)])
-            lgb_eval = lgb.Dataset(X_test, y_test, reference=lgb_train)
+        X_test   = self.preprocess_inputs(test_data, num_procs)
+        X_test   = X_test.reshape(-1, X_test.shape[-1])
+        y_test   = np.vstack([np.array(series) for series in self._get_targets(test_data)])
+        lgb_eval = lgb.Dataset(X_test, y_test, reference=lgb_train)
 
         params = {"boosting_type"    : self.boosting_type,
                   "objective"        : self.objective,
