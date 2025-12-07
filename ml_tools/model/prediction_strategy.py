@@ -339,7 +339,6 @@ class PredictionStrategy(ABC):
         return targets
 
     @classmethod
-    @abstractmethod
     def from_dict(cls,
                   params:            Dict,
                   input_features:    Dict[str, FeatureProcessor],
@@ -365,8 +364,13 @@ class PredictionStrategy(ABC):
         PredictionStrategy
             A configured, untrained strategy instance.
         """
-        raise NotImplementedError
 
+        instance = cls(input_features    = input_features,
+                       predicted_feature = predicted_feature,
+                       **params)
+        if biasing_model is not None:
+            instance.biasing_model = biasing_model
+        return instance
 
     @abstractmethod
     def _predict_one(self, state_series: np.ndarray) -> np.ndarray:
