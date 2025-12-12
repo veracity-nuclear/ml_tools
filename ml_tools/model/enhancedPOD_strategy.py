@@ -179,8 +179,13 @@ class EnhancedPODStrategy(PredictionStrategy):
         with h5py.File(file_name, 'a') as h5_file:
             self.base_save_model(h5_file)
             h5_file.create_dataset('num_moments', data=self.num_moments)
-            # h5_file.create_dataset('gamma', data=self._constraints) # TODO: fix
             h5_file.create_dataset('pod_mat', data=self._pod_matrix)
+            h5_file.create_dataset('num_constraints', data=len(self._constraints))
+
+            for i, (gamma, W) in enumerate(self._constraints):
+                h5_file.create_dataset(f'constraint_{i+1}_gamma', data=gamma)
+                h5_file.create_dataset(f'constraint_{i+1}_W', data=W)
+
             for i in range(self.num_moments):
                 with open(lgbm_names[i], 'rb') as file:
                     file_data = file.read()
@@ -200,13 +205,15 @@ class EnhancedPODStrategy(PredictionStrategy):
         import os
 
         file_name = h5_file.filename
-
         self.base_load_model(h5_file)
+
         with h5py.File(file_name, 'r') as h5_file:
             self.num_moments  = int(h5_file['num_moments'][()])
-            # self._constraints = float(h5_file['gamma'][()]) # TODO: save constraints
             self._pod_matrix     = h5_file['pod_mat'][()]
             self._gbm         = [GBMStrategy(self.input_features, f'theta-{i+1}') for i in range(self.num_moments)]
+
+            num_constraints = int(h5_file['num_constraints'][()])
+            self._constraints = [(h5_file[f'constraint_{i+1}_gamma'][()], h5_file[f'constraint_{i+1}_W'][()]) for i in range(num_constraints)]
 
             for i in range(self.num_moments):
                 lgbm_name = file_name.removesuffix(".h5") + f'-{i+1}.lgbm'
