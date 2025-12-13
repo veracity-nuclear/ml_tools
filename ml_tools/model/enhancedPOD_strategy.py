@@ -250,3 +250,11 @@ class EnhancedPODStrategy(PredictionStrategy):
         new_pod.load_model(h5py.File(file_name, "r"))
 
         return new_pod
+    
+    @classmethod
+    def from_dict(cls,
+                  params:            Dict,
+                  input_features:    Dict[str, FeatureProcessor],
+                  predicted_feature: str,
+                  biasing_model:     Optional[PredictionStrategy] = None) -> PredictionStrategy:
+        raise NotImplementedError
