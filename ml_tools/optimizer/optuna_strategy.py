@@ -66,12 +66,7 @@ class OptunaStrategy(SearchStrategy):
                                                 predicted_feature = search_space.predicted_feature,
                                                 biasing_model     = search_space.biasing_model)
 
-        # Train with all data (split only where strategies require it)
-        if search_space.prediction_strategy_type == 'GBMStrategy':
-            train_data, val_data = series_collection.train_test_split(test_size=0.2)
-            best_model.train(train_data, val_data, num_procs=num_procs)
-        else:
-            best_model.train(series_collection, num_procs=num_procs)
+        best_model.train(series_collection, num_procs=num_procs)
 
         return best_model
 
