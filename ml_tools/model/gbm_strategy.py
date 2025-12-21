@@ -388,14 +388,14 @@ class GBMStrategy(PredictionStrategy):
             self.base_save_model(h5_file)
             self.write_model_to_hdf5(h5_file)
 
-    def write_model_to_hdf5(self, h5_file: h5py.File, group: str = None) -> None:
+    def write_model_to_hdf5(self, h5_file: h5py.File, group: Optional[str] = None) -> None:
         """ A method for writing the model to an already opened HDF5 file
 
         Parameters
         ----------
         h5_file : h5py.File
             The opened HDF5 file to which the model should be written
-        group : str
+        group : Optional[str]
             The group within the HDF5 file where the model should be written
         """
         file_name = h5_file.filename
@@ -408,14 +408,14 @@ class GBMStrategy(PredictionStrategy):
         model_group = h5_file.require_group(group) if group is not None else h5_file
         model_group.create_dataset('serialized_lgbm_file', data=file_data)
 
-    def load_model(self, h5_file: h5py.File, group: str = None) -> None:
+    def load_model(self, h5_file: h5py.File, group: Optional[str] = None) -> None:
         """ A method for loading a trained model
 
         Parameters
         ----------
         h5_file : h5py.File
             The opened HDF5 file from which the model should be loaded
-        group : str
+        group : Optional[str]
             The group within the HDF5 file where the model is stored
         """
         file_name = h5_file.filename
