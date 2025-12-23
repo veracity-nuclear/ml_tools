@@ -1,6 +1,5 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from copy import deepcopy
 from math import isclose
 import numpy as np
 import h5py
