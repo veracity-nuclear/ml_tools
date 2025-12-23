@@ -120,7 +120,7 @@ class PODStrategy(PredictionStrategy):
         assert all(isclose(row.sum(), 1.) for row in self.fine_to_coarse_map)
 
         # Setup of the PCA project and K-means clustering of the input feature based on the training samples
-        targets = np.vstack([np.array(series) for series in self._get_targets(train_data)])
+        targets = np.vstack([np.array(series) for series in self._get_targets(train_data, num_procs=num_procs)])
         if self.nclusters > 1:
             self._kmeans = KMeans(n_clusters=self.nclusters)
             X            = self.preprocess_inputs(train_data)

@@ -281,14 +281,14 @@ class GBMStrategy(PredictionStrategy):
 
         X_train   = self.preprocess_inputs(train_data, num_procs)
         X_train   = X_train.reshape(-1, X_train.shape[-1])
-        y_train   = np.vstack([np.array(series) for series in self._get_targets(train_data)])
+        y_train   = np.vstack([np.array(series) for series in self._get_targets(train_data, num_procs=num_procs)])
         lgb_train = lgb.Dataset(X_train, y_train)
 
         lgb_eval  = None
 
         X_test   = self.preprocess_inputs(test_data, num_procs)
         X_test   = X_test.reshape(-1, X_test.shape[-1])
-        y_test   = np.vstack([np.array(series) for series in self._get_targets(test_data)])
+        y_test   = np.vstack([np.array(series) for series in self._get_targets(test_data, num_procs=num_procs)])
         lgb_eval = lgb.Dataset(X_test, y_test, reference=lgb_train)
 
         params = {"boosting_type"    : self.boosting_type,
