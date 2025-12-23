@@ -573,12 +573,17 @@ def _process_shap_batch(model:       PredictionStrategy,
     refer to the documentation of `plot_shap`.
     """
 
-    def shap_wrapper(processed_inputs: np.ndarray) -> np.ndarray:
+    state_index = state_index if state_index >= 0 else batch.shape[1] + state_index
+
+    def shap_wrapper(shap_inputs: np.ndarray) -> np.ndarray:
         """ Wrapper function which is necessary due to shap.Explainer requiring np.ndarray inputs
         """
-        padded = model.predict_processed_inputs(processed_inputs)
+        full = batch.copy()
+        full[:, state_index, :] = shap_inputs
+        padded = model.predict_processed_inputs(full)
         predictions = model.post_process_outputs(padded)
         return np.asarray([series[state_index][array_index] for series in predictions])
 
-    explainer = shap.Explainer(shap_wrapper, batch, algorithm=algorithm)
-    return explainer(batch)
+    shap_batch = batch[:, state_index, :]
+    explainer = shap.Explainer(shap_wrapper, shap_batch, algorithm=algorithm)
+    return explainer(shap_batch)
