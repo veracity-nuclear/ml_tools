@@ -503,24 +503,24 @@ def plot_shap(models:            Dict[str, PredictionStrategy],
     series_collection  = series_collection.random_sample(min(num_samples, len(series_collection)))
     df                 = series_collection.to_dataframe()
     all_input_features = list(df.columns)
+    X                  = df.to_numpy(dtype=float)
 
     min_samples_per_batch = 5 # This is needed to allow SHAP to correctly perform clustering
-    max_num_batches       = max(1, len(df) // min_samples_per_batch)
+    max_num_batches       = max(1, len(X) // min_samples_per_batch)
     num_procs             = min(num_procs, max_num_batches, os.cpu_count() or 1)
+    batches               = np.array_split(X, num_procs)
+    batches               = [b for b in batches if len(b) > 0]
 
     with ray_context(num_cpus=num_procs):
         for model_label, model in models.items():
             assert model.isTrained, f"Model {model_label} must be trained before SHAP analysis."
 
-            processed_inputs = model.preprocess_inputs(series_collection)
-            batches          = np.array_split(processed_inputs, num_procs)
-            batches          = [b for b in batches if len(b) > 0]
-
             if not silent:
                 print(f"Generating SHAP plot: {fig_name_prefix}_{model_label}.png")
                 statusbar = StatusBar(sum(len(b) for b in batches))
 
-            args = [(model, batch, state_index, array_index, algorithm) for batch in batches]
+            args = [(model,  batch, all_input_features, state_index, array_index, algorithm)
+                    for batch in batches]
 
             jobs        = [_process_shap_batch.remote(*arg) for arg in args]
             unfinished  = list(jobs)
@@ -535,16 +535,9 @@ def plot_shap(models:            Dict[str, PredictionStrategy],
                 if not silent:
                     statusbar.update(completed)
 
-            shap_values    = np.concatenate([chunk.values for chunk in shap_chunks], axis=0)
+            shap_values =    np.concatenate([chunk.values for chunk in shap_chunks], axis=0)
             feature_values = np.concatenate([chunk.data   for chunk in shap_chunks], axis=0)
 
-            # Postprocess feature values back to original scale
-            for f, processor in model.input_features.items():
-                feature_indices = [i for i, feature in enumerate(all_input_features)
-                                   if feature == f or feature.startswith(f)]
-                feature_values[:, feature_indices] = processor.postprocess(feature_values[:, feature_indices])
-
-            # Plot SHAP summary plots for each specified feature set
             for feature_set, features in feature_plots.items():
                 selected_input_feature_indices = [i for i, feature in enumerate(all_input_features)
                                                   if any(feature == f or feature.startswith(f) for f in features)]
@@ -562,37 +555,28 @@ def plot_shap(models:            Dict[str, PredictionStrategy],
                 plt.close()
 
 @ray.remote
-def _process_shap_batch(model:       PredictionStrategy,
-                        batch:       np.ndarray,
-                        state_index: int,
-                        array_index: int,
-                        algorithm:   str) -> shap.Explanation:
+def _process_shap_batch(model:          PredictionStrategy,
+                        batch:          np.ndarray,
+                        input_features: List[str],
+                        state_index:    int,
+                        array_index:    int,
+                        algorithm:      str) -> shap.Explanation:
     """ Private helper function used by `plot_shap` for parallel batch processing.
 
     This function is not intended to be called directly. For a description of the parameters,
     refer to the documentation of `plot_shap`.
     """
 
-    state_index = state_index if state_index >= 0 else batch.shape[1] + state_index
-    shap_batch = batch[:, state_index, :]
-    explanations = []
+    def shap_wrapper(X_array: np.ndarray) -> np.ndarray:
+        """ Wrapper function which is necessary due to shap.Explainer requiring np.ndarray inputs
+        """
+        index       = pd.MultiIndex.from_tuples([(i, 0) for i in range(len(X_array))],
+                                                names=["series_index", "state_index"])
 
-    for i in range(len(batch)):
-        context = batch[i]
+        X_df        = pd.DataFrame(X_array, columns=input_features, index=index)
+        predictions = model.predict(SeriesCollection.from_dataframe(X_df))
 
-        def shap_wrapper(shap_inputs: np.ndarray, _context=context) -> np.ndarray:
-            """ Wrapper function which is necessary due to shap.Explainer requiring np.ndarray inputs
-            """
-            full = np.repeat(_context[np.newaxis, :, :], shap_inputs.shape[0], axis=0)
-            full[:, state_index, :] = shap_inputs
-            padded = model.predict_processed_inputs(full)
-            return padded[:, state_index, array_index]
+        return np.asarray([series[state_index][array_index] for series in predictions])
 
-        explainer = shap.Explainer(shap_wrapper, shap_batch[i:i + 1], algorithm=algorithm)
-        explanations.append(explainer(shap_batch[i:i + 1]))
-
-    return shap.Explanation(
-        values=np.concatenate([e.values for e in explanations], axis=0),
-        data=np.concatenate([e.data for e in explanations], axis=0),
-        base_values=np.concatenate([np.atleast_1d(e.base_values) for e in explanations], axis=0),
-    )
+    explainer = shap.Explainer(shap_wrapper, batch, algorithm=algorithm)
+    return explainer(batch)
