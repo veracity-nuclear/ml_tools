@@ -574,16 +574,25 @@ def _process_shap_batch(model:       PredictionStrategy,
     """
 
     state_index = state_index if state_index >= 0 else batch.shape[1] + state_index
-
-    def shap_wrapper(shap_inputs: np.ndarray) -> np.ndarray:
-        """ Wrapper function which is necessary due to shap.Explainer requiring np.ndarray inputs
-        """
-        full = np.repeat(batch, shap_inputs.shape[0], axis=0)
-        full[:, state_index, :] = shap_inputs
-        padded = model.predict_processed_inputs(full)
-        predictions = model.post_process_outputs(padded)
-        return np.asarray([series[state_index][array_index] for series in predictions])
-
     shap_batch = batch[:, state_index, :]
-    explainer = shap.Explainer(shap_wrapper, shap_batch, algorithm=algorithm)
-    return explainer(shap_batch)
+    explanations = []
+
+    for i in range(len(batch)):
+        context = batch[i]
+
+        def shap_wrapper(shap_inputs: np.ndarray, _context=context) -> np.ndarray:
+            """ Wrapper function which is necessary due to shap.Explainer requiring np.ndarray inputs
+            """
+            full = np.repeat(_context[np.newaxis, :, :], shap_inputs.shape[0], axis=0)
+            full[:, state_index, :] = shap_inputs
+            padded = model.predict_processed_inputs(full)
+            return padded[:, state_index, array_index]
+
+        explainer = shap.Explainer(shap_wrapper, shap_batch[i:i + 1], algorithm=algorithm)
+        explanations.append(explainer(shap_batch[i:i + 1]))
+
+    return shap.Explanation(
+        values=np.concatenate([e.values for e in explanations], axis=0),
+        data=np.concatenate([e.data for e in explanations], axis=0),
+        base_values=np.concatenate([np.atleast_1d(e.base_values) for e in explanations], axis=0),
+    )
