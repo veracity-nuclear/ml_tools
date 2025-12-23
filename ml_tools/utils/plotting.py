@@ -578,7 +578,7 @@ def _process_shap_batch(model:       PredictionStrategy,
     def shap_wrapper(shap_inputs: np.ndarray) -> np.ndarray:
         """ Wrapper function which is necessary due to shap.Explainer requiring np.ndarray inputs
         """
-        full = batch.copy()
+        full = np.repeat(batch, shap_inputs.shape[0], axis=0)
         full[:, state_index, :] = shap_inputs
         padded = model.predict_processed_inputs(full)
         predictions = model.post_process_outputs(padded)
