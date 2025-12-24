@@ -78,7 +78,7 @@ class EnhancedPODStrategy(PredictionStrategy):
         self._num_moments      = num_moments
         self._max_svd_size     = max_svd_size
         self._constraints      = constraints
-        self._pod_matrix          = None
+        self._pod_matrix       = None
         self._gbm              = [GBMStrategy(input_features, f'theta-{i+1}', **gbm_settings) for i in range(num_moments)]
 
 
@@ -250,11 +250,18 @@ class EnhancedPODStrategy(PredictionStrategy):
         new_pod.load_model(h5py.File(file_name, "r"))
 
         return new_pod
-    
+
+
     @classmethod
     def from_dict(cls,
                   params:            Dict,
                   input_features:    Dict[str, FeatureProcessor],
                   predicted_feature: str,
-                  biasing_model:     Optional[PredictionStrategy] = None) -> PredictionStrategy:
-        raise NotImplementedError
+                  biasing_model:     Optional[PredictionStrategy] = None) -> GBMStrategy:
+
+        instance = cls(input_features    = input_features,
+                       predicted_feature = predicted_feature,
+                       **params)
+        if biasing_model is not None:
+            instance.biasing_model = biasing_model
+        return instance
