@@ -187,11 +187,7 @@ class EnhancedPODStrategy(PredictionStrategy):
                 h5_file.create_dataset(f'constraint_{i+1}_W', data=W)
 
             for i in range(self.num_moments):
-                with open(lgbm_names[i], 'rb') as file:
-                    file_data = file.read()
-                h5_file.create_dataset(f'serialized_lgbm_file_{i+1}', data=file_data)
-                # if clean_files:
-                    # os.remove(lgbm_name[i])
+                self._theta_model[i].write_model_to_hdf5(h5_file, group=f'theta-{i+1}')
 
     def load_model(self, h5_file: h5py.File) -> None:
         """ A method for loading a trained model
@@ -201,7 +197,6 @@ class EnhancedPODStrategy(PredictionStrategy):
         h5_file : str
             The name of the file to load the model from
         """
-        import lightgbm as lgb
         import os
 
         file_name = h5_file.filename
