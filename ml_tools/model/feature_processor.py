@@ -1,6 +1,5 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from copy import deepcopy
 from math import isclose
 import numpy as np
 import h5py
@@ -115,10 +114,10 @@ class NoProcessing(FeatureProcessor):
         pass
 
     def preprocess(self, orig_data: np.ndarray) -> np.ndarray:
-        return deepcopy(orig_data)
+        return np.array(orig_data, copy=True)
 
     def postprocess(self, processed_data: np.ndarray) -> np.ndarray:
-        return deepcopy(processed_data)
+        return np.array(processed_data, copy=True)
 
     def __eq__(self, other: FeatureProcessor) -> bool:
         return isinstance(other, NoProcessing)
