@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Optional, Type, Dict
+from typing import Optional, Dict
 import numpy as np
 import h5py
 
@@ -71,11 +71,12 @@ class EnhancedPODStrategy(PredictionStrategy):
         self._max_svd_size     = max_svd_size
         self._constraints      = constraints
         self._pod_matrix       = None
-        if theta_model is "GBM":
-            self._theta_model      = [GBMStrategy(input_features, f'theta-{i+1}', **theta_model_settings) for i in range(num_moments)]
-        elif theta_model is "NN":
+        if theta_model == "GBM":
+            self._theta_model      = [GBMStrategy(input_features, f'theta-{i+1}', **theta_model_settings)
+                                        for i in range(num_moments)]
+        elif theta_model == "NN":
             # NN can predict all moments at once
-            self._theta_model      = [NNStrategy(input_features, f'theta', **theta_model_settings)]
+            self._theta_model      = [NNStrategy(input_features, 'theta', **theta_model_settings)]
         else:
             raise ValueError(f"Unsupported theta model type: {theta_model}")
 
@@ -105,10 +106,10 @@ class EnhancedPODStrategy(PredictionStrategy):
             for state in series:
                 predicted   = state[self.predicted_feature]
                 theta_star = self._solve_theta_star(predicted)
-                state._features['theta'] = theta_star
+                state.features['theta'] = theta_star
 
-                for i in range(len(theta_star)):
-                    state._features[f'theta-{i+1}'] = [theta_star[i]]
+                for i, theta_i in enumerate(theta_star):
+                    state.features[f'theta-{i+1}'] = [theta_i]
 
     def _add_theta(self,
                    train_data: SeriesCollection,
@@ -148,7 +149,8 @@ class EnhancedPODStrategy(PredictionStrategy):
         pred = []
         for i in range(n_timesteps):
             X = state_series[i,:].reshape(1, -1)
-            theta = np.asarray([self._theta_model[r]._predict_all(X[np.newaxis, :])[0] for r in range(self.num_moments)])
+            theta = np.asarray([self._theta_model[r].predict_processed_inputs(X[np.newaxis, :])[0]
+                                    for r in range(self.num_moments)])
             pred.append(self._pod_matrix @ theta.flatten())
 
         y = np.asarray(pred)
@@ -156,7 +158,6 @@ class EnhancedPODStrategy(PredictionStrategy):
             y = y[:, np.newaxis]
 
         return y.reshape(n_timesteps, -1)
-
 
     def save_model(self, file_name: str, clean_files: bool = True) -> None:
         """ A method for saving a trained model
@@ -179,7 +180,7 @@ class EnhancedPODStrategy(PredictionStrategy):
                 h5_file.create_dataset(f'constraint_{i+1}_W', data=W)
 
             for i in range(self.num_moments):
-                self._theta_model[i].write_model_to_hdf5(h5_file, group=f'theta-{i+1}')
+                self._theta_model[i].write_model_to_hdf5(h5_file, group=f'theta-{i+1}', clean_files=clean_files)
 
     def load_model(self, h5_file: h5py.File) -> None:
         """ A method for loading a trained model
@@ -189,22 +190,20 @@ class EnhancedPODStrategy(PredictionStrategy):
         h5_file : h5py.File
             An open HDF5 file object from which to load the model
         """
-        import os
-
         file_name = h5_file.filename
         self.base_load_model(h5_file)
 
-        with h5py.File(file_name, 'r') as h5_file:
-            self.num_moments  = int(h5_file['num_moments'][()])
-            self._pod_matrix     = h5_file['pod_mat'][()]
-            #TODO fix for NN
-            self._theta_model    = [GBMStrategy(self.input_features, f'theta-{i+1}') for i in range(self.num_moments)]
+        self.num_moments  = int(h5_file['num_moments'][()])
+        self._pod_matrix     = h5_file['pod_mat'][()]
+        #TODO fix for NN
+        self._theta_model    = [GBMStrategy(self.input_features, f'theta-{i+1}') for i in range(self.num_moments)]
 
-            num_constraints = int(h5_file['num_constraints'][()])
-            self._constraints = [(h5_file[f'constraint_{i+1}_gamma'][()], h5_file[f'constraint_{i+1}_W'][()]) for i in range(num_constraints)]
+        num_constraints = int(h5_file['num_constraints'][()])
+        self._constraints = [(h5_file[f'constraint_{i+1}_gamma'][()],
+                                  h5_file[f'constraint_{i+1}_W'][()]) for i in range(num_constraints)]
 
-            for i in range(self.num_moments):
-                self._theta_model[i].load_model(h5_file, group=f'theta-{i+1}')
+        for i in range(self.num_moments):
+            self._theta_model[i].load_model(h5_file, group=f'theta-{i+1}')
 
     @classmethod
     def read_from_file(cls, file_name: str) -> EnhancedPODStrategy:
