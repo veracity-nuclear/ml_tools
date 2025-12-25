@@ -167,11 +167,6 @@ class EnhancedPODStrategy(PredictionStrategy):
             The name of the file to export the model to
         """
         file_name = file_name if file_name.endswith(".h5") else file_name + ".h5"
-        lgbm_names = [file_name.removesuffix(".h5") + f'-{i+1}.lgbm' for i in range(self.num_moments)]
-
-        for i, lgbm_name in enumerate(lgbm_names):
-            # TODO: saves a bunch of lgbm models. This is gross, need to define something on the base class to handle it.
-            self._theta_model[i]._gbm.save_model(lgbm_name)
 
         with h5py.File(file_name, 'a') as h5_file:
             self.base_save_model(h5_file)
@@ -184,11 +179,7 @@ class EnhancedPODStrategy(PredictionStrategy):
                 h5_file.create_dataset(f'constraint_{i+1}_W', data=W)
 
             for i in range(self.num_moments):
-                with open(lgbm_names[i], 'rb') as file:
-                    file_data = file.read()
-                h5_file.create_dataset(f'serialized_lgbm_file_{i+1}', data=file_data)
-                # if clean_files:
-                    # os.remove(lgbm_name[i])
+                self._theta_model[i].write_model_to_hdf5(h5_file, group=f'theta-{i+1}')
 
     def load_model(self, h5_file: h5py.File) -> None:
         """ A method for loading a trained model
@@ -198,7 +189,6 @@ class EnhancedPODStrategy(PredictionStrategy):
         h5_file : h5py.File
             An open HDF5 file object from which to load the model
         """
-        import lightgbm as lgb
         import os
 
         file_name = h5_file.filename
@@ -214,16 +204,7 @@ class EnhancedPODStrategy(PredictionStrategy):
             self._constraints = [(h5_file[f'constraint_{i+1}_gamma'][()], h5_file[f'constraint_{i+1}_W'][()]) for i in range(num_constraints)]
 
             for i in range(self.num_moments):
-                lgbm_name = file_name.removesuffix(".h5") + f'-{i+1}.lgbm'
-                read_lgbm_h5 = not os.path.exists(lgbm_name)
-                if read_lgbm_h5:
-                    file_data = h5_file[f'serialized_lgbm_file_{i+1}'][()]
-                    with open(lgbm_name, 'wb') as file:
-                        file.write(file_data)
-                # this is gross, need to define something on the base class to handle it
-                self._theta_model[i]._gbm = lgb.Booster(model_file=lgbm_name)
-                if read_lgbm_h5:
-                    os.remove(lgbm_name)
+                self._theta_model[i].load_model(h5_file, group=f'theta-{i+1}')
 
     @classmethod
     def read_from_file(cls, file_name: str) -> EnhancedPODStrategy:
