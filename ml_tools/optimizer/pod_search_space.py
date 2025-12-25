@@ -57,11 +57,11 @@ class PODSearchSpace(SearchSpace):
 
         @property
         def fine_to_coarse_map(self) -> CategoricalDimension:
-            return self.fields["constraints"]
+            return self.fields["fine_to_coarse_map"]
 
         @fine_to_coarse_map.setter
         def fine_to_coarse_map(self, value: CategoricalDimension) -> None:
-            self.fields["constraints"] = value
+            self.fields["fine_to_coarse_map"] = value
 
         @property
         def nclusters(self) -> IntDimension:
