@@ -339,51 +339,86 @@ class PredictionStrategy(ABC):
 
         return same_pred and same_inputs and same_bias
 
-    def base_save_model(self, h5_file: h5py.File) -> None:
+    def base_save_model(self, h5_group: h5py.Group) -> None:
         """ A method for saving base-class data for a trained model
 
         Parameters
         ----------
-        h5_file : h5py.File
-            An opened, writeable HDF5 file handle
+        h5_group : h5py.Group
+            An opened, writeable HDF5 group or file handle
         """
-        #TODO: need to handle biasing
         if self._biasing_model is not None:
-            raise AttributeError('Cannot save model with bias model attached')
+            biasing_model_group = h5_group.create_group('biasing_model')
+            self._biasing_model.write_model_to_hdf5(biasing_model_group)
 
-        pred_group = h5_file.create_group('predicted_features')
+        pred_group = h5_group.create_group('predicted_features')
         pred_order = self.predicted_feature_names
         for name in pred_order:
             write_feature_processor(pred_group.create_group(name), self.predicted_features[name])
         if self._predicted_feature_sizes is not None:
             sizes = [self._predicted_feature_sizes[name] for name in pred_order]
-            h5_file.create_dataset('predicted_feature_sizes', data=sizes)
-        input_features_group = h5_file.create_group('input_features')
+            h5_group.create_dataset('predicted_feature_sizes', data=sizes)
+        input_features_group = h5_group.create_group('input_features')
         for name, feature in self.input_features.items():
             write_feature_processor(input_features_group.create_group(name), feature)
 
+    def save_model(self, file_name: str) -> None:
+        """ A method for saving a trained model
 
-    def base_load_model(self, h5_file: h5py.File) -> None:
+        Parameters
+        ----------
+        file_name : str
+            The name of the file to export the model to
+        """
+        file_name = file_name if file_name.endswith(".h5") else file_name + ".h5"
+        with h5py.File(file_name, 'a') as h5_file:
+            self.base_save_model(h5_file)
+            self.write_model_to_hdf5(h5_file)
+
+    def write_model_to_hdf5(self, h5_group: h5py.Group) -> None:
+        """ A method for writing the model to an already opened HDF5 file
+
+        Parameters
+        ----------
+        h5_group : h5py.Group
+            The opened HDF5 file or group to which the model should be written
+        """
+        pass
+
+    def load_model(self, h5_group: h5py.Group) -> None:
+        """ A method for loading a trained model
+
+        Parameters
+        ----------
+        h5_group : h5py.Group
+            The opened HDF5 file or group from which the model should be loaded
+        """
+        self.base_load_model(h5_group)
+
+    def base_load_model(self, h5_group: h5py.Group) -> None:
         """ A method for loading base-class data for a trained model
 
         Parameters
         ----------
-        h5_file : h5py.File
-            An opened HDF5 file handle
+        h5_group : h5py.Group
+            An opened HDF5 group or file handle
         """
-        pred_group = h5_file['predicted_features']
+        pred_group = h5_group['predicted_features']
         pred_order = list(pred_group.keys())
         predicted_features = {}
         for name in pred_order:
             predicted_features[name] = read_feature_processor(pred_group[name])
         self.predicted_features = predicted_features
-        if 'predicted_feature_sizes' in h5_file:
-            sizes = [int(v) for v in h5_file['predicted_feature_sizes'][()]]
+        if 'predicted_feature_sizes' in h5_group:
+            sizes = [int(v) for v in h5_group['predicted_feature_sizes'][()]]
             self._predicted_feature_sizes = dict(zip(pred_order, sizes))
         input_features = {}
-        for name, feature in h5_file['input_features'].items():
+        for name, feature in h5_group['input_features'].items():
             input_features[name] = read_feature_processor(feature)
         self.input_features = input_features
+
+        if 'biasing_model' in h5_group:
+            self._biasing_model.load_model(h5_group['biasing_model'])
 
     @classmethod
     @abstractmethod
