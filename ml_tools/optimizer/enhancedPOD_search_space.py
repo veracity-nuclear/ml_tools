@@ -5,8 +5,6 @@ from ml_tools.optimizer.search_space import (
     IntDimension,
     CategoricalDimension,
 )
-from ml_tools.optimizer.gbm_search_space import GBMSearchSpace
-
 
 class EnhancedPODSearchSpace(SearchSpace):
     """EnhancedPODStrategy hyperparameter search space.
@@ -74,7 +72,7 @@ class EnhancedPODSearchSpace(SearchSpace):
         @property
         def theta_model_type(self) -> CategoricalDimension:
             return self.fields["theta_model_type"]
-        
+
         @theta_model_type.setter
         def theta_model_type(self, value: CategoricalDimension) -> None:
             self.fields["theta_model_type"] = value
@@ -92,7 +90,7 @@ class EnhancedPODSearchSpace(SearchSpace):
                      max_svd_size:   CategoricalDimension = CategoricalDimension([None]),
                      num_moments:    IntDimension = IntDimension(6, 6),
                      constraints:    CategoricalDimension=CategoricalDimension([[]]),
-                     theta_model_settings:   StructDimension = StructDimension()) -> None:
+                     theta_model_settings:   StructDimension = None) -> None:
 
             self.fields = {}
             self.theta_model_type = theta_model_type

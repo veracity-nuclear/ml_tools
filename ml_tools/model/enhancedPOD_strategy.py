@@ -52,7 +52,7 @@ class EnhancedPODStrategy(PredictionStrategy):
     @property
     def max_svd_size(self) -> Optional[int]:
         return self._max_svd_size
-    
+
     @property
     def theta_model_type(self) -> Optional[str]:
         return self._theta_model_type
@@ -248,8 +248,8 @@ class EnhancedPODStrategy(PredictionStrategy):
 
         with h5py.File(file_name, "r") as h5_file:
             r = int(h5_file['num_moments'][()])
-            theta_model_type = h5_file['theta_model_type'][()].decode('utf-8')
-        new_pod = cls({}, None, r, theta_model_type=theta_model_type)
+            theta_model_type = str(h5_file['theta_model_type'][()]).decode('utf-8')
+        new_pod = cls({}, None, r, theta_model_type)
         new_pod.load_model(h5py.File(file_name, "r"))
 
         return new_pod
