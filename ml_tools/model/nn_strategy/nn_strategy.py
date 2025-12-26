@@ -289,7 +289,7 @@ class NNStrategy(PredictionStrategy):
             "gather_indices": gather_indices,
             "GraphSAGEConv": GraphSAGEConv,
             "GraphAttentionConv": GraphAttentionConv,
-        })        
+        })
 
     @classmethod
     def read_from_file(cls: NNStrategy, file_name: str) -> Type[NNStrategy]:

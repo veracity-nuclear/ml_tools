@@ -372,7 +372,6 @@ class PredictionStrategy(ABC):
         """
         file_name = file_name if file_name.endswith(".h5") else file_name + ".h5"
         with h5py.File(file_name, 'w') as h5_file:
-            self.base_save_model(h5_file)
             self.write_model_to_hdf5(h5_file)
 
     def write_model_to_hdf5(self, h5_group: h5py.Group) -> None:
@@ -383,7 +382,6 @@ class PredictionStrategy(ABC):
         h5_group : h5py.Group
             The opened HDF5 file or group to which the model should be written
         """
-        pass
 
     def load_model(self, h5_group: h5py.Group) -> None:
         """ A method for loading a trained model

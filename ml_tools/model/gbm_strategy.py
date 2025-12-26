@@ -386,6 +386,7 @@ class GBMStrategy(PredictionStrategy):
         file_name = h5_group.file.filename
         lgbm_name = file_name.removesuffix(".h5") + ".lgbm" if file_name.endswith(".h5") else file_name + ".lgbm"
 
+        self.base_save_model(h5_group)
         self._gbm.save_model(lgbm_name)
         with open(lgbm_name, 'rb') as file:
             file_data = file.read()
