@@ -1,18 +1,18 @@
 from __future__ import annotations
 
 import os
-from typing import Optional, Type, Dict
-from math import isclose
+from typing import Optional, Dict
 import numpy as np
 import h5py
 
 from ml_tools.model.state import SeriesCollection
-from ml_tools.model.feature_processor import FeatureProcessor, NoProcessing
+from ml_tools.model.feature_processor import FeatureProcessor
 from ml_tools.model.prediction_strategy import PredictionStrategy
 from ml_tools.model import register_prediction_strategy
 from ml_tools.model.gbm_strategy import GBMStrategy
+from ml_tools.model.nn_strategy import NNStrategy
 
-@register_prediction_strategy()  # registers under 'GBMStrategy' by default
+@register_prediction_strategy()  # registers under 'EnhancedPODStrategy' by default
 class EnhancedPODStrategy(PredictionStrategy):
     """ A concrete class for an enhanced POD-based prediction strategy
 
@@ -24,11 +24,12 @@ class EnhancedPODStrategy(PredictionStrategy):
 
     Parameters
     ----------
-    input_feature : str
-        The feature to use as input for this model.  Note: This strategy only allows one input feature and
-        this feature is expected to be a vector of floats
+    input_features : Dict[str, FeatureProcessor]
+        The feature to use as input for this model.
     predicted_feature : str
         The string specifying the feature to be predicted
+    theta_model_type : Optional[str]
+        The type of model to use for predicting theta.  Supported types are 'GBM' and 'NN'.  Default is 'GBM'.
     max_svd_size : int
         The maximum allowed number of training samples to use for the SVD of a cluster POD model
     num_moments : int
@@ -38,18 +39,11 @@ class EnhancedPODStrategy(PredictionStrategy):
 
     Attributes
     ----------
-    input_feature : str
-        The feature to use as input for this model.  Note: This strategy only allows one input feature and
-        this feature is expected to be a vector of floats
     max_svd_size : int
         The maximum allowed number of training samples to use for the SVD of a cluster POD model
     num_moments : int
         The number of total moments to use in the POD analysis
     """
-
-    @property
-    def input_feature(self) -> str:
-        return self._input_feature
 
     @property
     def num_moments(self) -> Optional[int]:
@@ -60,32 +54,45 @@ class EnhancedPODStrategy(PredictionStrategy):
         return self._max_svd_size
 
     @property
+    def theta_model_type(self) -> Optional[str]:
+        return self._theta_model_type
+
+    @property
     def isTrained(self) -> bool:
         return self._pod_matrix is not None
 
     def __init__(self,
-                 input_features:     Dict[str, FeatureProcessor],
-                 predicted_feature:  str,
-                 max_svd_size:       Optional[int] = None,
-                 num_moments:        Optional[int] = None,
-                 constraints:        Optional[list] = [],
-                 gbm_settings:       Optional[dict] = {}) -> None:
+                 input_features:        Dict[str, FeatureProcessor],
+                 predicted_feature:     str,
+                 theta_model_type:      Optional[str] = 'GBM',
+                 max_svd_size:          Optional[int] = None,
+                 num_moments:           Optional[int] = 1,
+                 constraints:           Optional[list] = [],
+                 theta_model_settings:  Optional[dict] = {}) -> None:
 
         super().__init__()
         self.input_features    = input_features
         self.predicted_feature = predicted_feature
-        self._input_feature    = input_features.keys()
         self._num_moments      = num_moments
         self._max_svd_size     = max_svd_size
         self._constraints      = constraints
         self._pod_matrix       = None
-        self._gbm              = [GBMStrategy(input_features, f'theta-{i+1}', **gbm_settings) for i in range(num_moments)]
-
+        self._theta_model_type = theta_model_type
+        if theta_model_type == "GBM":
+            self._theta_model      = [GBMStrategy(input_features, f'theta-{i+1}', **theta_model_settings)
+                                        for i in range(num_moments)]
+        elif theta_model_type == "NN":
+            # NN can predict all moments at once
+            self._theta_model      = [NNStrategy(input_features, 'theta', **theta_model_settings)]
+        else:
+            raise ValueError(f"Unsupported theta model type: {theta_model_type}")
 
     def _solve_theta_star(self, predicted):
         """
         theta = U^T * predicted_feature
-        theta_star = argmin_theta ||A theta - b||^2_2 + gamma ||theta||^2_2
+        theta_star = argmin_theta ||U theta - predicted_feature||^2_2
+                                  + gamma_1 ||W_1*(U theta - predicted_feature) ||^2_2
+                                  + gamma_2 ||W_2*(U theta - predicted_feature) ||^2_2
         """
         if len(self._constraints) == 0:
             return self._pod_matrix.T @ predicted
@@ -106,10 +113,10 @@ class EnhancedPODStrategy(PredictionStrategy):
             for state in series:
                 predicted   = state[self.predicted_feature]
                 theta_star = self._solve_theta_star(predicted)
-                state._features['theta'] = theta_star
+                state.features['theta'] = theta_star
 
-                for i in range(len(theta_star)):
-                    state._features[f'theta-{i+1}'] = [theta_star[i]]
+                for i, theta_i in enumerate(theta_star):
+                    state.features[f'theta-{i+1}'] = [theta_i]
 
     def _add_theta(self,
                    train_data: SeriesCollection,
@@ -138,10 +145,11 @@ class EnhancedPODStrategy(PredictionStrategy):
         self._add_theta(train_data, test_data)
 
         # train models
-        for gbm in self._gbm:
-            print(gbm.predicted_feature)
-            #print('Stopped training temporarily for debugging')
-            gbm.train(train_data, test_data, num_procs)
+        for model in self._theta_model:
+            if isinstance(model, NNStrategy):
+                model.train(train_data + test_data, num_procs=num_procs)
+            else:
+                model.train(train_data, test_data, num_procs=num_procs)
 
     def _predict_one(self, state_series: np.ndarray) -> np.ndarray:
         assert self.isTrained
@@ -151,7 +159,8 @@ class EnhancedPODStrategy(PredictionStrategy):
         pred = []
         for i in range(n_timesteps):
             X = state_series[i,:].reshape(1, -1)
-            theta = np.asarray([self._gbm[i]._predict_all(X[np.newaxis, :])[0] for i in range(self.num_moments)])
+            theta = np.asarray([self._theta_model[r].predict_processed_inputs(X[np.newaxis, :])[0]
+                                    for r in range(self.num_moments)])
             pred.append(self._pod_matrix @ theta.flatten())
 
         y = np.asarray(pred)
@@ -160,75 +169,68 @@ class EnhancedPODStrategy(PredictionStrategy):
 
         return y.reshape(n_timesteps, -1)
 
-
-    def save_model(self, file_name: str, clean_files: bool = True) -> None:
+    def write_model_to_hdf5(self, h5_group: h5py.Group) -> None:
         """ A method for saving a trained model
 
         Parameters
         ----------
-        file_name : str
-            The name of the file to export the model to
+        h5_group : h5py.Group
+            The opened HDF5 group or file to which the model should be written
         """
-        file_name = file_name if file_name.endswith(".h5") else file_name + ".h5"
-        lgbm_names = [file_name.removesuffix(".h5") + f'-{i+1}.lgbm' for i in range(self.num_moments)]
+        file_name = h5_group.file.filename
 
-        for i, lgbm_name in enumerate(lgbm_names):
-            # TODO: saves a bunch of lgbm models. This is gross, need to define something on the base class to handle it.
-            self._gbm[i]._gbm.save_model(lgbm_name)
+        self.base_save_model(h5_group)
+        h5_group.create_dataset('num_moments', data=self.num_moments)
+        h5_group.create_dataset('pod_mat', data=self._pod_matrix)
+        h5_group.create_dataset('num_constraints', data=len(self._constraints))
+        h5_group.create_dataset('max_svd_size', data=self._max_svd_size)
+        h5_group.create_dataset('theta_model_type', data=self._theta_model_type)
 
-        with h5py.File(file_name, 'a') as h5_file:
-            self.base_save_model(h5_file)
-            h5_file.create_dataset('num_moments', data=self.num_moments)
-            h5_file.create_dataset('pod_mat', data=self._pod_matrix)
-            h5_file.create_dataset('num_constraints', data=len(self._constraints))
+        for i, (gamma, W) in enumerate(self._constraints):
+            h5_group.create_dataset(f'constraint_{i+1}_gamma', data=gamma)
+            h5_group.create_dataset(f'constraint_{i+1}_W', data=W)
 
-            for i, (gamma, W) in enumerate(self._constraints):
-                h5_file.create_dataset(f'constraint_{i+1}_gamma', data=gamma)
-                h5_file.create_dataset(f'constraint_{i+1}_W', data=W)
-
+        if self._theta_model_type == "NN":
+            theta_group = h5_group.require_group('theta')
+            self._theta_model[0].write_model_to_hdf5(theta_group)
+        else:
             for i in range(self.num_moments):
-                with open(lgbm_names[i], 'rb') as file:
-                    file_data = file.read()
-                h5_file.create_dataset(f'serialized_lgbm_file_{i+1}', data=file_data)
-                # if clean_files:
-                    # os.remove(lgbm_name[i])
+                theta_group = h5_group.require_group(f'theta-{i+1}')
+                self._theta_model[i].write_model_to_hdf5(theta_group)
 
-    def load_model(self, h5_file: h5py.File) -> None:
+    def load_model(self, h5_group: h5py.Group) -> None:
         """ A method for loading a trained model
 
         Parameters
         ----------
-        h5_file : str
-            The name of the file to load the model from
+        h5_group : h5py.Group
+            An open HDF5 group or file object from which to load the model
         """
-        import lightgbm as lgb
-        import os
+        file_name = h5_group.file.filename
+        self.base_load_model(h5_group)
 
-        file_name = h5_file.filename
-        self.base_load_model(h5_file)
+        self._num_moments    = int(h5_group['num_moments'][()])
+        self._pod_matrix     = h5_group['pod_mat'][()]
+        self._theta_model_type = h5_group['theta_model_type'][()].decode('utf-8')
+        if self._theta_model_type == "GBM":
+            self._theta_model    = [GBMStrategy(self.input_features, f'theta-{i+1}') for i in range(self.num_moments)]
+        elif self._theta_model_type == "NN":
+            self._theta_model    = [NNStrategy(self.input_features, 'theta')]
+        else:
+            raise ValueError(f"Unsupported theta model type: {self._theta_model_type}")
 
-        with h5py.File(file_name, 'r') as h5_file:
-            self.num_moments  = int(h5_file['num_moments'][()])
-            self._pod_matrix     = h5_file['pod_mat'][()]
-            self._gbm         = [GBMStrategy(self.input_features, f'theta-{i+1}') for i in range(self.num_moments)]
+        num_constraints = int(h5_group['num_constraints'][()])
+        self._constraints = [(h5_group[f'constraint_{i+1}_gamma'][()],
+                                  h5_group[f'constraint_{i+1}_W'][()]) for i in range(num_constraints)]
 
-            num_constraints = int(h5_file['num_constraints'][()])
-            self._constraints = [(h5_file[f'constraint_{i+1}_gamma'][()], h5_file[f'constraint_{i+1}_W'][()]) for i in range(num_constraints)]
-
+        if self._theta_model_type == "NN":
+            self._theta_model[0].load_model(h5_group['theta'])
+        else:
             for i in range(self.num_moments):
-                lgbm_name = file_name.removesuffix(".h5") + f'-{i+1}.lgbm'
-                read_lgbm_h5 = not os.path.exists(lgbm_name)
-                if read_lgbm_h5:
-                    file_data = h5_file[f'serialized_lgbm_file_{i+1}'][()]
-                    with open(lgbm_name, 'wb') as file:
-                        file.write(file_data)
-                # this is gross, need to define something on the base class to handle it
-                self._gbm[i]._gbm = lgb.Booster(model_file=lgbm_name)
-                if read_lgbm_h5:
-                    os.remove(lgbm_name)
+                self._theta_model[i].load_model(h5_group[f'theta-{i+1}'])
 
     @classmethod
-    def read_from_file(cls: EnhancedPODStrategy, file_name: str) -> Type[EnhancedPODStrategy]:
+    def read_from_file(cls, file_name: str) -> EnhancedPODStrategy:
         """ A basic factory method for building a MIP-DT Strategy from an HDF5 file
 
         Parameters
@@ -246,22 +248,8 @@ class EnhancedPODStrategy(PredictionStrategy):
 
         with h5py.File(file_name, "r") as h5_file:
             r = int(h5_file['num_moments'][()])
-        new_pod = cls({}, None, r)
+            theta_model_type = str(h5_file['theta_model_type'][()]).decode('utf-8')
+        new_pod = cls({}, None, r, theta_model_type)
         new_pod.load_model(h5py.File(file_name, "r"))
 
         return new_pod
-
-
-    @classmethod
-    def from_dict(cls,
-                  params:            Dict,
-                  input_features:    Dict[str, FeatureProcessor],
-                  predicted_feature: str,
-                  biasing_model:     Optional[PredictionStrategy] = None) -> GBMStrategy:
-
-        instance = cls(input_features    = input_features,
-                       predicted_feature = predicted_feature,
-                       **params)
-        if biasing_model is not None:
-            instance.biasing_model = biasing_model
-        return instance

@@ -46,7 +46,7 @@ class PODStrategy(PredictionStrategy):
     input_feature : str
         The feature to use as input for this model.  Note: This strategy only allows one input feature and
         this feature is expected to be a vector of floats
-    constraints : np.ndarray
+    fine_to_coarse_map: np.ndarray
         The mapping that specifies the weights of the predicted feature "fine-mesh" signals to the
         input feature "coarse-mesh".  This should be an M-by-N matrix where M is the number of input feature
         values and N is the number of predicted feature values.  Each row of this matrix should sum to 1.0.
@@ -120,7 +120,7 @@ class PODStrategy(PredictionStrategy):
         assert all(isclose(row.sum(), 1.) for row in self.fine_to_coarse_map)
 
         # Setup of the PCA project and K-means clustering of the input feature based on the training samples
-        targets = np.vstack([np.array(series) for series in self._get_targets(train_data)])
+        targets = np.vstack([np.array(series) for series in self._get_targets(train_data, num_procs=num_procs)])
         if self.nclusters > 1:
             self._kmeans = KMeans(n_clusters=self.nclusters)
             X            = self.preprocess_inputs(train_data)
@@ -190,27 +190,6 @@ class PODStrategy(PredictionStrategy):
                 self.ndims         == other.ndims         and
                 np.allclose(self.fine_to_coarse_map, other.fine_to_coarse_map))
 
-
-    def save_model(self, file_name: str) -> None:
-        """ A method for saving a trained model
-
-        Parameters
-        ----------
-        file_name : str
-            The name of the file to export the model to
-        """
-        raise NotImplementedError
-
-    def load_model(self, file_name: str) -> None:
-        """ A method for loading a trained model
-
-        Parameters
-        ----------
-        file_name : str
-            The name of the file to load the model from
-        """
-        raise NotImplementedError
-
     @classmethod
     def read_from_file(cls, file_name: str) -> Type[PODStrategy]:
         """ A method for loading a trained model from a file
@@ -233,8 +212,8 @@ class PODStrategy(PredictionStrategy):
             "PODStrategy requires exactly one input feature"
         input_feature = list(input_features.keys())[0]
         kwargs = {
-            "constraints": (np.asarray(params.get("constraints"), dtype=float)
-                                    if params.get("constraints") is not None else None),
+            "fine_to_coarse_map": (np.asarray(params.get("fine_to_coarse_map"), dtype=float)
+                                    if params.get("fine_to_coarse_map") is not None else None),
             "nclusters": params.get("nclusters", 1),
             "max_svd_size": params.get("max_svd_size", None),
             "ndims": params.get("ndims", None),
@@ -248,7 +227,7 @@ class PODStrategy(PredictionStrategy):
 
     def to_dict(self) -> Dict:
         return {"input_feature":      self.input_feature,
-                "constraints": (self.fine_to_coarse_map.tolist()),
+                "fine_to_coarse_map": (self.fine_to_coarse_map.tolist()),
                 "nclusters":          self.nclusters,
                 "max_svd_size":       self.max_svd_size,
                 "ndims":              self.ndims}

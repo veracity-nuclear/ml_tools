@@ -103,10 +103,15 @@ class PredictionStrategy(ABC):
             The preprocessed collection of state series input features. All series are padded
             with 0.0 to match the length of the longest series.
         """
-        input_features = [self.input_features] * len(series_collection) # input_features for each worker
-
-        with ProcessPoolExecutor(max_workers=num_procs) as executor:
-            processed_inputs = list(executor.map(self._process_single_series, series_collection, input_features))
+        if num_procs <= 1:
+            processed_inputs = [
+                self._process_single_series(series, self.input_features)
+                for series in series_collection
+            ]
+        else:
+            input_features = [self.input_features] * len(series_collection)  # input_features for each worker
+            with ProcessPoolExecutor(max_workers=num_procs) as executor:
+                processed_inputs = list(executor.map(self._process_single_series, series_collection, input_features))
 
         return self._pad_series(processed_inputs)
 
@@ -120,9 +125,13 @@ class PredictionStrategy(ABC):
 
         processed_inputs = []
         for feature, processor in input_features.items():
-            feature_data = np.array([state[feature] for state in series])
-            processed_data = processor.preprocess(feature_data)
-            processed_inputs.append(np.vstack(processed_data))
+            feature_data = np.array([state.features[feature] for state in series])
+            processed_data = np.asarray(processor.preprocess(feature_data))
+            if processed_data.ndim == 1:
+                processed_data = processed_data[:, np.newaxis]
+            elif processed_data.ndim > 2:
+                processed_data = np.vstack(processed_data)
+            processed_inputs.append(processed_data)
         return np.hstack(processed_inputs)
 
     @staticmethod
@@ -174,37 +183,70 @@ class PredictionStrategy(ABC):
 
         return same_pred and same_inputs and same_bias
 
-    def base_save_model(self, h5_file: h5py.File) -> None:
+    def base_save_model(self, h5_group: h5py.Group) -> None:
         """ A method for saving base-class data for a trained model
 
         Parameters
         ----------
-        h5_file : h5py.File
-            An opened, writeable HDF5 file handle
+        h5_group : h5py.Group
+            An opened, writeable HDF5 group or file handle
         """
-        #TODO: need to handle biasing
         if self._biasing_model is not None:
-            raise AttributeError('Cannot save model with bias model attached')
+            biasing_model_group = h5_group.create_group('biasing_model')
+            self._biasing_model.write_model_to_hdf5(biasing_model_group)
 
-        h5_file.create_dataset('predicted_feature', data=self.predicted_feature)
-        input_features_group = h5_file.create_group('input_features')
+        h5_group.create_dataset('predicted_feature', data=self.predicted_feature)
+        input_features_group = h5_group.create_group('input_features')
         for name, feature in self.input_features.items():
             write_feature_processor(input_features_group.create_group(name), feature)
 
+    def save_model(self, file_name: str) -> None:
+        """ A method for saving a trained model
 
-    def base_load_model(self, h5_file: h5py.File) -> None:
+        Parameters
+        ----------
+        file_name : str
+            The name of the file to export the model to
+        """
+        file_name = file_name if file_name.endswith(".h5") else file_name + ".h5"
+        with h5py.File(file_name, 'w') as h5_file:
+            self.write_model_to_hdf5(h5_file)
+
+    def write_model_to_hdf5(self, h5_group: h5py.Group) -> None:
+        """ A method for writing the model to an already opened HDF5 file
+
+        Parameters
+        ----------
+        h5_group : h5py.Group
+            The opened HDF5 file or group to which the model should be written
+        """
+
+    def load_model(self, h5_group: h5py.Group) -> None:
+        """ A method for loading a trained model
+
+        Parameters
+        ----------
+        h5_group : h5py.Group
+            The opened HDF5 file or group from which the model should be loaded
+        """
+        self.base_load_model(h5_group)
+
+    def base_load_model(self, h5_group: h5py.Group) -> None:
         """ A method for loading base-class data for a trained model
 
         Parameters
         ----------
-        h5_file : h5py.File
-            An opened HDF5 file handle
+        h5_group : h5py.Group
+            An opened HDF5 group or file handle
         """
-        self.predicted_feature = h5_file['predicted_feature'][()].decode('utf-8')
+        self.predicted_feature = h5_group['predicted_feature'][()].decode('utf-8')
         input_features = {}
-        for name, feature in h5_file['input_features'].items():
+        for name, feature in h5_group['input_features'].items():
             input_features[name] = read_feature_processor(feature)
         self.input_features = input_features
+
+        if 'biasing_model' in h5_group:
+            self._biasing_model.load_model(h5_group['biasing_model'])
 
     @classmethod
     @abstractmethod
@@ -219,13 +261,18 @@ class PredictionStrategy(ABC):
         raise NotImplementedError
 
 
-    def predict(self, series_collection: SeriesCollection) -> List[List[np.ndarray]]:
+    def predict(self,
+                series_collection: SeriesCollection,
+                num_procs:         int = 1,
+    ) -> List[List[np.ndarray]]:
         """Approximate predicted features for each state in each series.
 
         Parameters
         ----------
         series_collection : SeriesCollection
             The input state series collection which to predict outputs for
+        num_procs : int, optional
+            The number of processes to use for parallel processing, by default 1
 
         Returns
         -------
@@ -235,47 +282,65 @@ class PredictionStrategy(ABC):
             is the predicted output for that state. Padding is removed, so only
             real timesteps from the input are returned.
         """
-        padded_predictions = self.predict_padded(series_collection)
+        processed_inputs = self.preprocess_inputs(series_collection, num_procs=num_procs)
+        padded_predictions = self.predict_processed_inputs(processed_inputs)
         series_lengths = [len(series) for series in series_collection]
-
-        ragged_predictions: List[List[np.ndarray]] = []
-        for padded, series_len in zip(padded_predictions, series_lengths):
-            ragged_predictions.append([np.asarray(padded[i]) for i in range(series_len)])
-
-        return ragged_predictions
+        return self.post_process_outputs(padded_predictions, series_lengths)
 
 
-    def predict_padded(self, series_collection: SeriesCollection) -> np.ndarray:
-        """Predict target values with padding to the maximum series length.
+    def predict_processed_inputs(self, processed_inputs: np.ndarray) -> np.ndarray:
+        """Predict target values from preprocessed, padded inputs.
 
         Parameters
         ----------
-        series_collection : SeriesCollection
-            Collection of input state series to predict.
+        processed_inputs : np.ndarray
+            Preprocessed and padded input features.
 
         Returns
         -------
         np.ndarray
             Array of shape (num_series, max_timesteps, output_dim) containing
-            predictions for each series. Shorter series are padded with NaNs
-            past their true length.
+            predictions for each series. No NaN padding adjustments are made.
         """
         assert self.isTrained
 
-        processed_series_collection = self.preprocess_inputs(series_collection)
-
-        y = np.asarray(self._predict_all(processed_series_collection), dtype=np.float32)
+        y = np.asarray(self._predict_all(processed_inputs), dtype=np.float32)
 
         if self.hasBiasingModel:
             # pylint: disable=protected-access
-            y += self.biasing_model._predict_all(processed_series_collection)
+            y += self.biasing_model._predict_all(processed_inputs)
 
-        series_lengths = [len(series) for series in series_collection]
-        max_len = y.shape[1] if y.ndim >= 2 else 0
-        for idx, series_len in enumerate(series_lengths):
-            if series_len < max_len:
-                y[idx, series_len:, ...] = np.nan
         return y
+
+
+    def post_process_outputs(
+        self,
+        padded_predictions: np.ndarray,
+        series_lengths: Optional[List[int]] = None,
+    ) -> List[List[np.ndarray]]:
+        """Convert padded predictions into ragged per-series outputs.
+
+        Parameters
+        ----------
+        padded_predictions : np.ndarray
+            Padded prediction array of shape (num_series, max_timesteps, output_dim).
+        series_lengths : Optional[List[int]]
+            True lengths for each series. If not provided, assumes all series
+            are full length.
+
+        Returns
+        -------
+        List[List[np.ndarray]]
+            Ragged list of predictions, trimmed to each series length.
+        """
+        if series_lengths is None:
+            series_lengths = [padded_predictions.shape[1]] * padded_predictions.shape[0]
+
+        ragged_predictions: List[List[np.ndarray]] = []
+        for padded, series_len in zip(padded_predictions, series_lengths):
+            ragged_predictions.append(list(padded[:series_len]))
+
+        return ragged_predictions
 
 
     def _predict_all(self, series_collection: np.ndarray) -> np.ndarray:
@@ -299,7 +364,7 @@ class PredictionStrategy(ABC):
         return np.asarray([self._predict_one(series) for series in series_collection])
 
 
-    def _get_targets(self, series_collection: SeriesCollection) -> np.ndarray:
+    def _get_targets(self, series_collection: SeriesCollection, num_procs: int = 1) -> np.ndarray:
         """ The method that extracts the target values for each state for training
 
         Target value in this case refers either directly to the predicted feature if
@@ -330,11 +395,14 @@ class PredictionStrategy(ABC):
             if not vals:
                 continue
             seq_targets.append(np.vstack(vals))
-
         targets = self._pad_series(seq_targets, pad_value=0.0)
+
         if self.hasBiasingModel:
-            bias = np.asarray(self.biasing_model.predict_padded(series_collection), dtype=np.float32)
-            bias = np.nan_to_num(bias, nan=0.0)
+            bias_ragged = self.biasing_model.predict(series_collection, num_procs=num_procs)
+            bias_series: List[np.ndarray] = []
+            for series in bias_ragged:
+                bias_series.append(np.vstack(series))
+            bias = self._pad_series(bias_series, pad_value=0.0)
             targets = targets - bias
         return targets
 

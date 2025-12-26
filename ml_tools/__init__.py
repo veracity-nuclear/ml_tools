@@ -7,5 +7,6 @@ from .model.feature_perturbator import (
 )
 from .model.prediction_strategy import PredictionStrategy
 from .model.gbm_strategy import GBMStrategy
-# from .model.nn_strategy import NNStrategy
+from .model.nn_strategy import NNStrategy
 from .model.pod_strategy import PODStrategy
+from .model.enhancedPOD_strategy import EnhancedPODStrategy

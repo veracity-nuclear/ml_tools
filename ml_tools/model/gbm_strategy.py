@@ -281,14 +281,14 @@ class GBMStrategy(PredictionStrategy):
 
         X_train   = self.preprocess_inputs(train_data, num_procs)
         X_train   = X_train.reshape(-1, X_train.shape[-1])
-        y_train   = np.vstack([np.array(series) for series in self._get_targets(train_data)])
+        y_train   = np.vstack([np.array(series) for series in self._get_targets(train_data, num_procs=num_procs)])
         lgb_train = lgb.Dataset(X_train, y_train)
 
         lgb_eval  = None
 
         X_test   = self.preprocess_inputs(test_data, num_procs)
         X_test   = X_test.reshape(-1, X_test.shape[-1])
-        y_test   = np.vstack([np.array(series) for series in self._get_targets(test_data)])
+        y_test   = np.vstack([np.array(series) for series in self._get_targets(test_data, num_procs=num_procs)])
         lgb_eval = lgb.Dataset(X_test, y_test, reference=lgb_train)
 
         params = {"boosting_type"    : self.boosting_type,
@@ -374,47 +374,43 @@ class GBMStrategy(PredictionStrategy):
                 isclose(self.reg_alpha,        other.reg_alpha,        rel_tol=1e-9) and
                 isclose(self.reg_lambda,       other.reg_lambda,       rel_tol=1e-9))
 
-
-    def save_model(self, file_name: str) -> None:
-        """ A method for saving a trained model
+    def write_model_to_hdf5(self, h5_group: h5py.Group) -> None:
+        """ A method for writing the model to an already opened HDF5 file
 
         Parameters
         ----------
-        file_name : str
-            The name of the file to export the model to
+        h5_group : h5py.Group
+            The opened HDF5 group or file to which the model should be written
         """
+        file_name = h5_group.file.filename
         lgbm_name = file_name.removesuffix(".h5") + ".lgbm" if file_name.endswith(".h5") else file_name + ".lgbm"
-        file_name = file_name if file_name.endswith(".h5") else file_name + ".h5"
 
+        self.base_save_model(h5_group)
         self._gbm.save_model(lgbm_name)
         with open(lgbm_name, 'rb') as file:
             file_data = file.read()
 
-        with h5py.File(file_name, 'a') as h5_file:
-            self.base_save_model(h5_file)
-            h5_file.create_dataset('serialized_lgbm_file', data=file_data)
+        h5_group.create_dataset('serialized_lgbm_file', data=file_data)
 
-
-    def load_model(self, h5_file: h5py.File) -> None:
+    def load_model(self, h5_group: h5py.Group) -> None:
         """ A method for loading a trained model
 
         Parameters
         ----------
-        file_name : str
-            The name of the file to load the model from
+        h5_group : h5py.Group
+            The opened HDF5 group or file from which the model should be loaded
         """
-        file_name = h5_file.filename
+        file_name = h5_group.file.filename
         lgbm_name = file_name.removesuffix(".h5") + ".lgbm" if file_name.endswith(".h5") else file_name + ".lgbm"
 
         read_lgbm_h5 = not os.path.exists(lgbm_name)
-        self.base_load_model(h5_file)
+        self.base_load_model(h5_group)
         if read_lgbm_h5:
-            file_data = h5_file['serialized_lgbm_file'][()]
+            file_data = h5_group['serialized_lgbm_file'][()]
             with open(lgbm_name, 'wb') as file:
                 file.write(file_data)
 
         self._gbm = lgb.Booster(model_file=lgbm_name)
-
 
     @classmethod
     def read_from_file(cls: GBMStrategy, file_name: str) -> Type[GBMStrategy]:
