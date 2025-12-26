@@ -209,7 +209,7 @@ class PredictionStrategy(ABC):
             The name of the file to export the model to
         """
         file_name = file_name if file_name.endswith(".h5") else file_name + ".h5"
-        with h5py.File(file_name, 'a') as h5_file:
+        with h5py.File(file_name, 'w') as h5_file:
             self.base_save_model(h5_file)
             self.write_model_to_hdf5(h5_file)
 
