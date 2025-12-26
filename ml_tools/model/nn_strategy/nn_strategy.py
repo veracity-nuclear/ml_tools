@@ -229,26 +229,61 @@ class NNStrategy(PredictionStrategy):
                 isclose(self.convergence_criteria,  other.convergence_criteria,  rel_tol=1e-9))
 
 
-    def save_model(self, file_name: str) -> None:
-        """ A method for saving a trained model
+    def write_model_to_hdf5(self, h5_group: h5py.Group) -> None:
+        """ A method for writing the model to an already opened HDF5 group or file
 
         Parameters
         ----------
-        file_name : str
-            The name of the file to export the model to
+        h5_group : h5py.Group
+            The opened HDF5 group or file to which the model should be written
         """
+        file_name = h5_group.file.filename
+        keras_name = file_name.removesuffix(".h5") + ".keras" if file_name.endswith(".h5") else file_name + ".keras"
 
-        self._model.save(file_name + ".keras")
+        self._model.save(keras_name)
+        with open(keras_name, 'rb') as file:
+            file_data = file.read()
+            h5_group.create_dataset('serialized_keras_file', data=np.void(file_data))
 
-        with h5py.File(file_name + ".h5", 'w') as h5_file:
-            self.base_save_model(h5_file)
-            h5_file.create_dataset('initial_learning_rate', data=self.initial_learning_rate)
-            h5_file.create_dataset('learning_decay_rate',   data=self.learning_decay_rate)
-            h5_file.create_dataset('epoch_limit',           data=self.epoch_limit)
-            h5_file.create_dataset('convergence_criteria',  data=self.convergence_criteria)
-            h5_file.create_dataset('batch_size',            data=self.batch_size)
-            self._layer_sequence.save(h5_file.create_group('neural_network'))
+        self.base_save_model(h5_group)
+        h5_group.create_dataset('initial_learning_rate', data=self.initial_learning_rate)
+        h5_group.create_dataset('learning_decay_rate',   data=self.learning_decay_rate)
+        h5_group.create_dataset('epoch_limit',           data=self.epoch_limit)
+        h5_group.create_dataset('convergence_criteria',  data=self.convergence_criteria)
+        h5_group.create_dataset('batch_size',            data=self.batch_size)
+        self._layer_sequence.save(h5_group.create_group('neural_network'))
 
+    def load_model(self, h5_group: h5py.Group) -> None:
+        """ A method for loading a trained model
+
+        Parameters
+        ----------
+        h5_group : h5py.Group
+            The opened HDF5 group or file from which the model should be loaded
+        """
+        file_name = h5_group.file.filename
+        keras_name = file_name[:-3] + ".keras"
+
+        self.base_load_model(h5_group)
+        self.initial_learning_rate = float( h5_group['initial_learning_rate'][()] )
+        self.learning_decay_rate   = float( h5_group['learning_decay_rate'][()]   )
+        self.epoch_limit           = int(   h5_group['epoch_limit'][()]           )
+        self.convergence_criteria  = float( h5_group['convergence_criteria'][()]  )
+        self.batch_size            = int(   h5_group['batch_size'][()]            )
+        self._layer_sequence       = LayerSequence.from_h5(h5_group['neural_network'])
+
+        read_keras_h5 = not os.path.exists(keras_name)
+        self.base_load_model(h5_group)
+        if read_keras_h5:
+            file_data = bytes(h5_group['serialized_keras_file'][()])
+            with open(keras_name, 'wb') as file:
+                file.write(file_data)
+
+        self._model = load_model(keras_name, custom_objects={
+            "gather_indices": gather_indices,
+            "GraphSAGEConv": GraphSAGEConv,
+            "GraphAttentionConv": GraphAttentionConv,
+        })        
 
     @classmethod
     def read_from_file(cls: NNStrategy, file_name: str) -> Type[NNStrategy]:
@@ -264,29 +299,11 @@ class NNStrategy(PredictionStrategy):
         NNStrategy:
             The model from the hdf5 file
         """
-
-        new_model = cls({}, None)
-
         file_name = file_name if file_name.endswith(".h5") else file_name + ".h5"
-        keras_name = file_name[:-3] + ".keras"
-        assert os.path.exists(keras_name), f"file name = {keras_name}"
         assert os.path.exists(file_name), f"file name = {file_name}"
 
-        with h5py.File(file_name, 'r') as h5_file:
-            new_model.base_load_model(h5_file)
-            new_model.initial_learning_rate = float( h5_file['initial_learning_rate'][()] )
-            new_model.learning_decay_rate   = float( h5_file['learning_decay_rate'][()]   )
-            new_model.epoch_limit           = int(   h5_file['epoch_limit'][()]           )
-            new_model.convergence_criteria  = float( h5_file['convergence_criteria'][()]  )
-            new_model.batch_size            = int(   h5_file['batch_size'][()]            )
-            new_model._layer_sequence       = LayerSequence.from_h5(h5_file['neural_network'])
-
-        new_model._model = load_model(keras_name, custom_objects={
-            "gather_indices": gather_indices,
-            "GraphSAGEConv": GraphSAGEConv,
-            "GraphAttentionConv": GraphAttentionConv,
-        })
-
+        new_model = cls({}, None)
+        new_model.load_model(h5py.File(file_name, "r"))
         return new_model
 
     @classmethod
