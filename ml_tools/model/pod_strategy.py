@@ -190,27 +190,6 @@ class PODStrategy(PredictionStrategy):
                 self.ndims         == other.ndims         and
                 np.allclose(self.fine_to_coarse_map, other.fine_to_coarse_map))
 
-
-    def save_model(self, file_name: str) -> None:
-        """ A method for saving a trained model
-
-        Parameters
-        ----------
-        file_name : str
-            The name of the file to export the model to
-        """
-        raise NotImplementedError
-
-    def load_model(self, file_name: str, group: Optional[str] = None) -> None:
-        """ A method for loading a trained model
-
-        Parameters
-        ----------
-        file_name : str
-            The name of the file to load the model from
-        """
-        raise NotImplementedError
-
     @classmethod
     def read_from_file(cls, file_name: str) -> Type[PODStrategy]:
         """ A method for loading a trained model from a file
