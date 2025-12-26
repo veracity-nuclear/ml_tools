@@ -201,7 +201,7 @@ class PODStrategy(PredictionStrategy):
         """
         raise NotImplementedError
 
-    def load_model(self, file_name: str) -> None:
+    def load_model(self, file_name: str, group: Optional[str] = None) -> None:
         """ A method for loading a trained model
 
         Parameters
