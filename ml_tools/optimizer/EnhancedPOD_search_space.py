@@ -50,6 +50,7 @@ class EnhancedPODSearchSpace(SearchSpace):
         @property
         def constraints(self) -> CategoricalDimension:
             return self.fields["constraints"]
+
         @constraints.setter
         def constraints(self, value: CategoricalDimension) -> None:
             self.fields["constraints"] = value
@@ -71,25 +72,34 @@ class EnhancedPODSearchSpace(SearchSpace):
             self.fields["max_svd_size"] = value
 
         @property
-        def gbm_settings(self) -> GBMSearchSpace.Dimension:
-            return self.fields["gbm_settings"]
+        def theta_model_type(self) -> CategoricalDimension:
+            return self.fields["theta_model_type"]
+        
+        @theta_model_type.setter
+        def theta_model_type(self, value: CategoricalDimension) -> None:
+            self.fields["theta_model_type"] = value
 
-        @gbm_settings.setter
-        def gbm_settings(self, value: GBMSearchSpace.Dimension) -> None:
-            self.fields["gbm_settings"] = value
+        @property
+        def theta_model_settings(self) -> StructDimension:
+            return self.fields["theta_model_settings"]
 
+        @theta_model_settings.setter
+        def theta_model_settings(self, value: StructDimension) -> None:
+            self.fields["theta_model_settings"] = value
 
         def __init__(self,
+                     theta_model_type: CategoricalDimension = CategoricalDimension(["GBM"]),
                      max_svd_size:   CategoricalDimension = CategoricalDimension([None]),
                      num_moments:    IntDimension = IntDimension(6, 6),
                      constraints:    CategoricalDimension=CategoricalDimension([[]]),
-                     gbm_settings:   GBMSearchSpace.Dimension = GBMSearchSpace.Dimension()) -> None:
+                     theta_model_settings:   StructDimension = StructDimension()) -> None:
 
             self.fields = {}
+            self.theta_model_type = theta_model_type
             self.max_svd_size = max_svd_size
             self.num_moments  = num_moments
             self.constraints = constraints
-            self.gbm_settings = gbm_settings
+            self.theta_model_settings = theta_model_settings
 
             super().__init__(self.fields)
 
