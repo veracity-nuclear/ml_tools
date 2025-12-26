@@ -169,7 +169,7 @@ class EnhancedPODStrategy(PredictionStrategy):
 
         return y.reshape(n_timesteps, -1)
 
-    def write_model_to_hdf5(self, h5_group):
+    def write_model_to_hdf5(self, h5_group: h5py.Group) -> None:
         """ A method for saving a trained model
 
         Parameters
