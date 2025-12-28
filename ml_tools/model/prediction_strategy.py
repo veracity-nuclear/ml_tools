@@ -1,12 +1,19 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import List, Dict, Optional, Type
+from typing import List, Dict, Optional, Type, Union, Sequence
 from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 import h5py
 
 from ml_tools.model.state import StateSeries, SeriesCollection
-from ml_tools.model.feature_processor import FeatureProcessor, write_feature_processor, read_feature_processor
+from ml_tools.model.feature_processor import (
+    FeatureProcessor,
+    NoProcessing,
+    read_feature_processor,
+    write_feature_processor,
+)
+
+FeatureSpec = Union[Dict[str, FeatureProcessor], str, Sequence[str]]
 
 
 class PredictionStrategy(ABC):
@@ -15,9 +22,9 @@ class PredictionStrategy(ABC):
     Attributes
     ----------
     input_features : Dict[str, FeatureProcessor]
-        A dictionary specifying the input features of this model and their corresponding feature processing strategy
-    predicted_feature : str
-        The string specifying the feature to be predicted
+        Input feature and processor pairs, keyed by feature name.
+    predicted_features : Dict[str, FeatureProcessor]
+        Output feature and processor pairs, keyed by feature name.
     biasing_model : PredictionStrategy
         A model that it is used to provide an initial prediction of the predicted output, acting ultimately as an initial bias
     hasBiasingModel : bool
@@ -31,20 +38,33 @@ class PredictionStrategy(ABC):
         return self._input_features
 
     @input_features.setter
-    def input_features(self, input_features: Dict[str, FeatureProcessor]) -> None:
+    def input_features(self, input_features: FeatureSpec) -> None:
+        input_features = self._create_feature_processor_map(input_features)
         self._input_features = {}
         for feature, processor in input_features.items():
-            assert feature is not self.predicted_feature, f"'{feature}' is also the predicted feature"
+            assert feature not in self._predicted_features, f"'{feature}' is also a predicted feature"
             self._input_features[feature] = processor
 
     @property
-    def predicted_feature(self) -> str:
-        return self._predicted_feature
+    def predicted_features(self) -> Dict[str, FeatureProcessor]:
+        return self._predicted_features
 
-    @predicted_feature.setter
-    def predicted_feature(self, predicted_feature: str) -> None:
-        assert predicted_feature not in self.input_features, f"'{predicted_feature}' is also an input feature"
-        self._predicted_feature = predicted_feature
+    @predicted_features.setter
+    def predicted_features(self, predicted_features: FeatureSpec) -> None:
+        predicted_features = self._create_feature_processor_map(predicted_features)
+        assert len(predicted_features) > 0, "predicted_features must be non-empty"
+        self._predicted_features = {}
+        for feature, processor in predicted_features.items():
+            assert isinstance(feature, str) and feature, "predicted feature keys must be non-empty strings"
+            assert isinstance(processor, FeatureProcessor), f"Invalid processor for '{feature}'"
+            assert feature not in self.input_features, f"'{feature}' is also an input feature"
+            self._predicted_features[feature] = processor
+        self._predicted_feature_order = list(predicted_features.keys())
+        self._predicted_feature_sizes = None
+
+    @property
+    def predicted_feature_names(self) -> List[str]:
+        return list(self._predicted_feature_order)
 
     @property
     def biasing_model(self) -> PredictionStrategy:
@@ -53,6 +73,12 @@ class PredictionStrategy(ABC):
     @biasing_model.setter
     def biasing_model(self, bias: PredictionStrategy) -> None:
         assert bias.isTrained
+        if self._predicted_features:
+            assert set(bias.predicted_features) == set(self.predicted_features), \
+                "Biasing model outputs must match predicted features"
+            for feature, processor in self.predicted_features.items():
+                assert processor == bias.predicted_features[feature], \
+                    f"Processor mismatch for predicted feature '{feature}'"
         self._biasing_model = bias
 
     @property
@@ -66,9 +92,48 @@ class PredictionStrategy(ABC):
 
 
     def __init__(self):
-        self._predicted_feature = None
-        self._biasing_model     = None
-        self._input_features    = {}
+        self._predicted_features = {}
+        self._predicted_feature_order = []
+        self._predicted_feature_sizes = None
+        self._biasing_model = None
+        self._input_features = {}
+
+    @staticmethod
+    def _create_feature_processor_map(features: FeatureSpec) -> Dict[str, FeatureProcessor]:
+        """Normalize feature specs into a name -> processor mapping.
+
+        Parameters
+        ----------
+        features : FeatureSpec
+            Feature specification in one of three forms:
+            - Dict[str, FeatureProcessor]: explicit feature/processor mapping
+            - str: a single feature name (mapped to NoProcessing)
+            - Sequence[str]: feature names (mapped to NoProcessing)
+        Returns
+        -------
+        Dict[str, FeatureProcessor]
+            Normalized feature/processor mapping.
+
+        Raises
+        ------
+        TypeError
+            If features is not a dict, string, or sequence of strings.
+        AssertionError
+            If entries are invalid.
+        """
+        if isinstance(features, dict):
+            feature_map = features
+        elif isinstance(features, str):
+            feature_map = {features: NoProcessing()}
+        elif isinstance(features, (list, tuple)):
+            feature_map = {name: NoProcessing() for name in features}
+        else:
+            raise TypeError("features must be a dict, string, or list/tuple of strings")
+
+        for name, processor in feature_map.items():
+            assert isinstance(name, str) and name, "feature names must be non-empty strings"
+            assert isinstance(processor, FeatureProcessor), f"Invalid processor for '{name}'"
+        return feature_map
 
 
     @abstractmethod
@@ -174,7 +239,9 @@ class PredictionStrategy(ABC):
 
         assert isinstance(other, PredictionStrategy)
 
-        same_pred = self.predicted_feature == other.predicted_feature
+        same_pred = (set(self.predicted_features) == set(other.predicted_features) and
+                     all(proc == other.predicted_features[key]
+                         for key, proc in self.predicted_features.items()))
         same_inputs = (set(self.input_features) == set(other.input_features) and
                        all(proc == other.input_features[key]
                            for key, proc in self.input_features.items()))
@@ -195,7 +262,13 @@ class PredictionStrategy(ABC):
         if self._biasing_model is not None:
             raise AttributeError('Cannot save model with bias model attached')
 
-        h5_file.create_dataset('predicted_feature', data=self.predicted_feature)
+        pred_group = h5_file.create_group('predicted_features')
+        pred_order = self.predicted_feature_names
+        for name in pred_order:
+            write_feature_processor(pred_group.create_group(name), self.predicted_features[name])
+        if self._predicted_feature_sizes is not None:
+            sizes = [self._predicted_feature_sizes[name] for name in pred_order]
+            h5_file.create_dataset('predicted_feature_sizes', data=sizes)
         input_features_group = h5_file.create_group('input_features')
         for name, feature in self.input_features.items():
             write_feature_processor(input_features_group.create_group(name), feature)
@@ -209,7 +282,15 @@ class PredictionStrategy(ABC):
         h5_file : h5py.File
             An opened HDF5 file handle
         """
-        self.predicted_feature = h5_file['predicted_feature'][()].decode('utf-8')
+        pred_group = h5_file['predicted_features']
+        pred_order = list(pred_group.keys())
+        predicted_features = {}
+        for name in pred_order:
+            predicted_features[name] = read_feature_processor(pred_group[name])
+        self.predicted_features = predicted_features
+        if 'predicted_feature_sizes' in h5_file:
+            sizes = [int(v) for v in h5_file['predicted_feature_sizes'][()]]
+            self._predicted_feature_sizes = dict(zip(pred_order, sizes))
         input_features = {}
         for name, feature in h5_file['input_features'].items():
             input_features[name] = read_feature_processor(feature)
@@ -231,7 +312,7 @@ class PredictionStrategy(ABC):
     def predict(self,
                 series_collection: SeriesCollection,
                 num_procs:         int = 1,
-    ) -> List[List[np.ndarray]]:
+    ) -> List[List[Dict[str, np.ndarray]]]:
         """Approximate predicted features for each state in each series.
 
         Parameters
@@ -243,11 +324,11 @@ class PredictionStrategy(ABC):
 
         Returns
         -------
-        List[List[np.ndarray]]
+        List[List[Dict[str, np.ndarray]]]
             Ragged list of predictions. The first list is over the series, the
             second list is over the states within that series, and each element
-            is the predicted output for that state. Padding is removed, so only
-            real timesteps from the input are returned.
+            is a dict of predicted outputs for that state. Padding is removed,
+            so only real timesteps from the input are returned.
         """
         processed_inputs = self.preprocess_inputs(series_collection, num_procs=num_procs)
         padded_predictions = self.predict_processed_inputs(processed_inputs)
@@ -284,7 +365,7 @@ class PredictionStrategy(ABC):
         self,
         padded_predictions: np.ndarray,
         series_lengths: Optional[List[int]] = None,
-    ) -> List[List[np.ndarray]]:
+    ) -> List[List[Dict[str, np.ndarray]]]:
         """Convert padded predictions into ragged per-series outputs.
 
         Parameters
@@ -297,15 +378,39 @@ class PredictionStrategy(ABC):
 
         Returns
         -------
-        List[List[np.ndarray]]
+        List[List[Dict[str, np.ndarray]]]
             Ragged list of predictions, trimmed to each series length.
         """
         if series_lengths is None:
             series_lengths = [padded_predictions.shape[1]] * padded_predictions.shape[0]
 
-        ragged_predictions: List[List[np.ndarray]] = []
+        if self._predicted_feature_sizes is None:
+            if len(self._predicted_feature_order) == 1:
+                self._predicted_feature_sizes = {
+                    self._predicted_feature_order[0]: int(padded_predictions.shape[2])
+                }
+            else:
+                raise ValueError("Predicted feature sizes are unknown; cannot split outputs")
+
+        total_size = sum(self._predicted_feature_sizes[name] for name in self._predicted_feature_order)
+        assert padded_predictions.shape[2] == total_size, \
+            f"Predicted output dim {padded_predictions.shape[2]} does not match expected {total_size}"
+
+        ragged_predictions: List[List[Dict[str, np.ndarray]]] = []
         for padded, series_len in zip(padded_predictions, series_lengths):
-            ragged_predictions.append(list(padded[:series_len]))
+            series_data = padded[:series_len]
+            processed_by_feature: Dict[str, np.ndarray] = {}
+            start = 0
+            for name in self._predicted_feature_order:
+                size = self._predicted_feature_sizes[name]
+                chunk = series_data[:, start:start + size]
+                processed_by_feature[name] = np.asarray(self.predicted_features[name].postprocess(chunk))
+                start += size
+            series_dicts: List[Dict[str, np.ndarray]] = []
+            for i in range(series_len):
+                series_dicts.append({name: processed_by_feature[name][i]
+                                     for name in self._predicted_feature_order})
+            ragged_predictions.append(series_dicts)
 
         return ragged_predictions
 
@@ -352,23 +457,42 @@ class PredictionStrategy(ABC):
             The target values of each state of each series to use in training
         """
 
-        seq_targets: List[np.ndarray] = []
-        for series in series_collection:
+        def _vectorize_series(series, sizes: Dict[str, int]) -> Optional[np.ndarray]:
             vals: List[np.ndarray] = []
             for state in series:
-                v = np.asarray(state[self.predicted_feature])
-                v = np.atleast_1d(v).astype(np.float32)
-                vals.append(v)
-            if not vals:
-                continue
-            seq_targets.append(np.vstack(vals))
+                parts: List[np.ndarray] = []
+                for name in self._predicted_feature_order:
+                    processor = self.predicted_features[name]
+                    v = np.asarray(state[name], dtype=np.float32)
+                    v = np.atleast_1d(v)
+                    v = np.asarray(processor.preprocess(v), dtype=np.float32)
+                    if v.ndim == 0:
+                        v = np.atleast_1d(v)
+                    if v.ndim > 1:
+                        v = v.reshape(-1)
+                    if name in sizes:
+                        assert sizes[name] == len(v), \
+                            f"Size mismatch for predicted feature '{name}'"
+                    else:
+                        sizes[name] = len(v)
+                    parts.append(v)
+                vals.append(np.concatenate(parts, axis=0))
+            return np.vstack(vals)
+
+        sizes: Dict[str, int] = {} if self._predicted_feature_sizes is None else dict(self._predicted_feature_sizes)
+        seq_targets: List[np.ndarray] = []
+        for series in series_collection:
+            series_targets = _vectorize_series(series, sizes)
+            seq_targets.append(series_targets)
+        self._predicted_feature_sizes = sizes
         targets = self._pad_series(seq_targets, pad_value=0.0)
 
         if self.hasBiasingModel:
             bias_ragged = self.biasing_model.predict(series_collection, num_procs=num_procs)
             bias_series: List[np.ndarray] = []
             for series in bias_ragged:
-                bias_series.append(np.vstack(series))
+                series_bias = _vectorize_series(series, sizes)
+                bias_series.append(series_bias)
             bias = self._pad_series(bias_series, pad_value=0.0)
             targets = targets - bias
         return targets
@@ -376,8 +500,8 @@ class PredictionStrategy(ABC):
     @classmethod
     def from_dict(cls,
                   params:            Dict,
-                  input_features:    Dict[str, FeatureProcessor],
-                  predicted_feature: str,
+                  input_features:    FeatureSpec,
+                  predicted_features: FeatureSpec,
                   biasing_model:     Optional[PredictionStrategy] = None) -> PredictionStrategy:
         """Construct a concrete PredictionStrategy from a parameter dict.
 
@@ -387,10 +511,10 @@ class PredictionStrategy(ABC):
             Model parameters and/or architecture description. The expected
             schema is strategy‑specific. For example, NNStrategy expects either
             a 'neural_network' key or a top‑level 'layers' key.
-        input_features : Dict[str, FeatureProcessor]
-            Feature processors keyed by feature name.
-        predicted_feature : str
-            Target feature name to predict.
+        input_features : FeatureSpec
+            Input feature/processor pairs (Dict) or feature name(s) (str/List[str], automatically mapped to NoProcessing).
+        predicted_features : FeatureSpec
+            Output feature/processor pairs (Dict) or feature name(s) (str/List[str], automatically mapped to NoProcessing).
         biasing_model : Optional[PredictionStrategy], optional
             Optional prior model used to bias predictions.
 
@@ -400,8 +524,8 @@ class PredictionStrategy(ABC):
             A configured, untrained strategy instance.
         """
 
-        instance = cls(input_features    = input_features,
-                       predicted_feature = predicted_feature,
+        instance = cls(input_features     = input_features,
+                       predicted_features = predicted_features,
                        **params)
         if biasing_model is not None:
             instance.biasing_model = biasing_model

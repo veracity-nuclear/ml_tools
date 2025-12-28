@@ -66,18 +66,18 @@ def test_gbm_optimizer():
 
     search_space = GBMSearchSpace(dims,
                                   input_features={"x": NoProcessing()},
-                                  predicted_feature="y")
+                                  predicted_features = {"y": NoProcessing()})
 
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
     model    = build_prediction_strategy(strategy_type     = "GBMStrategy",
                                          params            = params,
                                          input_features    = {"x": NoProcessing()},
-                                         predicted_feature = "y",
+                                         predicted_features = {"y": NoProcessing()},
                                          biasing_model     = None)
 
     expected = GBMStrategy(input_features    = {"x": NoProcessing()},
-                           predicted_feature = "y",
+                           predicted_features = {"y": NoProcessing()},
                            boosting_type     = "gbdt",
                            objective         = "regression",
                            metric            = "rmse",
@@ -105,18 +105,18 @@ def test_pod_optimizer():
                                     ndims              = CategoricalDimension([None]),)
     search_space = PODSearchSpace(dims,
                                   input_features={"x": NoProcessing()},
-                                  predicted_feature="y")
+                                  predicted_features = {"y": NoProcessing()})
 
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
     model    = build_prediction_strategy(strategy_type     = "PODStrategy",
                                          params            = params,
                                          input_features    = {"x": NoProcessing()},
-                                         predicted_feature = "y",
+                                         predicted_features = {"y": NoProcessing()},
                                          biasing_model     = None)
 
     expected = PODStrategy(input_feature     = "x",
-                           predicted_feature = "y",
+                           predicted_features = {"y": NoProcessing()},
                            fine_to_coarse_map = __import__('numpy').array([[1.0]]),
                            nclusters          = 1,
                            max_svd_size       = None,
@@ -136,18 +136,18 @@ def test_nn_optimizer_Dense():
                                                          convergence_patience  = IntDimension(10, 20),
                                                          batch_size_log2       = IntDimension(4, 8)),
                                      input_features={"x": NoProcessing()},
-                                     predicted_feature="y")
+                                     predicted_features = {"y": NoProcessing()})
 
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
     model    = build_prediction_strategy(strategy_type     = "NNStrategy",
                                          params            = params,
                                          input_features    = {"x": NoProcessing()},
-                                         predicted_feature = "y",
+                                         predicted_features = {"y": NoProcessing()},
                                          biasing_model     = None)
 
     expected = NNStrategy(input_features        = {"x": NoProcessing()},
-                          predicted_feature     = "y",
+                          predicted_features = {"y": NoProcessing()},
                           layers                = [Dense(units=8, activation="relu")],
                           initial_learning_rate = 0.001,
                           learning_decay_rate   = 0.1,
@@ -170,18 +170,18 @@ def test_nn_optimizer_LSTM():
                                                          convergence_patience  = IntDimension(10, 20),
                                                          batch_size_log2       = IntDimension(4, 8)),
                                      input_features={"x": NoProcessing()},
-                                     predicted_feature="y")
+                                     predicted_features = {"y": NoProcessing()})
 
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
     model    = build_prediction_strategy(strategy_type     = "NNStrategy",
                                          params            = params,
                                          input_features    = {"x": NoProcessing()},
-                                         predicted_feature = "y",
+                                         predicted_features = {"y": NoProcessing()},
                                          biasing_model     = None)
 
     expected = NNStrategy(input_features        = {"x": NoProcessing()},
-                          predicted_feature     = "y",
+                          predicted_features = {"y": NoProcessing()},
                           layers                = [LSTM(units=5, activation='relu')],
                           initial_learning_rate = 0.001,
                           learning_decay_rate   = 0.1,
@@ -206,18 +206,18 @@ def test_nn_optimizer_Transformer():
                                                          convergence_patience  = IntDimension(10, 20),
                                                          batch_size_log2       = IntDimension(4, 8)),
                                      input_features={"x": NoProcessing()},
-                                     predicted_feature="y")
+                                     predicted_features = {"y": NoProcessing()})
 
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
     model    = build_prediction_strategy(strategy_type     = "NNStrategy",
                                          params            = params,
                                          input_features    = {"x": NoProcessing()},
-                                         predicted_feature = "y",
+                                         predicted_features = {"y": NoProcessing()},
                                          biasing_model     = None)
 
     expected = NNStrategy(input_features        = {"x": NoProcessing()},
-                          predicted_feature     = "y",
+                          predicted_features = {"y": NoProcessing()},
                           layers                = [Transformer(num_heads=2, model_dim=27, ff_dim=50, activation='relu')],
                           initial_learning_rate = 0.001,
                           learning_decay_rate   = 0.1,
@@ -249,18 +249,18 @@ def test_nn_optimizer_CNN():
                                                          convergence_patience  = IntDimension(10, 20),
                                                          batch_size_log2       = IntDimension(4, 8)),
                                      input_features={"x": NoProcessing()},
-                                     predicted_feature="y")
+                                     predicted_features = {"y": NoProcessing()})
 
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
     model    = build_prediction_strategy(strategy_type     = "NNStrategy",
                                          params            = params,
                                          input_features    = {"x": NoProcessing()},
-                                         predicted_feature = "y",
+                                         predicted_features = {"y": NoProcessing()},
                                          biasing_model     = None)
 
     expected = NNStrategy(input_features        = {"x": NoProcessing()},
-                          predicted_feature     = "y",
+                          predicted_features = {"y": NoProcessing()},
                           layers                = [SpatialConv(input_shape=(3,3), kernel_size=(2,2), filters=4, activation='relu', padding=False),
                                                    SpatialMaxPool(input_shape=(3,3), pool_size=(2,2), padding=False)],
                           initial_learning_rate = 0.001,
@@ -284,18 +284,18 @@ def test_nn_optimizer_LayerSequence():
                                                          convergence_patience  = IntDimension(10, 20),
                                                          batch_size_log2       = IntDimension(4, 8)),
                                      input_features={"x": NoProcessing()},
-                                     predicted_feature="y")
+                                     predicted_features = {"y": NoProcessing()})
 
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
     model    = build_prediction_strategy(strategy_type     = "NNStrategy",
                                          params            = params,
                                          input_features    = {"x": NoProcessing()},
-                                         predicted_feature = "y",
+                                         predicted_features = {"y": NoProcessing()},
                                          biasing_model     = None)
 
     expected = NNStrategy(input_features        = {"x": NoProcessing()},
-                          predicted_feature     = "y",
+                          predicted_features = {"y": NoProcessing()},
                           layers                = [Dense(units=8, activation="relu"), PassThrough(), Dense(units=8, activation="relu")],
                           initial_learning_rate = 0.001,
                           learning_decay_rate   = 0.1,
@@ -321,18 +321,18 @@ def test_nn_optimizer_CompoundLayer():
                                                          convergence_patience  = IntDimension(10, 20),
                                                          batch_size_log2       = IntDimension(4, 8)),
                                      input_features={"x": NoProcessing()},
-                                     predicted_feature="y")
+                                     predicted_features = {"y": NoProcessing()})
 
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
     model    = build_prediction_strategy(strategy_type     = "NNStrategy",
                                          params            = params,
                                          input_features    = {"x": NoProcessing()},
-                                         predicted_feature = "y",
+                                         predicted_features = {"y": NoProcessing()},
                                          biasing_model     = None)
 
     expected = NNStrategy(input_features        = {"x": NoProcessing()},
-                          predicted_feature     = "y",
+                          predicted_features = {"y": NoProcessing()},
                           layers                = [CompoundLayer(layers=[Dense(units=5, activation='relu'),
                                                                          Dense(units=10, activation='relu')],
                                                                  input_specifications=[slice(0, 9), slice(9, 19)])],
@@ -361,14 +361,14 @@ def test_nn_optimizer_GNN_SAGE():
                                                          convergence_patience  = IntDimension(10, 20),
                                                          batch_size_log2       = IntDimension(4, 8)),
                                      input_features={"x": NoProcessing()},
-                                     predicted_feature="y")
+                                     predicted_features = {"y": NoProcessing()})
 
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
     model    = build_prediction_strategy(strategy_type     = "NNStrategy",
                                          params            = params,
                                          input_features    = {"x": NoProcessing()},
-                                         predicted_feature = "y",
+                                         predicted_features = {"y": NoProcessing()},
                                          biasing_model     = None)
 
     expected_graph = SAGE(input_shape              = (3, 3),
@@ -387,7 +387,7 @@ def test_nn_optimizer_GNN_SAGE():
                           use_bias                 = False)
 
     expected = NNStrategy(input_features        = {"x": NoProcessing()},
-                          predicted_feature     = "y",
+                          predicted_features = {"y": NoProcessing()},
                           layers                = [GraphConv(graph      = expected_graph,
                                                              activation = 'relu')],
                           initial_learning_rate = 0.001,
@@ -417,14 +417,14 @@ def test_nn_optimizer_GNN_GAT():
                                                          convergence_patience  = IntDimension(10, 20),
                                                          batch_size_log2       = IntDimension(4, 8)),
                                      input_features={"x": NoProcessing()},
-                                     predicted_feature="y")
+                                     predicted_features = {"y": NoProcessing()})
 
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
     model    = build_prediction_strategy(strategy_type     = "NNStrategy",
                                          params            = params,
                                          input_features    = {"x": NoProcessing()},
-                                         predicted_feature = "y",
+                                         predicted_features = {"y": NoProcessing()},
                                          biasing_model     = None)
 
     expected_graph = GAT(input_shape              = (3, 3),
@@ -444,7 +444,7 @@ def test_nn_optimizer_GNN_GAT():
                          use_bias                 = False)
 
     expected = NNStrategy(input_features        = {"x": NoProcessing()},
-                          predicted_feature     = "y",
+                          predicted_features = {"y": NoProcessing()},
                           layers                = [GraphConv(graph=expected_graph, activation='relu')],
                           initial_learning_rate = 0.001,
                           learning_decay_rate   = 0.1,

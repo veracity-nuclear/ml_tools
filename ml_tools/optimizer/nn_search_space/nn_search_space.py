@@ -16,8 +16,8 @@ class NNSearchSpace(SearchSpace):
         SearchSpace dimension (range or choices), not a finalized value.
     input_features : Dict[str, FeatureProcessor]
         Input feature processors keyed by feature name.
-    predicted_feature : str
-        Name of the target feature to predict.
+    predicted_features : Dict[str, FeatureProcessor]
+        Output features and their processors.
     biasing_model : Optional[PredictionStrategy], optional
         Optional prior model to bias predictions, by default None.
     """
@@ -148,12 +148,12 @@ class NNSearchSpace(SearchSpace):
     def __init__(self,
                  dimensions: StructDimension,
                  input_features=None,
-                 predicted_feature=None,
+                 predicted_features=None,
                  biasing_model=None) -> None:
         assert isinstance(dimensions, NNSearchSpace.Dimension), \
             f"dimensions must be a NNSearchSpace.Dimension, got {type(dimensions)}"
         super().__init__(prediction_strategy_type="NNStrategy",
                          dimensions=dimensions,
                          input_features=input_features,
-                         predicted_feature=predicted_feature,
+                         predicted_features=predicted_features,
                          biasing_model=biasing_model)
