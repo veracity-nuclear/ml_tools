@@ -9,6 +9,7 @@ from ml_tools.model import build_prediction_strategy
 from ml_tools.model.nn_strategy import Dense, LSTM, Transformer, SpatialConv, SpatialMaxPool, PassThrough, LayerSequence, CompoundLayer, GraphConv
 from ml_tools.model.nn_strategy.graph import SAGE, GAT
 from ml_tools import State, NNStrategy, GBMStrategy, PODStrategy, MinMaxNormalize, NoProcessing
+from ml_tools.model.prediction_strategy import PredictionStrategy
 
 input_features = {'average_exposure' : MinMaxNormalize(0., 45.),
                   'is_refl'          : NoProcessing(),
@@ -40,13 +41,50 @@ for cm_min, cm_max in coarse_mesh:
 
 def test_preprocess_features():
 
-    cips_calculator = NNStrategy(input_features, output_feature)
-
-    actual_values   = cips_calculator.preprocess_features([[state]], input_features)[0][0].tolist()
+    actual_values   = PredictionStrategy.preprocess_features([[state]], input_features)[0][0].tolist()
     expected_values = [0.0, 0.0, 0.0, 0.0, 0.8229136277763227, 0.6038608249885462, 0.9359057444294857, 0.0,                0.0,
                        1.0, 1.0, 1.0, 1.0, 0.0,                0.0,                0.0,                0.0,                0.0,
                        0.0, 0.0, 0.0, 0.0, 0.6666666666666666, 0.6666666666666666, 0.0,                0.6666666666666666, 1.0]
     assert_allclose(actual_values, expected_values)
+
+
+def test_create_feature_processor_map():
+    feature_map = PredictionStrategy.create_feature_processor_map(input_features)
+    assert feature_map == input_features
+
+    feature_map = PredictionStrategy.create_feature_processor_map("cips_index")
+    assert feature_map == {"cips_index": NoProcessing()}
+
+    feature_map = PredictionStrategy.create_feature_processor_map(["a", "b"])
+    assert feature_map == {"a": NoProcessing(), "b": NoProcessing()}
+
+
+def test_postprocess_features():
+    data_array = np.array([
+        [[1.0, 10.0], [2.0, 20.0], [3.0, 30.0]],
+        [[4.0, 40.0], [5.0, 50.0], [6.0, 60.0]],
+    ])
+    series_lengths = [2, 3]
+    feature_order = ["a", "b"]
+    feature_sizes = {"a": 1, "b": 1}
+    features = {"a": NoProcessing(), "b": NoProcessing()}
+
+    series_collection = PredictionStrategy.postprocess_features(
+        data_array=data_array,
+        series_lengths=series_lengths,
+        feature_order=feature_order,
+        feature_sizes=feature_sizes,
+        features=features,
+    )
+
+    assert len(series_collection) == 2
+    assert len(series_collection[0]) == 2
+    assert len(series_collection[1]) == 3
+    assert_allclose(series_collection[0][0]["a"], np.array([1.0]))
+    assert_allclose(series_collection[0][1]["a"], np.array([2.0]))
+    assert_allclose(series_collection[0][0]["b"], np.array([10.0]))
+    assert_allclose(series_collection[1][2]["a"], np.array([6.0]))
+    assert_allclose(series_collection[1][2]["b"], np.array([60.0]))
 
 
 def test_gbm_strategy():

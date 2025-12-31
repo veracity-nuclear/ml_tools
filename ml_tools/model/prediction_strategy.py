@@ -39,7 +39,7 @@ class PredictionStrategy(ABC):
 
     @input_features.setter
     def input_features(self, input_features: FeatureSpec) -> None:
-        input_features = self._create_feature_processor_map(input_features)
+        input_features = self.create_feature_processor_map(input_features)
         self._input_features = {}
         for feature, processor in input_features.items():
             assert feature not in self._predicted_features, f"'{feature}' is also a predicted feature"
@@ -51,7 +51,7 @@ class PredictionStrategy(ABC):
 
     @predicted_features.setter
     def predicted_features(self, predicted_features: FeatureSpec) -> None:
-        predicted_features = self._create_feature_processor_map(predicted_features)
+        predicted_features = self.create_feature_processor_map(predicted_features)
         assert len(predicted_features) > 0, "predicted_features must be non-empty"
         self._predicted_features = {}
         for feature, processor in predicted_features.items():
@@ -99,7 +99,7 @@ class PredictionStrategy(ABC):
         self._input_features = {}
 
     @staticmethod
-    def _create_feature_processor_map(features: FeatureSpec) -> Dict[str, FeatureProcessor]:
+    def create_feature_processor_map(features: FeatureSpec) -> Dict[str, FeatureProcessor]:
         """Normalize feature specs into a name -> processor mapping.
 
         Parameters
@@ -173,6 +173,7 @@ class PredictionStrategy(ABC):
             The preprocessed collection of state series input features. All series are padded
             with 0.0 to match the length of the longest series.
         """
+        assert num_procs > 0, f"num_procs must be > 0, got {num_procs}"
         if num_procs <= 1:
             processed_inputs = [
                 PredictionStrategy._preprocess_single_series(series, features)
@@ -236,6 +237,7 @@ class PredictionStrategy(ABC):
         SeriesCollection
             Series collection of predicted states, trimmed to each series length.
         """
+        assert num_procs > 0, f"num_procs must be > 0, got {num_procs}"
         if series_lengths is None:
             series_lengths = [data_array.shape[1]] * data_array.shape[0]
 
@@ -416,10 +418,11 @@ class PredictionStrategy(ABC):
             the predicted features. Padding is removed, so only real timesteps
             from the input are returned.
         """
+        assert num_procs > 0, f"num_procs must be > 0, got {num_procs}"
         processed_inputs = PredictionStrategy.preprocess_features(series_collection,
                                                                   self.input_features,
                                                                   num_procs=num_procs)
-        raw_predictions = self.predict_processed_inputs(processed_inputs)
+        raw_predictions = self.predict_processed_inputs(processed_inputs, num_procs=num_procs)
         series_lengths = [len(series) for series in series_collection]
         return PredictionStrategy.postprocess_features(raw_predictions,
                                                        series_lengths,
@@ -429,7 +432,7 @@ class PredictionStrategy(ABC):
                                                        num_procs=num_procs)
 
 
-    def predict_processed_inputs(self, processed_inputs: np.ndarray) -> np.ndarray:
+    def predict_processed_inputs(self, processed_inputs: np.ndarray, num_procs: int = 1) -> np.ndarray:
         """Predict target values from preprocessed, padded inputs.
 
         Parameters
@@ -443,18 +446,19 @@ class PredictionStrategy(ABC):
             Array of shape (num_series, max_timesteps, output_dim) containing
             predictions for each series. No NaN padding adjustments are made.
         """
+        assert num_procs > 0, f"num_procs must be > 0, got {num_procs}"
         assert self.isTrained
 
-        y = np.asarray(self._predict_all(processed_inputs), dtype=np.float32)
+        y = np.asarray(self._predict_all(processed_inputs, num_procs=num_procs), dtype=np.float32)
 
         if self.hasBiasingModel:
             # pylint: disable=protected-access
-            y += self.biasing_model._predict_all(processed_inputs)
+            y += self.biasing_model._predict_all(processed_inputs, num_procs=num_procs)
 
         return y
 
 
-    def _predict_all(self, series_collection: np.ndarray) -> np.ndarray:
+    def _predict_all(self, series_collection: np.ndarray, num_procs: int = 1) -> np.ndarray:
         """ The method that predicts the target values corresponding to the given state series collection
 
         Target value in this case refers either directly to the predicted feature if
@@ -466,13 +470,21 @@ class PredictionStrategy(ABC):
         series_collection : np.ndarray
             The preprocessed and padded state series collection in np.array format for which
             to predict the target value
+        num_procs : int
+            The number of parallel processors to use when predicting the data
 
         Returns
         -------
         np.ndarray
             The predicted target values for each state in each series
         """
-        return np.asarray([self._predict_one(series) for series in series_collection])
+        assert num_procs > 0, f"num_procs must be > 0, got {num_procs}"
+        if num_procs <= 1:
+            return np.asarray([self._predict_one(series) for series in series_collection])
+
+        series_list = list(series_collection)
+        with ProcessPoolExecutor(max_workers=num_procs) as executor:
+            return np.asarray(list(executor.map(self._predict_one, series_list)))
 
 
     def _get_targets(self, series_collection: SeriesCollection, num_procs: int = 1) -> np.ndarray:
@@ -496,6 +508,7 @@ class PredictionStrategy(ABC):
             The target values of each state of each series to use in training
         """
 
+        assert num_procs > 0, f"num_procs must be > 0, got {num_procs}"
         state = series_collection[0][0]
         self._predicted_feature_sizes = {name: int(state[name].size)
                                          for name in self._predicted_feature_order}

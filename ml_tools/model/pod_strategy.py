@@ -4,10 +4,11 @@ from math import isclose
 import numpy as np
 from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans
+from threadpoolctl import threadpool_limits
 
 from ml_tools.model.state import SeriesCollection
 from ml_tools.model.feature_processor import NoProcessing
-from ml_tools.model.prediction_strategy import PredictionStrategy, FeatureProcessor, FeatureSpec
+from ml_tools.model.prediction_strategy import PredictionStrategy, FeatureSpec
 from ml_tools.model import register_prediction_strategy
 
 @register_prediction_strategy()  # registers under 'PODStrategy'
@@ -161,23 +162,25 @@ class PODStrategy(PredictionStrategy):
         return self._predict_all([state_series])[0]
 
 
-    def _predict_all(self, series_collection: np.ndarray) -> np.ndarray:
+    def _predict_all(self, series_collection: np.ndarray, num_procs: int = 1) -> np.ndarray:
 
         assert self.isTrained
         assert not self.hasBiasingModel
         assert series_collection.shape[1] == 1, \
             "All State Series must be static statepoints (i.e. len(series) == 1)"
+        assert num_procs > 0, f"num_procs must be > 0, got {num_procs}"
 
-        X = series_collection[:, 0, :]
+        with threadpool_limits(limits=num_procs):
+            X = series_collection[:, 0, :]
 
-        if self.nclusters > 1:
-            X_reduced = X if self.ndims is None else self._pca.transform(X)
-            labels    = self._kmeans.predict(X_reduced)
-        else:
-            labels = np.zeros(X.shape[0], dtype=int)
+            if self.nclusters > 1:
+                X_reduced = X if self.ndims is None else self._pca.transform(X)
+                labels    = self._kmeans.predict(X_reduced)
+            else:
+                labels = np.zeros(X.shape[0], dtype=int)
 
-        results = np.array([np.matmul(self._pod_mat[label], vec)
-                            for label, vec in zip(labels, X)])
+            results = np.array([np.matmul(self._pod_mat[label], vec)
+                                for label, vec in zip(labels, X)])
 
         return results[:, np.newaxis]
 

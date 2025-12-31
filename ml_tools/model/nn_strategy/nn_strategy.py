@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import List, Dict, Type, Optional
 import os
+import warnings
 from math import isclose
 import h5py
 import numpy as np
@@ -18,7 +19,7 @@ from tensorflow.keras.callbacks import EarlyStopping
 from ml_tools.model.state import SeriesCollection
 from ml_tools.model.prediction_strategy import PredictionStrategy, FeatureSpec
 from ml_tools.model import register_prediction_strategy
-from ml_tools.model.feature_processor import FeatureProcessor, NoProcessing
+from ml_tools.model.feature_processor import NoProcessing
 from ml_tools.model.nn_strategy.layer import Layer, gather_indices
 from ml_tools.model.nn_strategy.layer_sequence import LayerSequence
 from ml_tools.model.nn_strategy.dense import Dense
@@ -208,8 +209,13 @@ class NNStrategy(PredictionStrategy):
     def _predict_one(self, state_series: np.ndarray) -> np.ndarray:
         return self._predict_all([state_series])[0]
 
-    def _predict_all(self, series_collection: np.ndarray) -> np.ndarray:
+    def _predict_all(self, series_collection: np.ndarray, num_procs: int = 1) -> np.ndarray:
         assert self.isTrained
+        assert num_procs > 0, f"num_procs must be > 0, got {num_procs}"
+
+        if num_procs != 1:
+            warnings.warn("NNStrategy ignores num_procs; TensorFlow handles parallelism.",
+                          RuntimeWarning, stacklevel=2)
 
         X = tf.convert_to_tensor(series_collection, dtype=tf.float32)
 

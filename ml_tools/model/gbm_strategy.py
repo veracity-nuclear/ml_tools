@@ -11,7 +11,7 @@ import pylab as plt
 from ml_tools.model.state import SeriesCollection
 from ml_tools.model.prediction_strategy import PredictionStrategy, FeatureSpec
 from ml_tools.model import register_prediction_strategy
-from ml_tools.model.feature_processor import FeatureProcessor, NoProcessing
+from ml_tools.model.feature_processor import NoProcessing
 
 
 @register_prediction_strategy()  # registers under 'GBMStrategy' by default
@@ -337,14 +337,15 @@ class GBMStrategy(PredictionStrategy):
         return self._predict_all([state_series])[0]
 
 
-    def _predict_all(self, series_collection: np.ndarray) -> np.ndarray:
+    def _predict_all(self, series_collection: np.ndarray, num_procs: int = 1) -> np.ndarray:
 
         assert self.isTrained
+        assert num_procs > 0, f"num_procs must be > 0, got {num_procs}"
 
         n_series, n_timesteps, n_features = series_collection.shape
 
         X = series_collection.reshape(-1, n_features)
-        y = self._gbm.predict(X, num_iteration=self._gbm.best_iteration)
+        y = self._gbm.predict(X, num_iteration=self._gbm.best_iteration, num_threads=num_procs)
 
         y = np.asarray(y)
         if y.ndim == 1:
