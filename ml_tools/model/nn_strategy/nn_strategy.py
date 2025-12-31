@@ -170,7 +170,7 @@ class NNStrategy(PredictionStrategy):
     def train(self, train_data: SeriesCollection, test_data: Optional[SeriesCollection] = None, num_procs: int = 1) -> None:
         assert test_data is None, "The Neural Network Prediction Strategy does not use test data"
 
-        X = self.preprocess_inputs(train_data, num_procs)
+        X = self.preprocess_features(train_data, self.input_features, num_procs)
         y = self._get_targets(train_data, num_procs=num_procs)
 
         input_tensor = tf.keras.layers.Input(shape=(None, len(X[0][0])))

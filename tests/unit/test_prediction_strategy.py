@@ -38,11 +38,11 @@ for cm_min, cm_max in coarse_mesh:
 
 
 
-def test_preprocess_inputs():
+def test_preprocess_features():
 
     cips_calculator = NNStrategy(input_features, output_feature)
 
-    actual_values   = cips_calculator.preprocess_inputs([[state]])[0][0].tolist()
+    actual_values   = cips_calculator.preprocess_features([[state]], input_features)[0][0].tolist()
     expected_values = [0.0, 0.0, 0.0, 0.0, 0.8229136277763227, 0.6038608249885462, 0.9359057444294857, 0.0,                0.0,
                        1.0, 1.0, 1.0, 1.0, 0.0,                0.0,                0.0,                0.0,                0.0,
                        0.0, 0.0, 0.0, 0.0, 0.6666666666666666, 0.6666666666666666, 0.0,                0.6666666666666666, 1.0]

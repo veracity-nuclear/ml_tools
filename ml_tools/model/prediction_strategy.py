@@ -5,7 +5,7 @@ from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 import h5py
 
-from ml_tools.model.state import StateSeries, SeriesCollection
+from ml_tools.model.state import State, StateSeries, SeriesCollection
 from ml_tools.model.feature_processor import (
     FeatureProcessor,
     NoProcessing,
@@ -152,13 +152,18 @@ class PredictionStrategy(ABC):
         """
 
 
-    def preprocess_inputs(self, series_collection: SeriesCollection, num_procs: int = 1) -> np.ndarray:
-        """ Preprocesses all the input state series into the series of processed input features of the model
+    @staticmethod
+    def preprocess_features(series_collection: SeriesCollection,
+                            features: Dict[str, FeatureProcessor],
+                            num_procs: int = 1) -> np.ndarray:
+        """ Preprocesses all the input state series into the series of processed features of the model
 
         Parameters
         ----------
         series_collection : SeriesCollection
             The list of state series to be pre-processed into a collection of model input series
+        features : Dict[str, FeatureProcessor]
+            Feature/processor pairs specifying what to preprocess and how to do so
         num_procs : int
             The number of parallel processors to use when processing the data
 
@@ -170,20 +175,21 @@ class PredictionStrategy(ABC):
         """
         if num_procs <= 1:
             processed_inputs = [
-                self._process_single_series(series, self.input_features)
+                PredictionStrategy._preprocess_single_series(series, features)
                 for series in series_collection
             ]
         else:
-            input_features = [self.input_features] * len(series_collection)  # input_features for each worker
+            features = [features] * len(series_collection)  # input_features for each worker
             with ProcessPoolExecutor(max_workers=num_procs) as executor:
-                processed_inputs = list(executor.map(self._process_single_series, series_collection, input_features))
+                processed_inputs = list(executor.map(PredictionStrategy._preprocess_single_series,
+                                                     series_collection,
+                                                     features))
 
-        return self._pad_series(processed_inputs)
-
+        return PredictionStrategy._pad_series(processed_inputs)
 
     @staticmethod
-    def _process_single_series(series: StateSeries, input_features: Dict[str, FeatureProcessor]) -> np.ndarray:
-        """ Helper method to support parallelizing preprocess_inputs
+    def _preprocess_single_series(series: StateSeries, input_features: Dict[str, FeatureProcessor]) -> np.ndarray:
+        """ Helper method to support parallelizing preprocess_features
 
         This is required to be a separate method so it can be pickled by ProcessPoolExecutor
         """
@@ -198,6 +204,87 @@ class PredictionStrategy(ABC):
                 processed_data = np.vstack(processed_data)
             processed_inputs.append(processed_data)
         return np.hstack(processed_inputs)
+
+
+    @staticmethod
+    def postprocess_features(data_array:     np.ndarray,
+                             series_lengths: Optional[List[int]],
+                             feature_order:  List[str],
+                             feature_sizes:  Dict[str, int],
+                             features:       Dict[str, FeatureProcessor],
+                             num_procs:      int = 1) -> SeriesCollection:
+        """Convert data arrays into post-processed series collections.
+
+        Parameters
+        ----------
+        data_array : np.ndarray
+            Data array of shape (num_series, max_timesteps, output_dim).
+        series_lengths : Optional[List[int]]
+            True lengths for each series. If not provided, assumes all series
+            are full length.
+        feature_order : List[str]
+            Ordered list of output feature names corresponding to the vectorized array.
+        feature_sizes : Dict[str, int]
+            Mapping from feature name to output width in the vectorized array.
+        features : Dict[str, FeatureProcessor]
+            Feature/processor pairs used for post-processing each output feature.
+        num_procs : int
+            The number of parallel processors to use when post-processing the data.
+
+        Returns
+        -------
+        SeriesCollection
+            Series collection of predicted states, trimmed to each series length.
+        """
+        if series_lengths is None:
+            series_lengths = [data_array.shape[1]] * data_array.shape[0]
+
+        total_size = sum(feature_sizes[name] for name in feature_order)
+        assert data_array.shape[2] == total_size, \
+            f"Predicted output dim {data_array.shape[2]} does not match expected {total_size}"
+
+        if num_procs <= 1:
+            state_series_list = [
+                PredictionStrategy._postprocess_single_series(padded,
+                                                              series_len,
+                                                              feature_order,
+                                                              feature_sizes,
+                                                              features)
+                for padded, series_len in zip(data_array, series_lengths)
+            ]
+        else:
+            with ProcessPoolExecutor(max_workers=num_procs) as executor:
+                state_series_list = list(executor.map(PredictionStrategy._postprocess_single_series,
+                                                      data_array,
+                                                      series_lengths,
+                                                      [feature_order] * len(series_lengths),
+                                                      [feature_sizes] * len(series_lengths),
+                                                      [features] * len(series_lengths)))
+
+        return SeriesCollection(state_series_list)
+
+    @staticmethod
+    def _postprocess_single_series(series_data: np.ndarray,
+                                   series_len: int,
+                                   feature_order: List[str],
+                                   feature_sizes: Dict[str, int],
+                                   feature_processors: Dict[str, FeatureProcessor]) -> StateSeries:
+        """Helper method to support parallelizing postprocess_features."""
+        series_data = series_data[:series_len]
+        processed_by_feature: Dict[str, np.ndarray] = {}
+        start = 0
+        for name in feature_order:
+            size = feature_sizes[name]
+            chunk = series_data[:, start:start + size]
+            processed_by_feature[name] = np.asarray(feature_processors[name].postprocess(chunk))
+            start += size
+
+        series_states: List[State] = []
+        for i in range(series_len):
+            series_states.append(State({name: processed_by_feature[name][i]
+                                        for name in feature_order}))
+        return StateSeries(series_states)
+
 
     @staticmethod
     def _pad_series(series_collection: List[np.ndarray], pad_value: float = 0.0) -> np.ndarray:
@@ -312,7 +399,7 @@ class PredictionStrategy(ABC):
     def predict(self,
                 series_collection: SeriesCollection,
                 num_procs:         int = 1,
-    ) -> List[List[Dict[str, np.ndarray]]]:
+    ) -> SeriesCollection:
         """Approximate predicted features for each state in each series.
 
         Parameters
@@ -324,16 +411,22 @@ class PredictionStrategy(ABC):
 
         Returns
         -------
-        List[List[Dict[str, np.ndarray]]]
-            Ragged list of predictions. The first list is over the series, the
-            second list is over the states within that series, and each element
-            is a dict of predicted outputs for that state. Padding is removed,
-            so only real timesteps from the input are returned.
+        SeriesCollection
+            Series collection of predicted states. Each state contains only
+            the predicted features. Padding is removed, so only real timesteps
+            from the input are returned.
         """
-        processed_inputs = self.preprocess_inputs(series_collection, num_procs=num_procs)
-        padded_predictions = self.predict_processed_inputs(processed_inputs)
+        processed_inputs = PredictionStrategy.preprocess_features(series_collection,
+                                                                  self.input_features,
+                                                                  num_procs=num_procs)
+        raw_predictions = self.predict_processed_inputs(processed_inputs)
         series_lengths = [len(series) for series in series_collection]
-        return self.post_process_outputs(padded_predictions, series_lengths)
+        return PredictionStrategy.postprocess_features(raw_predictions,
+                                                       series_lengths,
+                                                       self._predicted_feature_order,
+                                                       self._predicted_feature_sizes,
+                                                       self.predicted_features,
+                                                       num_procs=num_procs)
 
 
     def predict_processed_inputs(self, processed_inputs: np.ndarray) -> np.ndarray:
@@ -359,60 +452,6 @@ class PredictionStrategy(ABC):
             y += self.biasing_model._predict_all(processed_inputs)
 
         return y
-
-
-    def post_process_outputs(
-        self,
-        padded_predictions: np.ndarray,
-        series_lengths: Optional[List[int]] = None,
-    ) -> List[List[Dict[str, np.ndarray]]]:
-        """Convert padded predictions into ragged per-series outputs.
-
-        Parameters
-        ----------
-        padded_predictions : np.ndarray
-            Padded prediction array of shape (num_series, max_timesteps, output_dim).
-        series_lengths : Optional[List[int]]
-            True lengths for each series. If not provided, assumes all series
-            are full length.
-
-        Returns
-        -------
-        List[List[Dict[str, np.ndarray]]]
-            Ragged list of predictions, trimmed to each series length.
-        """
-        if series_lengths is None:
-            series_lengths = [padded_predictions.shape[1]] * padded_predictions.shape[0]
-
-        if self._predicted_feature_sizes is None:
-            if len(self._predicted_feature_order) == 1:
-                self._predicted_feature_sizes = {
-                    self._predicted_feature_order[0]: int(padded_predictions.shape[2])
-                }
-            else:
-                raise ValueError("Predicted feature sizes are unknown; cannot split outputs")
-
-        total_size = sum(self._predicted_feature_sizes[name] for name in self._predicted_feature_order)
-        assert padded_predictions.shape[2] == total_size, \
-            f"Predicted output dim {padded_predictions.shape[2]} does not match expected {total_size}"
-
-        ragged_predictions: List[List[Dict[str, np.ndarray]]] = []
-        for padded, series_len in zip(padded_predictions, series_lengths):
-            series_data = padded[:series_len]
-            processed_by_feature: Dict[str, np.ndarray] = {}
-            start = 0
-            for name in self._predicted_feature_order:
-                size = self._predicted_feature_sizes[name]
-                chunk = series_data[:, start:start + size]
-                processed_by_feature[name] = np.asarray(self.predicted_features[name].postprocess(chunk))
-                start += size
-            series_dicts: List[Dict[str, np.ndarray]] = []
-            for i in range(series_len):
-                series_dicts.append({name: processed_by_feature[name][i]
-                                     for name in self._predicted_feature_order})
-            ragged_predictions.append(series_dicts)
-
-        return ragged_predictions
 
 
     def _predict_all(self, series_collection: np.ndarray) -> np.ndarray:
@@ -457,43 +496,19 @@ class PredictionStrategy(ABC):
             The target values of each state of each series to use in training
         """
 
-        def _vectorize_series(series, sizes: Dict[str, int]) -> Optional[np.ndarray]:
-            vals: List[np.ndarray] = []
-            for state in series:
-                parts: List[np.ndarray] = []
-                for name in self._predicted_feature_order:
-                    processor = self.predicted_features[name]
-                    v = np.asarray(state[name], dtype=np.float32)
-                    v = np.atleast_1d(v)
-                    v = np.asarray(processor.preprocess(v), dtype=np.float32)
-                    if v.ndim == 0:
-                        v = np.atleast_1d(v)
-                    if v.ndim > 1:
-                        v = v.reshape(-1)
-                    if name in sizes:
-                        assert sizes[name] == len(v), \
-                            f"Size mismatch for predicted feature '{name}'"
-                    else:
-                        sizes[name] = len(v)
-                    parts.append(v)
-                vals.append(np.concatenate(parts, axis=0))
-            return np.vstack(vals)
+        state = series_collection[0][0]
+        self._predicted_feature_sizes = {name: int(state[name].size)
+                                         for name in self._predicted_feature_order}
 
-        sizes: Dict[str, int] = {} if self._predicted_feature_sizes is None else dict(self._predicted_feature_sizes)
-        seq_targets: List[np.ndarray] = []
-        for series in series_collection:
-            series_targets = _vectorize_series(series, sizes)
-            seq_targets.append(series_targets)
-        self._predicted_feature_sizes = sizes
-        targets = self._pad_series(seq_targets, pad_value=0.0)
+        targets = PredictionStrategy.preprocess_features(series_collection,
+                                                         self.predicted_features,
+                                                         num_procs=num_procs)
 
         if self.hasBiasingModel:
-            bias_ragged = self.biasing_model.predict(series_collection, num_procs=num_procs)
-            bias_series: List[np.ndarray] = []
-            for series in bias_ragged:
-                series_bias = _vectorize_series(series, sizes)
-                bias_series.append(series_bias)
-            bias = self._pad_series(bias_series, pad_value=0.0)
+            bias_series = self.biasing_model.predict(series_collection, num_procs=num_procs)
+            bias = PredictionStrategy.preprocess_features(bias_series,
+                                                         self.predicted_features,
+                                                         num_procs=num_procs)
             targets = targets - bias
         return targets
 

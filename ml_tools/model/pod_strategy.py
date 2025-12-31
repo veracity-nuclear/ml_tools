@@ -124,7 +124,7 @@ class PODStrategy(PredictionStrategy):
         targets = np.vstack([np.array(series) for series in self._get_targets(train_data, num_procs=num_procs)])
         if self.nclusters > 1:
             self._kmeans = KMeans(n_clusters=self.nclusters)
-            X            = self.preprocess_inputs(train_data)
+            X            = self.preprocess_features(train_data, self.input_features)
             X            = X.reshape(-1, X.shape[-1])
 
             if not self.ndims is None:
