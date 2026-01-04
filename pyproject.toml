@@ -35,6 +35,7 @@ dependencies = [
     'seaborn',
     'shap',
     'ray',
+    'grpcio==1.66.2',
     'optuna'
 ]
 

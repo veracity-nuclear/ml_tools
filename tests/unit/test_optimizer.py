@@ -1,5 +1,8 @@
+import numpy as np
+import pytest
+
 from ml_tools.model import build_prediction_strategy
-from ml_tools import NNStrategy
+from ml_tools import NNStrategy, SeriesCollection, State, StateSeries
 from ml_tools.model.feature_processor import NoProcessing
 from ml_tools.model.nn_strategy.dense import Dense
 from ml_tools.model.nn_strategy.lstm import LSTM
@@ -43,6 +46,15 @@ class MockOptunaTrial:
     def suggest_categorical(self, name, choices):
         return choices[0]
 
+
+@pytest.fixture
+def series_collection():
+    series = []
+    for i in range(4):
+        x = np.array([float(i + 1)])
+        y = np.array([float((i + 1) * 2)])
+        series.append(StateSeries([State({"x": x, "y": y})]))
+    return SeriesCollection(series)
 
 
 def test_gbm_optimizer():
@@ -454,3 +466,45 @@ def test_nn_optimizer_GNN_GAT():
                           batch_size            = 2 ** 4)
     assert model == expected
 
+
+def test_optuna_strategy(series_collection, tmp_path):
+    dense_layer = DenseDim(units           = IntDimension(1, 1),
+                           activation      = CategoricalDimension(["relu"]),
+                           batch_normalize = CategoricalDimension([False]),
+                           layer_normalize = CategoricalDimension([False]))
+
+    search_space = NNSearchSpace(
+        NNSearchSpace.Dimension(
+            layers                = [dense_layer],
+            initial_learning_rate = FloatDimension(0.01, 0.01),
+            learning_decay_rate   = FloatDimension(1.0, 1.0),
+            epoch_limit           = IntDimension(1, 1),
+            convergence_criteria  = FloatDimension(1e-6, 1e-6),
+            convergence_patience  = IntDimension(1, 1),
+            batch_size_log2       = IntDimension(1, 1)),
+        input_features     = {"x": NoProcessing()},
+        predicted_features = {"y": NoProcessing()})
+
+    strategy    = OptunaStrategy()
+    output_file = tmp_path / "optuna_results.txt"
+    model       = strategy.search(search_space      = search_space,
+                                  series_collection = series_collection,
+                                  num_trials        = 1,
+                                  number_of_folds   = 2,
+                                  output_file       = str(output_file),
+                                  num_procs         = 1)
+    if output_file.exists():
+        output_file.unlink()
+
+    assert isinstance(model, NNStrategy)
+    assert model.input_features        == {"x": NoProcessing()}
+    assert model.predicted_features    == {"y": NoProcessing()}
+    assert model.layers                == [Dense(units=1, activation="relu",
+                                                  batch_normalize=False,
+                                                  layer_normalize=False)]
+    assert model.initial_learning_rate == 0.01
+    assert model.learning_decay_rate   == 1.0
+    assert model.epoch_limit           == 1
+    assert model.convergence_criteria  == 1e-6
+    assert model.convergence_patience  == 1
+    assert model.batch_size            == 2
