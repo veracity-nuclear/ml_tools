@@ -63,7 +63,7 @@ class OptunaStrategy(SearchStrategy):
         best_model  = build_prediction_strategy(strategy_type     = search_space.prediction_strategy_type,
                                                 params            = best_params,
                                                 input_features    = search_space.input_features,
-                                                predicted_feature = search_space.predicted_feature,
+                                                predicted_features = search_space.predicted_features,
                                                 biasing_model     = search_space.biasing_model)
 
         best_model.train(series_collection, num_procs=num_procs)
@@ -93,7 +93,7 @@ class OptunaStrategy(SearchStrategy):
             model = build_prediction_strategy(strategy_type     = search_space.prediction_strategy_type,
                                               params            = self._get_sample(trial, search_space.dimensions),
                                               input_features    = search_space.input_features,
-                                              predicted_feature = search_space.predicted_feature,
+                                              predicted_features = search_space.predicted_features,
                                               biasing_model     = search_space.biasing_model)
 
             rms = []
@@ -109,16 +109,29 @@ class OptunaStrategy(SearchStrategy):
                 print("Training completed.")
 
                 print("Validating model...")
-                measured  = np.asarray([[series[0][search_space.predicted_feature]] for series in validation_set], dtype=float)
-                predicted = model.predict_padded(validation_set)
+                feature_order = list(search_space.predicted_features)
+                measured_rows = []
+                for series in validation_set:
+                    parts = []
+                    for name in feature_order:
+                        v = np.asarray(series[0][name], dtype=float)
+                        v = np.atleast_1d(v).reshape(-1)
+                        parts.append(v)
+                    measured_rows.append(np.concatenate(parts, axis=0))
+                measured = np.vstack(measured_rows)
 
-                mask = ~np.isnan(predicted)
+                predicted_rows = []
+                for series in model.predict(validation_set):
+                    parts = []
+                    for name in feature_order:
+                        v = np.asarray(series[0][name], dtype=float)
+                        v = np.atleast_1d(v).reshape(-1)
+                        parts.append(v)
+                    predicted_rows.append(np.concatenate(parts, axis=0))
+                predicted = np.vstack(predicted_rows)
+
                 diff = measured - predicted
-                squared = np.square(diff, dtype=float)
-                squared = np.where(mask, squared, 0.0)
-
-                count = mask.sum()
-                fold_rms  = np.sqrt(squared.sum()) / float(count)
+                fold_rms = np.sqrt(np.mean(np.square(diff, dtype=float)))
                 print(f"Fold {fold + 1} RMS: {fold_rms}")
 
                 rms.append(fold_rms)

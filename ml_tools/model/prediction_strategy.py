@@ -1,12 +1,19 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import List, Dict, Optional, Type
+from typing import List, Dict, Optional, Type, Union, Sequence
 from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 import h5py
 
-from ml_tools.model.state import StateSeries, SeriesCollection
-from ml_tools.model.feature_processor import FeatureProcessor, write_feature_processor, read_feature_processor
+from ml_tools.model.state import State, StateSeries, SeriesCollection
+from ml_tools.model.feature_processor import (
+    FeatureProcessor,
+    NoProcessing,
+    read_feature_processor,
+    write_feature_processor,
+)
+
+FeatureSpec = Union[Dict[str, FeatureProcessor], str, Sequence[str]]
 
 
 class PredictionStrategy(ABC):
@@ -15,9 +22,9 @@ class PredictionStrategy(ABC):
     Attributes
     ----------
     input_features : Dict[str, FeatureProcessor]
-        A dictionary specifying the input features of this model and their corresponding feature processing strategy
-    predicted_feature : str
-        The string specifying the feature to be predicted
+        Input feature and processor pairs, keyed by feature name.
+    predicted_features : Dict[str, FeatureProcessor]
+        Output feature and processor pairs, keyed by feature name.
     biasing_model : PredictionStrategy
         A model that it is used to provide an initial prediction of the predicted output, acting ultimately as an initial bias
     hasBiasingModel : bool
@@ -31,20 +38,33 @@ class PredictionStrategy(ABC):
         return self._input_features
 
     @input_features.setter
-    def input_features(self, input_features: Dict[str, FeatureProcessor]) -> None:
+    def input_features(self, input_features: FeatureSpec) -> None:
+        input_features = self.create_feature_processor_map(input_features)
         self._input_features = {}
         for feature, processor in input_features.items():
-            assert feature is not self.predicted_feature, f"'{feature}' is also the predicted feature"
+            assert feature not in self._predicted_features, f"'{feature}' is also a predicted feature"
             self._input_features[feature] = processor
 
     @property
-    def predicted_feature(self) -> str:
-        return self._predicted_feature
+    def predicted_features(self) -> Dict[str, FeatureProcessor]:
+        return self._predicted_features
 
-    @predicted_feature.setter
-    def predicted_feature(self, predicted_feature: str) -> None:
-        assert predicted_feature not in self.input_features, f"'{predicted_feature}' is also an input feature"
-        self._predicted_feature = predicted_feature
+    @predicted_features.setter
+    def predicted_features(self, predicted_features: FeatureSpec) -> None:
+        predicted_features = self.create_feature_processor_map(predicted_features)
+        assert len(predicted_features) > 0, "predicted_features must be non-empty"
+        self._predicted_features = {}
+        for feature, processor in predicted_features.items():
+            assert isinstance(feature, str) and feature, "predicted feature keys must be non-empty strings"
+            assert isinstance(processor, FeatureProcessor), f"Invalid processor for '{feature}'"
+            assert feature not in self.input_features, f"'{feature}' is also an input feature"
+            self._predicted_features[feature] = processor
+        self._predicted_feature_order = list(predicted_features.keys())
+        self._predicted_feature_sizes = None
+
+    @property
+    def predicted_feature_names(self) -> List[str]:
+        return list(self._predicted_feature_order)
 
     @property
     def biasing_model(self) -> PredictionStrategy:
@@ -53,6 +73,12 @@ class PredictionStrategy(ABC):
     @biasing_model.setter
     def biasing_model(self, bias: PredictionStrategy) -> None:
         assert bias.isTrained
+        if self._predicted_features:
+            assert set(bias.predicted_features) == set(self.predicted_features), \
+                "Biasing model outputs must match predicted features"
+            for feature, processor in self.predicted_features.items():
+                assert processor == bias.predicted_features[feature], \
+                    f"Processor mismatch for predicted feature '{feature}'"
         self._biasing_model = bias
 
     @property
@@ -66,9 +92,48 @@ class PredictionStrategy(ABC):
 
 
     def __init__(self):
-        self._predicted_feature = None
-        self._biasing_model     = None
-        self._input_features    = {}
+        self._predicted_features = {}
+        self._predicted_feature_order = []
+        self._predicted_feature_sizes = None
+        self._biasing_model = None
+        self._input_features = {}
+
+    @staticmethod
+    def create_feature_processor_map(features: FeatureSpec) -> Dict[str, FeatureProcessor]:
+        """Normalize feature specs into a name -> processor mapping.
+
+        Parameters
+        ----------
+        features : FeatureSpec
+            Feature specification in one of three forms:
+            - Dict[str, FeatureProcessor]: explicit feature/processor mapping
+            - str: a single feature name (mapped to NoProcessing)
+            - Sequence[str]: feature names (mapped to NoProcessing)
+        Returns
+        -------
+        Dict[str, FeatureProcessor]
+            Normalized feature/processor mapping.
+
+        Raises
+        ------
+        TypeError
+            If features is not a dict, string, or sequence of strings.
+        AssertionError
+            If entries are invalid.
+        """
+        if isinstance(features, dict):
+            feature_map = features
+        elif isinstance(features, str):
+            feature_map = {features: NoProcessing()}
+        elif isinstance(features, (list, tuple)):
+            feature_map = {name: NoProcessing() for name in features}
+        else:
+            raise TypeError("features must be a dict, string, or list/tuple of strings")
+
+        for name, processor in feature_map.items():
+            assert isinstance(name, str) and name, "feature names must be non-empty strings"
+            assert isinstance(processor, FeatureProcessor), f"Invalid processor for '{name}'"
+        return feature_map
 
 
     @abstractmethod
@@ -87,13 +152,18 @@ class PredictionStrategy(ABC):
         """
 
 
-    def preprocess_inputs(self, series_collection: SeriesCollection, num_procs: int = 1) -> np.ndarray:
-        """ Preprocesses all the input state series into the series of processed input features of the model
+    @staticmethod
+    def preprocess_features(series_collection: SeriesCollection,
+                            features: Dict[str, FeatureProcessor],
+                            num_procs: int = 1) -> np.ndarray:
+        """ Preprocesses all the input state series into the series of processed features of the model
 
         Parameters
         ----------
         series_collection : SeriesCollection
             The list of state series to be pre-processed into a collection of model input series
+        features : Dict[str, FeatureProcessor]
+            Feature/processor pairs specifying what to preprocess and how to do so
         num_procs : int
             The number of parallel processors to use when processing the data
 
@@ -103,22 +173,24 @@ class PredictionStrategy(ABC):
             The preprocessed collection of state series input features. All series are padded
             with 0.0 to match the length of the longest series.
         """
+        assert num_procs > 0, f"num_procs must be > 0, got {num_procs}"
         if num_procs <= 1:
             processed_inputs = [
-                self._process_single_series(series, self.input_features)
+                PredictionStrategy._preprocess_single_series(series, features)
                 for series in series_collection
             ]
         else:
-            input_features = [self.input_features] * len(series_collection)  # input_features for each worker
+            features = [features] * len(series_collection)  # input_features for each worker
             with ProcessPoolExecutor(max_workers=num_procs) as executor:
-                processed_inputs = list(executor.map(self._process_single_series, series_collection, input_features))
+                processed_inputs = list(executor.map(PredictionStrategy._preprocess_single_series,
+                                                     series_collection,
+                                                     features))
 
-        return self._pad_series(processed_inputs)
-
+        return PredictionStrategy._pad_series(processed_inputs)
 
     @staticmethod
-    def _process_single_series(series: StateSeries, input_features: Dict[str, FeatureProcessor]) -> np.ndarray:
-        """ Helper method to support parallelizing preprocess_inputs
+    def _preprocess_single_series(series: StateSeries, input_features: Dict[str, FeatureProcessor]) -> np.ndarray:
+        """ Helper method to support parallelizing preprocess_features
 
         This is required to be a separate method so it can be pickled by ProcessPoolExecutor
         """
@@ -133,6 +205,88 @@ class PredictionStrategy(ABC):
                 processed_data = np.vstack(processed_data)
             processed_inputs.append(processed_data)
         return np.hstack(processed_inputs)
+
+
+    @staticmethod
+    def postprocess_features(data_array:     np.ndarray,
+                             series_lengths: Optional[List[int]],
+                             feature_order:  List[str],
+                             feature_sizes:  Dict[str, int],
+                             features:       Dict[str, FeatureProcessor],
+                             num_procs:      int = 1) -> SeriesCollection:
+        """Convert data arrays into post-processed series collections.
+
+        Parameters
+        ----------
+        data_array : np.ndarray
+            Data array of shape (num_series, max_timesteps, output_dim).
+        series_lengths : Optional[List[int]]
+            True lengths for each series. If not provided, assumes all series
+            are full length.
+        feature_order : List[str]
+            Ordered list of output feature names corresponding to the vectorized array.
+        feature_sizes : Dict[str, int]
+            Mapping from feature name to output width in the vectorized array.
+        features : Dict[str, FeatureProcessor]
+            Feature/processor pairs used for post-processing each output feature.
+        num_procs : int
+            The number of parallel processors to use when post-processing the data.
+
+        Returns
+        -------
+        SeriesCollection
+            Series collection of predicted states, trimmed to each series length.
+        """
+        assert num_procs > 0, f"num_procs must be > 0, got {num_procs}"
+        if series_lengths is None:
+            series_lengths = [data_array.shape[1]] * data_array.shape[0]
+
+        total_size = sum(feature_sizes[name] for name in feature_order)
+        assert data_array.shape[2] == total_size, \
+            f"Predicted output dim {data_array.shape[2]} does not match expected {total_size}"
+
+        if num_procs <= 1:
+            state_series_list = [
+                PredictionStrategy._postprocess_single_series(padded,
+                                                              series_len,
+                                                              feature_order,
+                                                              feature_sizes,
+                                                              features)
+                for padded, series_len in zip(data_array, series_lengths)
+            ]
+        else:
+            with ProcessPoolExecutor(max_workers=num_procs) as executor:
+                state_series_list = list(executor.map(PredictionStrategy._postprocess_single_series,
+                                                      data_array,
+                                                      series_lengths,
+                                                      [feature_order] * len(series_lengths),
+                                                      [feature_sizes] * len(series_lengths),
+                                                      [features] * len(series_lengths)))
+
+        return SeriesCollection(state_series_list)
+
+    @staticmethod
+    def _postprocess_single_series(series_data: np.ndarray,
+                                   series_len: int,
+                                   feature_order: List[str],
+                                   feature_sizes: Dict[str, int],
+                                   feature_processors: Dict[str, FeatureProcessor]) -> StateSeries:
+        """Helper method to support parallelizing postprocess_features."""
+        series_data = series_data[:series_len]
+        processed_by_feature: Dict[str, np.ndarray] = {}
+        start = 0
+        for name in feature_order:
+            size = feature_sizes[name]
+            chunk = series_data[:, start:start + size]
+            processed_by_feature[name] = np.asarray(feature_processors[name].postprocess(chunk))
+            start += size
+
+        series_states: List[State] = []
+        for i in range(series_len):
+            series_states.append(State({name: processed_by_feature[name][i]
+                                        for name in feature_order}))
+        return StateSeries(series_states)
+
 
     @staticmethod
     def _pad_series(series_collection: List[np.ndarray], pad_value: float = 0.0) -> np.ndarray:
@@ -174,7 +328,9 @@ class PredictionStrategy(ABC):
 
         assert isinstance(other, PredictionStrategy)
 
-        same_pred = self.predicted_feature == other.predicted_feature
+        same_pred = (set(self.predicted_features) == set(other.predicted_features) and
+                     all(proc == other.predicted_features[key]
+                         for key, proc in self.predicted_features.items()))
         same_inputs = (set(self.input_features) == set(other.input_features) and
                        all(proc == other.input_features[key]
                            for key, proc in self.input_features.items()))
@@ -195,7 +351,13 @@ class PredictionStrategy(ABC):
             biasing_model_group = h5_group.create_group('biasing_model')
             self._biasing_model.write_model_to_hdf5(biasing_model_group)
 
-        h5_group.create_dataset('predicted_feature', data=self.predicted_feature)
+        pred_group = h5_group.create_group('predicted_features')
+        pred_order = self.predicted_feature_names
+        for name in pred_order:
+            write_feature_processor(pred_group.create_group(name), self.predicted_features[name])
+        if self._predicted_feature_sizes is not None:
+            sizes = [self._predicted_feature_sizes[name] for name in pred_order]
+            h5_group.create_dataset('predicted_feature_sizes', data=sizes)
         input_features_group = h5_group.create_group('input_features')
         for name, feature in self.input_features.items():
             write_feature_processor(input_features_group.create_group(name), feature)
@@ -239,7 +401,15 @@ class PredictionStrategy(ABC):
         h5_group : h5py.Group
             An opened HDF5 group or file handle
         """
-        self.predicted_feature = h5_group['predicted_feature'][()].decode('utf-8')
+        pred_group = h5_group['predicted_features']
+        pred_order = list(pred_group.keys())
+        predicted_features = {}
+        for name in pred_order:
+            predicted_features[name] = read_feature_processor(pred_group[name])
+        self.predicted_features = predicted_features
+        if 'predicted_feature_sizes' in h5_group:
+            sizes = [int(v) for v in h5_group['predicted_feature_sizes'][()]]
+            self._predicted_feature_sizes = dict(zip(pred_order, sizes))
         input_features = {}
         for name, feature in h5_group['input_features'].items():
             input_features[name] = read_feature_processor(feature)
@@ -264,7 +434,7 @@ class PredictionStrategy(ABC):
     def predict(self,
                 series_collection: SeriesCollection,
                 num_procs:         int = 1,
-    ) -> List[List[np.ndarray]]:
+    ) -> SeriesCollection:
         """Approximate predicted features for each state in each series.
 
         Parameters
@@ -276,19 +446,26 @@ class PredictionStrategy(ABC):
 
         Returns
         -------
-        List[List[np.ndarray]]
-            Ragged list of predictions. The first list is over the series, the
-            second list is over the states within that series, and each element
-            is the predicted output for that state. Padding is removed, so only
-            real timesteps from the input are returned.
+        SeriesCollection
+            Series collection of predicted states. Each state contains only
+            the predicted features. Padding is removed, so only real timesteps
+            from the input are returned.
         """
-        processed_inputs = self.preprocess_inputs(series_collection, num_procs=num_procs)
-        padded_predictions = self.predict_processed_inputs(processed_inputs)
+        assert num_procs > 0, f"num_procs must be > 0, got {num_procs}"
+        processed_inputs = PredictionStrategy.preprocess_features(series_collection,
+                                                                  self.input_features,
+                                                                  num_procs=num_procs)
+        raw_predictions = self.predict_processed_inputs(processed_inputs, num_procs=num_procs)
         series_lengths = [len(series) for series in series_collection]
-        return self.post_process_outputs(padded_predictions, series_lengths)
+        return PredictionStrategy.postprocess_features(raw_predictions,
+                                                       series_lengths,
+                                                       self._predicted_feature_order,
+                                                       self._predicted_feature_sizes,
+                                                       self.predicted_features,
+                                                       num_procs=num_procs)
 
 
-    def predict_processed_inputs(self, processed_inputs: np.ndarray) -> np.ndarray:
+    def predict_processed_inputs(self, processed_inputs: np.ndarray, num_procs: int = 1) -> np.ndarray:
         """Predict target values from preprocessed, padded inputs.
 
         Parameters
@@ -302,48 +479,19 @@ class PredictionStrategy(ABC):
             Array of shape (num_series, max_timesteps, output_dim) containing
             predictions for each series. No NaN padding adjustments are made.
         """
+        assert num_procs > 0, f"num_procs must be > 0, got {num_procs}"
         assert self.isTrained
 
-        y = np.asarray(self._predict_all(processed_inputs), dtype=np.float32)
+        y = np.asarray(self._predict_all(processed_inputs, num_procs=num_procs), dtype=np.float32)
 
         if self.hasBiasingModel:
             # pylint: disable=protected-access
-            y += self.biasing_model._predict_all(processed_inputs)
+            y += self.biasing_model._predict_all(processed_inputs, num_procs=num_procs)
 
         return y
 
 
-    def post_process_outputs(
-        self,
-        padded_predictions: np.ndarray,
-        series_lengths: Optional[List[int]] = None,
-    ) -> List[List[np.ndarray]]:
-        """Convert padded predictions into ragged per-series outputs.
-
-        Parameters
-        ----------
-        padded_predictions : np.ndarray
-            Padded prediction array of shape (num_series, max_timesteps, output_dim).
-        series_lengths : Optional[List[int]]
-            True lengths for each series. If not provided, assumes all series
-            are full length.
-
-        Returns
-        -------
-        List[List[np.ndarray]]
-            Ragged list of predictions, trimmed to each series length.
-        """
-        if series_lengths is None:
-            series_lengths = [padded_predictions.shape[1]] * padded_predictions.shape[0]
-
-        ragged_predictions: List[List[np.ndarray]] = []
-        for padded, series_len in zip(padded_predictions, series_lengths):
-            ragged_predictions.append(list(padded[:series_len]))
-
-        return ragged_predictions
-
-
-    def _predict_all(self, series_collection: np.ndarray) -> np.ndarray:
+    def _predict_all(self, series_collection: np.ndarray, num_procs: int = 1) -> np.ndarray:
         """ The method that predicts the target values corresponding to the given state series collection
 
         Target value in this case refers either directly to the predicted feature if
@@ -355,13 +503,21 @@ class PredictionStrategy(ABC):
         series_collection : np.ndarray
             The preprocessed and padded state series collection in np.array format for which
             to predict the target value
+        num_procs : int
+            The number of parallel processors to use when predicting the data
 
         Returns
         -------
         np.ndarray
             The predicted target values for each state in each series
         """
-        return np.asarray([self._predict_one(series) for series in series_collection])
+        assert num_procs > 0, f"num_procs must be > 0, got {num_procs}"
+        if num_procs <= 1:
+            return np.asarray([self._predict_one(series) for series in series_collection])
+
+        series_list = list(series_collection)
+        with ProcessPoolExecutor(max_workers=num_procs) as executor:
+            return np.asarray(list(executor.map(self._predict_one, series_list)))
 
 
     def _get_targets(self, series_collection: SeriesCollection, num_procs: int = 1) -> np.ndarray:
@@ -385,32 +541,28 @@ class PredictionStrategy(ABC):
             The target values of each state of each series to use in training
         """
 
-        seq_targets: List[np.ndarray] = []
-        for series in series_collection:
-            vals: List[np.ndarray] = []
-            for state in series:
-                v = np.asarray(state[self.predicted_feature])
-                v = np.atleast_1d(v).astype(np.float32)
-                vals.append(v)
-            if not vals:
-                continue
-            seq_targets.append(np.vstack(vals))
-        targets = self._pad_series(seq_targets, pad_value=0.0)
+        assert num_procs > 0, f"num_procs must be > 0, got {num_procs}"
+        state = series_collection[0][0]
+        self._predicted_feature_sizes = {name: int(state[name].size)
+                                         for name in self._predicted_feature_order}
+
+        targets = PredictionStrategy.preprocess_features(series_collection,
+                                                         self.predicted_features,
+                                                         num_procs=num_procs)
 
         if self.hasBiasingModel:
-            bias_ragged = self.biasing_model.predict(series_collection, num_procs=num_procs)
-            bias_series: List[np.ndarray] = []
-            for series in bias_ragged:
-                bias_series.append(np.vstack(series))
-            bias = self._pad_series(bias_series, pad_value=0.0)
+            bias_series = self.biasing_model.predict(series_collection, num_procs=num_procs)
+            bias = PredictionStrategy.preprocess_features(bias_series,
+                                                         self.predicted_features,
+                                                         num_procs=num_procs)
             targets = targets - bias
         return targets
 
     @classmethod
     def from_dict(cls,
                   params:            Dict,
-                  input_features:    Dict[str, FeatureProcessor],
-                  predicted_feature: str,
+                  input_features:    FeatureSpec,
+                  predicted_features: FeatureSpec,
                   biasing_model:     Optional[PredictionStrategy] = None) -> PredictionStrategy:
         """Construct a concrete PredictionStrategy from a parameter dict.
 
@@ -420,10 +572,10 @@ class PredictionStrategy(ABC):
             Model parameters and/or architecture description. The expected
             schema is strategy‑specific. For example, NNStrategy expects either
             a 'neural_network' key or a top‑level 'layers' key.
-        input_features : Dict[str, FeatureProcessor]
-            Feature processors keyed by feature name.
-        predicted_feature : str
-            Target feature name to predict.
+        input_features : FeatureSpec
+            Input feature/processor pairs (Dict) or feature name(s) (str/List[str], automatically mapped to NoProcessing).
+        predicted_features : FeatureSpec
+            Output feature/processor pairs (Dict) or feature name(s) (str/List[str], automatically mapped to NoProcessing).
         biasing_model : Optional[PredictionStrategy], optional
             Optional prior model used to bias predictions.
 
@@ -433,8 +585,8 @@ class PredictionStrategy(ABC):
             A configured, untrained strategy instance.
         """
 
-        instance = cls(input_features    = input_features,
-                       predicted_feature = predicted_feature,
+        instance = cls(input_features     = input_features,
+                       predicted_features = predicted_features,
                        **params)
         if biasing_model is not None:
             instance.biasing_model = biasing_model

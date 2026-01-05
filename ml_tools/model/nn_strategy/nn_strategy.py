@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import List, Dict, Type, Optional
 import os
+import warnings
 from math import isclose
 import h5py
 import numpy as np
@@ -16,9 +17,9 @@ from tensorflow.keras.metrics import MeanAbsoluteError
 from tensorflow.keras.callbacks import EarlyStopping
 
 from ml_tools.model.state import SeriesCollection
-from ml_tools.model.prediction_strategy import PredictionStrategy
+from ml_tools.model.prediction_strategy import PredictionStrategy, FeatureSpec
 from ml_tools.model import register_prediction_strategy
-from ml_tools.model.feature_processor import FeatureProcessor
+from ml_tools.model.feature_processor import NoProcessing
 from ml_tools.model.nn_strategy.layer import Layer, gather_indices
 from ml_tools.model.nn_strategy.layer_sequence import LayerSequence
 from ml_tools.model.nn_strategy.dense import Dense
@@ -35,10 +36,10 @@ class NNStrategy(PredictionStrategy):
 
     Parameters
     ----------
-    input_features : Dict[str, FeatureProcessor]
-        A dictionary specifying the input features of this model and their corresponding feature processing strategy
-    predicted_feature : str
-        The string specifying the feature to be predicted
+    input_features : FeatureSpec
+        Input feature/processor pairs (Dict) or feature name(s) (str/List[str], automatically mapped to NoProcessing).
+    predicted_features : FeatureSpec
+        Output feature/processor pairs (Dict) or feature name(s) (str/List[str], automatically mapped to NoProcessing).
     layers : List[Layer]
         The hidden layers of the neural network
     initial_learning_rate : float
@@ -143,8 +144,8 @@ class NNStrategy(PredictionStrategy):
 
 
     def __init__(self,
-                 input_features        : Dict[str, FeatureProcessor],
-                 predicted_feature     : str,
+                 input_features        : FeatureSpec,
+                 predicted_features    : FeatureSpec,
                  layers                : List[Layer]=None,
                  initial_learning_rate : float=0.01,
                  learning_decay_rate   : float=1.,
@@ -155,7 +156,7 @@ class NNStrategy(PredictionStrategy):
 
         super().__init__()
         self.input_features         = input_features
-        self.predicted_feature      = predicted_feature
+        self.predicted_features     = predicted_features
         self.layers                 = [Dense(units=5, activation='relu')] if layers is None else layers
         self.initial_learning_rate  = initial_learning_rate
         self.learning_decay_rate    = learning_decay_rate
@@ -170,7 +171,7 @@ class NNStrategy(PredictionStrategy):
     def train(self, train_data: SeriesCollection, test_data: Optional[SeriesCollection] = None, num_procs: int = 1) -> None:
         assert test_data is None, "The Neural Network Prediction Strategy does not use test data"
 
-        X = self.preprocess_inputs(train_data, num_procs)
+        X = self.preprocess_features(train_data, self.input_features, num_procs)
         y = self._get_targets(train_data, num_procs=num_procs)
 
         input_tensor = tf.keras.layers.Input(shape=(None, len(X[0][0])))
@@ -208,8 +209,13 @@ class NNStrategy(PredictionStrategy):
     def _predict_one(self, state_series: np.ndarray) -> np.ndarray:
         return self._predict_all([state_series])[0]
 
-    def _predict_all(self, series_collection: np.ndarray) -> np.ndarray:
+    def _predict_all(self, series_collection: np.ndarray, num_procs: int = 1) -> np.ndarray:
         assert self.isTrained
+        assert num_procs > 0, f"num_procs must be > 0, got {num_procs}"
+
+        if num_procs != 1:
+            warnings.warn("NNStrategy ignores num_procs; TensorFlow handles parallelism.",
+                          RuntimeWarning, stacklevel=2)
 
         X = tf.convert_to_tensor(series_collection, dtype=tf.float32)
 
@@ -309,8 +315,8 @@ class NNStrategy(PredictionStrategy):
     @classmethod
     def from_dict(cls,
                   params:            Dict,
-                  input_features:    Dict[str, FeatureProcessor],
-                  predicted_feature: str,
+                  input_features:    FeatureSpec,
+                  predicted_features: FeatureSpec,
                   biasing_model:     Optional[PredictionStrategy] = None) -> NNStrategy:
 
         nn_cfg = params.get('neural_network')
@@ -334,7 +340,7 @@ class NNStrategy(PredictionStrategy):
             batch_size = 32
 
         instance = cls(input_features        = input_features,
-                       predicted_feature     = predicted_feature,
+                       predicted_features    = predicted_features,
                        layers                = layers,
                        initial_learning_rate = initial_learning_rate,
                        learning_decay_rate   = learning_decay_rate,

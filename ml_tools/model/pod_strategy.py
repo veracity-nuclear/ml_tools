@@ -4,10 +4,11 @@ from math import isclose
 import numpy as np
 from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans
+from threadpoolctl import threadpool_limits
 
 from ml_tools.model.state import SeriesCollection
 from ml_tools.model.feature_processor import NoProcessing
-from ml_tools.model.prediction_strategy import PredictionStrategy, FeatureProcessor
+from ml_tools.model.prediction_strategy import PredictionStrategy, FeatureSpec
 from ml_tools.model import register_prediction_strategy
 
 @register_prediction_strategy()  # registers under 'PODStrategy'
@@ -28,8 +29,8 @@ class PODStrategy(PredictionStrategy):
     input_feature : str
         The feature to use as input for this model.  Note: This strategy only allows one input feature and
         this feature is expected to be a vector of floats
-    predicted_feature : str
-        The string specifying the feature to be predicted
+    predicted_features : FeatureSpec
+        Output feature/processor pairs (must contain exactly one entry)
     fine_to_coarse_map : np.ndarray
         The mapping that specifies the weights of the predicted feature "fine-mesh" signals to the
         input feature "coarse-mesh".  This should be an M-by-N matrix where M is the number of input feature
@@ -84,7 +85,7 @@ class PODStrategy(PredictionStrategy):
 
     def __init__(self,
                  input_feature:      str,
-                 predicted_feature:  str,
+                 predicted_features: FeatureSpec,
                  fine_to_coarse_map: np.ndarray,
                  nclusters:          int = 1,
                  max_svd_size:       Optional[int] = None,
@@ -92,7 +93,8 @@ class PODStrategy(PredictionStrategy):
 
         super().__init__()
         self.input_features      = {input_feature: NoProcessing()}
-        self.predicted_feature   = predicted_feature
+        self.predicted_features = predicted_features
+        assert len(self.predicted_features) == 1, "PODStrategy supports only one predicted feature"
         self._input_feature      = input_feature
         self._fine_to_coarse_map = fine_to_coarse_map
         self._ndims              = ndims
@@ -110,7 +112,7 @@ class PODStrategy(PredictionStrategy):
 
         self._pod_mat  = [None]*self.nclusters
         input_feature  = self.input_feature
-        output_feature = self.predicted_feature
+        output_feature = self.predicted_feature_names[0]
         state          = train_data[0][0]
 
         assert self.fine_to_coarse_map.shape[0] == len(state[input_feature]), \
@@ -123,7 +125,7 @@ class PODStrategy(PredictionStrategy):
         targets = np.vstack([np.array(series) for series in self._get_targets(train_data, num_procs=num_procs)])
         if self.nclusters > 1:
             self._kmeans = KMeans(n_clusters=self.nclusters)
-            X            = self.preprocess_inputs(train_data)
+            X            = self.preprocess_features(train_data, self.input_features)
             X            = X.reshape(-1, X.shape[-1])
 
             if not self.ndims is None:
@@ -160,23 +162,25 @@ class PODStrategy(PredictionStrategy):
         return self._predict_all([state_series])[0]
 
 
-    def _predict_all(self, series_collection: np.ndarray) -> np.ndarray:
+    def _predict_all(self, series_collection: np.ndarray, num_procs: int = 1) -> np.ndarray:
 
         assert self.isTrained
         assert not self.hasBiasingModel
         assert series_collection.shape[1] == 1, \
             "All State Series must be static statepoints (i.e. len(series) == 1)"
+        assert num_procs > 0, f"num_procs must be > 0, got {num_procs}"
 
-        X = series_collection[:, 0, :]
+        with threadpool_limits(limits=num_procs):
+            X = series_collection[:, 0, :]
 
-        if self.nclusters > 1:
-            X_reduced = X if self.ndims is None else self._pca.transform(X)
-            labels    = self._kmeans.predict(X_reduced)
-        else:
-            labels = np.zeros(X.shape[0], dtype=int)
+            if self.nclusters > 1:
+                X_reduced = X if self.ndims is None else self._pca.transform(X)
+                labels    = self._kmeans.predict(X_reduced)
+            else:
+                labels = np.zeros(X.shape[0], dtype=int)
 
-        results = np.array([np.matmul(self._pod_mat[label], vec)
-                            for label, vec in zip(labels, X)])
+            results = np.array([np.matmul(self._pod_mat[label], vec)
+                                for label, vec in zip(labels, X)])
 
         return results[:, np.newaxis]
 
@@ -204,8 +208,8 @@ class PODStrategy(PredictionStrategy):
     @classmethod
     def from_dict(cls,
                   params:            Dict,
-                  input_features:    Dict[str, FeatureProcessor],
-                  predicted_feature: str,
+                  input_features:    FeatureSpec,
+                  predicted_features: FeatureSpec,
                   biasing_model:     Optional[PredictionStrategy] = None) -> PODStrategy:
 
         assert input_features is not None and len(input_features) == 1, \
@@ -219,7 +223,7 @@ class PODStrategy(PredictionStrategy):
             "ndims": params.get("ndims", None),
         }
         instance = cls(input_feature     = input_feature,
-                       predicted_feature = predicted_feature,
+                       predicted_features = predicted_features,
                        **kwargs)
         if biasing_model is not None:
             instance.biasing_model = biasing_model

@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import Dict, Optional
 
 from ml_tools.model.prediction_strategy import PredictionStrategy, FeatureProcessor
+from ml_tools.model.feature_processor import NoProcessing
 from ml_tools.optimizer.optimizer import Optimizer
 from ml_tools.optimizer.optuna_strategy import OptunaStrategy
 from ml_tools.optimizer.search_space import FloatDimension, IntDimension, CategoricalDimension, BoolDimension, ChoiceDimension
@@ -13,7 +14,7 @@ from ml_tools.optimizer.nn_search_space.spatial_conv import SpatialConv as Spati
 
 
 def build_dnn_optimizer(input_features: Dict[str, FeatureProcessor],
-                        predicted_feature: str,
+                        predicted_features: str,
                         biasing_model: Optional[PredictionStrategy] = None) -> Optimizer:
     """Build an Optuna-backed optimizer for a DNN search space with variable depth.
 
@@ -41,16 +42,17 @@ def build_dnn_optimizer(input_features: Dict[str, FeatureProcessor],
                                    convergence_patience  = IntDimension(    50,  200          ),
                                    batch_size_log2       = IntDimension(     8,   11          ))
 
+    predicted_feature_map = {predicted_features: NoProcessing()}
     search_space = NNSearchSpace(dims,
-                                 input_features    = input_features,
-                                 predicted_feature = predicted_feature,
-                                 biasing_model     = biasing_model)
+                                 input_features     = input_features,
+                                 predicted_features = predicted_feature_map,
+                                 biasing_model      = biasing_model)
 
     return Optimizer(search_space=search_space, search_strategy=OptunaStrategy())
 
 
 def build_cnn_optimizer(input_features: Dict[str, FeatureProcessor],
-                        predicted_feature: str,
+                        predicted_features: str,
                         biasing_model: Optional[PredictionStrategy] = None) -> Optimizer:
     """Build an Optuna-backed optimizer for the CNN search space used in the example.
     """
@@ -74,10 +76,11 @@ def build_cnn_optimizer(input_features: Dict[str, FeatureProcessor],
                                    convergence_patience  = IntDimension(    50,  200          ),
                                    batch_size_log2       = IntDimension(     8,   11          ))
 
+    predicted_feature_map = {predicted_features: NoProcessing()}
     search_space = NNSearchSpace(dims,
-                                 input_features    = input_features,
-                                 predicted_feature = predicted_feature,
-                                 biasing_model     = biasing_model)
+                                 input_features     = input_features,
+                                 predicted_features = predicted_feature_map,
+                                 biasing_model      = biasing_model)
 
     return Optimizer(search_space=search_space, search_strategy=OptunaStrategy())
 
