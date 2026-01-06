@@ -104,7 +104,7 @@ class EnhancedPODSearchSpace(SearchSpace):
     def __init__(self,
                  dimensions: StructDimension,
                  input_features=None,
-                 predicted_feature=None,
+                 predicted_features=None,
                  biasing_model=None) -> None:
         assert isinstance(dimensions, EnhancedPODSearchSpace.Dimension), (
             f"dimensions must be a EnhancedPODSearchSpace.Dimension, got {type(dimensions)}"
@@ -112,5 +112,5 @@ class EnhancedPODSearchSpace(SearchSpace):
         super().__init__(prediction_strategy_type="EnhancedPODStrategy",
                          dimensions=dimensions,
                          input_features=input_features,
-                         predicted_feature=predicted_feature,
+                         predicted_features=predicted_features,
                          biasing_model=biasing_model)
