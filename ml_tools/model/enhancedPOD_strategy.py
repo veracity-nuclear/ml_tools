@@ -26,7 +26,7 @@ class EnhancedPODStrategy(PredictionStrategy):
     ----------
     input_features : Dict[str, FeatureProcessor]
         The feature to use as input for this model.
-    predicted_feature : str
+    predicted_features : str
         The string specifying the feature to be predicted
     theta_model_type : Optional[str]
         The type of model to use for predicting theta.  Supported types are 'GBM' and 'NN'.  Default is 'GBM'.
@@ -63,7 +63,7 @@ class EnhancedPODStrategy(PredictionStrategy):
 
     def __init__(self,
                  input_features:        Dict[str, FeatureProcessor],
-                 predicted_feature:     str,
+                 predicted_features:    str,
                  theta_model_type:      Optional[str] = 'GBM',
                  max_svd_size:          Optional[int] = None,
                  num_moments:           Optional[int] = 1,
@@ -72,7 +72,7 @@ class EnhancedPODStrategy(PredictionStrategy):
 
         super().__init__()
         self.input_features    = input_features
-        self.predicted_feature = predicted_feature
+        self.predicted_features = predicted_features
         self._num_moments      = num_moments
         self._max_svd_size     = max_svd_size
         self._constraints      = constraints
@@ -89,10 +89,10 @@ class EnhancedPODStrategy(PredictionStrategy):
 
     def _solve_theta_star(self, predicted):
         """
-        theta = U^T * predicted_feature
-        theta_star = argmin_theta ||U theta - predicted_feature||^2_2
-                                  + gamma_1 ||W_1*(U theta - predicted_feature) ||^2_2
-                                  + gamma_2 ||W_2*(U theta - predicted_feature) ||^2_2
+        theta = U^T * predicted_features
+        theta_star = argmin_theta ||U theta - predicted_features||^2_2
+                                  + gamma_1 ||W_1*(U theta - predicted_features) ||^2_2
+                                  + gamma_2 ||W_2*(U theta - predicted_features) ||^2_2
         """
         if len(self._constraints) == 0:
             return self._pod_matrix.T @ predicted
@@ -109,9 +109,10 @@ class EnhancedPODStrategy(PredictionStrategy):
         return theta_star
 
     def _add_theta_to_collection(self, collection: SeriesCollection) -> None:
+        assert len(self.predicted_feature_names) == 1, "EnhancedPODStrategy only supports one predicted feature"
         for series in collection:
             for state in series:
-                predicted   = state[self.predicted_feature]
+                predicted   = state[self.predicted_feature_names[0]]
                 theta_star = self._solve_theta_star(predicted)
                 state.features['theta'] = theta_star
 
@@ -125,21 +126,25 @@ class EnhancedPODStrategy(PredictionStrategy):
         if test_data is not None:
             self._add_theta_to_collection(test_data)
 
+    def _compute_pod(self, data: SeriesCollection) -> None:
+        if self._max_svd_size is None:
+            self._max_svd_size = len(data)
+
+        # setup matrix and perform SVD
+        A = np.vstack([np.array(series) for series in self._get_targets(data)])
+        if len(data) > self.max_svd_size:
+            A = A[np.random.choice(A.shape[0], self.max_svd_size, replace=False), :]
+        u, _, _ = np.linalg.svd(A.T, full_matrices=False)
+
+        # store intermediate pod matrix
+        self._pod_matrix = u[:, :self.num_moments]
+
     def train(self,
               train_data: SeriesCollection,
               test_data: Optional[SeriesCollection] = None, num_procs: int = 1) -> None:
 
-        if self._max_svd_size is None:
-            self._max_svd_size = len(train_data)
-
-        # setup matrix and perform SVD
-        A = np.vstack([np.array(series) for series in self._get_targets(train_data)])
-        if len(train_data) > self.max_svd_size:
-            A = A[np.random.choice(A.shape[0], self.max_svd_size, replace=False), :]
-        u, _, _ = np.linalg.svd(A.T, full_matrices=False)
-
-        # store intermediate theta_d and pod matrix
-        self._pod_matrix = u[:, :self.num_moments]
+        # compute pod matrix
+        self._compute_pod(train_data)
 
         # add theta_xi to collections for training
         self._add_theta(train_data, test_data)
