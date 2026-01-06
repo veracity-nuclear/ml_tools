@@ -43,7 +43,7 @@ class OptunaStrategy(SearchStrategy):
                 output.write(f"Trial {trial.number}: Params: {trial.params}, Value: {trial.value}\n")
             print(f"Trial {trial.number} completed: Value: {trial.value}")
 
-        print("Starting NN Optimization")
+        print("Starting Optimization")
         with open(output_file, 'w') as output:
             output.write("RESULTS\n---------\n")
 
