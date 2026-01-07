@@ -37,7 +37,8 @@ class OptunaStrategy(SearchStrategy):
                resume:            bool = False,
                save_every_n_trials: int = 0,
                fold_workers:      int = 1,
-               study_storage:     Optional[str] = None) -> PredictionStrategy:
+               study_storage:     Optional[str] = None,
+               n_jobs:            int = 1) -> PredictionStrategy:
 
         super().search(search_space,
                        series_collection,
@@ -49,7 +50,8 @@ class OptunaStrategy(SearchStrategy):
                        resume,
                        save_every_n_trials,
                        fold_workers,
-                       study_storage)
+                       study_storage,
+                       n_jobs)
 
         checkpoint_path = None
         storage_uri = study_storage
@@ -92,6 +94,18 @@ class OptunaStrategy(SearchStrategy):
         with open(output_file, 'w') as output:
             output.write("RESULTS\n---------\n")
 
+        # Avoid nested parallelism: if n_jobs>1 (trial-level parallelism), force single fold worker
+        # and single-proc training per fold.
+        effective_fold_workers = fold_workers
+        effective_num_procs = num_procs
+        if n_jobs and n_jobs > 1:
+            if fold_workers > 1:
+                print(f"n_jobs={n_jobs} > 1, forcing fold_workers=1 to avoid nested parallelism")
+                effective_fold_workers = 1
+            if num_procs > 1:
+                print(f"n_jobs={n_jobs} > 1, forcing num_procs=1 inside folds to avoid nested parallelism")
+                effective_num_procs = 1
+
         study     = optuna.create_study(direction='minimize',
                                         storage=storage_uri,
                                         study_name="optuna_study",
@@ -99,10 +113,13 @@ class OptunaStrategy(SearchStrategy):
         objective = self._setup_objective(search_space,
                                           series_collection,
                                           number_of_folds,
-                                          num_procs,
-                                          fold_workers)
+                                          effective_num_procs,
+                                          effective_fold_workers)
 
-        study.optimize(objective, n_trials=num_trials, callbacks=[log_progress])
+        study.optimize(objective,
+                   n_trials=num_trials,
+                   callbacks=[log_progress],
+                   n_jobs=n_jobs)
 
         with open(output_file, 'a') as output:
             output.write("\nBEST PARAMETERS\n----------------\n")
