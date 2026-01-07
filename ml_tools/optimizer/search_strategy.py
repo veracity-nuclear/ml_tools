@@ -21,7 +21,8 @@ class SearchStrategy(ABC):
                resume:            bool = False,
                save_every_n_trials: int = 0,
                fold_workers:      int = 1,
-               study_storage:     Optional[str] = None) -> PredictionStrategy:
+               study_storage:     Optional[str] = None,
+               n_jobs:            int = 1) -> PredictionStrategy:
         """ Method for performing model hyperparameter optimization
 
         Parameters
@@ -48,6 +49,8 @@ class SearchStrategy(ABC):
             Max workers for evaluating CV folds in parallel; 1 keeps sequential.
         study_storage : Optional[str]
             Optuna storage URI (e.g., sqlite:///optuna.db); inferred when checkpoint_dir is set.
+        n_jobs : int
+            Number of parallel workers per process when the backend supports it (Optuna's n_jobs).
 
         Returns
         -------
@@ -60,3 +63,4 @@ class SearchStrategy(ABC):
         assert num_procs > 0, f"num_procs = {num_procs}"
         assert save_every_n_trials >= 0, f"save_every_n_trials = {save_every_n_trials}"
         assert fold_workers > 0, f"fold_workers = {fold_workers}"
+        assert n_jobs >= 1, f"n_jobs = {n_jobs}"

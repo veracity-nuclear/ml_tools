@@ -57,7 +57,8 @@ class Optimizer():
                  resume:            bool = False,
                  save_every_n_trials: int = 0,
                  fold_workers:      int = 1,
-                 study_storage:     Optional[str] = None) -> PredictionStrategy:
+                 study_storage:     Optional[str] = None,
+                 n_jobs:            int = 1) -> PredictionStrategy:
         """ Method for performing model hyperparameter optimization
 
         Parameters
@@ -82,6 +83,8 @@ class Optimizer():
             Max workers for evaluating CV folds in parallel; 1 keeps sequential.
         study_storage : Optional[str]
             Optuna storage URI (e.g., sqlite:///optuna.db); inferred when checkpoint_dir is set.
+        n_jobs : int
+            Number of parallel workers per process when the backend supports it (Optuna's n_jobs).
 
         Returns
         -------
@@ -99,4 +102,5 @@ class Optimizer():
                                            resume            = resume,
                                            save_every_n_trials = save_every_n_trials,
                                            fold_workers      = fold_workers,
-                                           study_storage     = study_storage)
+                                           study_storage     = study_storage,
+                                           n_jobs            = n_jobs)
