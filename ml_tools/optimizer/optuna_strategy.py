@@ -1,5 +1,8 @@
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from math import log, ceil, floor
+import json
+from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 
 import optuna
 from optuna.trial import FixedTrial
@@ -29,35 +32,83 @@ class OptunaStrategy(SearchStrategy):
                num_trials:        int,
                number_of_folds:   int,
                output_file:       str,
-               num_procs:         int) -> PredictionStrategy:
+               num_procs:         int,
+               checkpoint_dir:    Optional[str] = None,
+               resume:            bool = False,
+               save_every_n_trials: int = 0,
+               fold_workers:      int = 1,
+               study_storage:     Optional[str] = None) -> PredictionStrategy:
 
         super().search(search_space,
                        series_collection,
                        num_trials,
                        number_of_folds,
                        output_file,
-                       num_procs)
+                       num_procs,
+                       checkpoint_dir,
+                       resume,
+                       save_every_n_trials,
+                       fold_workers,
+                       study_storage)
+
+        checkpoint_path = None
+        storage_uri = study_storage
+        if checkpoint_dir:
+            checkpoint_root = Path(checkpoint_dir)
+            checkpoint_root.mkdir(parents=True, exist_ok=True)
+            checkpoint_path = checkpoint_root / "optuna_checkpoint.json"
+            if storage_uri is None:
+                storage_uri = f"sqlite:///{checkpoint_root / 'optuna_study.db'}"
+        load_if_exists = resume or storage_uri is not None
+        if load_if_exists and storage_uri is None:
+            # Resume only works with persistent storage; fall back to in-memory study.
+            load_if_exists = False
+
+        def _dump_checkpoint(study_obj: optuna.Study) -> None:
+            if not checkpoint_path:
+                return
+            try:
+                best_params = study_obj.best_params
+                best_value = study_obj.best_value
+            except ValueError:
+                best_params = {}
+                best_value = None
+
+            payload = {
+                "n_trials": len(study_obj.trials),
+                "best_params": best_params,
+                "best_value": best_value,
+            }
+            checkpoint_path.write_text(json.dumps(payload, indent=2))
 
         def log_progress(_study, trial):
             with open(output_file, "a") as output:
                 output.write(f"Trial {trial.number}: Params: {trial.params}, Value: {trial.value}\n")
             print(f"Trial {trial.number} completed: Value: {trial.value}")
+            if save_every_n_trials and ((trial.number + 1) % save_every_n_trials == 0):
+                _dump_checkpoint(_study)
 
         print("Starting NN Optimization")
         with open(output_file, 'w') as output:
             output.write("RESULTS\n---------\n")
 
-        study     = optuna.create_study(direction='minimize')
+        study     = optuna.create_study(direction='minimize',
+                                        storage=storage_uri,
+                                        study_name="optuna_study",
+                                        load_if_exists=load_if_exists)
         objective = self._setup_objective(search_space,
                                           series_collection,
                                           number_of_folds,
-                                          num_procs)
+                                          num_procs,
+                                          fold_workers)
 
         study.optimize(objective, n_trials=num_trials, callbacks=[log_progress])
 
         with open(output_file, 'a') as output:
             output.write("\nBEST PARAMETERS\n----------------\n")
             output.write(f"{study.best_params}\n")
+
+        _dump_checkpoint(study)
 
         best_params = self._get_sample(FixedTrial(study.best_params), search_space.dimensions)
         best_model  = build_prediction_strategy(strategy_type     = search_space.prediction_strategy_type,
@@ -74,7 +125,8 @@ class OptunaStrategy(SearchStrategy):
                          search_space:      SearchSpace,
                          series_collection: SeriesCollection,
                          number_of_folds:   int,
-                         num_procs:         int) -> callable:
+                         num_procs:         int,
+                         fold_workers:      int) -> callable:
         """ Method to setup the objective function for the Optuna optimization
 
         Parameters
@@ -87,31 +139,35 @@ class OptunaStrategy(SearchStrategy):
             The number of folds to use in cross-validation
         num_procs : int
             The number of processes to use for parallel model training
+        fold_workers : int
+            Max workers for evaluating CV folds in parallel; 1 keeps sequential.
         """
 
         def objective(trial: optuna.trial.Trial) -> float:
-            model = build_prediction_strategy(strategy_type     = search_space.prediction_strategy_type,
-                                              params            = self._get_sample(trial, search_space.dimensions),
-                                              input_features    = search_space.input_features,
-                                              predicted_features = search_space.predicted_features,
-                                              biasing_model     = search_space.biasing_model)
+            params = self._get_sample(trial, search_space.dimensions)
+            # Avoid nested parallelism: when folds run in parallel, keep model training single-proc.
+            train_procs = 1 if fold_workers > 1 else num_procs
 
-            rms = []
-            kf = KFold(n_splits=number_of_folds, shuffle=True)
-            for fold, (train_idx, val_idx) in enumerate(kf.split(series_collection)):
-                print(f"Starting fold {fold + 1}/{number_of_folds}...")
+            def evaluate_fold(fold_split):
+                fold, (train_idx, val_idx) = fold_split
+                print(f"Starting fold {fold}/{number_of_folds}...")
 
-                training_set   = SeriesCollection([series_collection[i] for i in train_idx])
-                validation_set = SeriesCollection([series_collection[i] for i in val_idx])
+                fold_training_set   = SeriesCollection([series_collection[i] for i in train_idx])
+                fold_validation_set = SeriesCollection([series_collection[i] for i in val_idx])
 
-                print("Training started...")
-                model.train(training_set, num_procs=num_procs)
-                print("Training completed.")
+                fold_model = build_prediction_strategy(strategy_type      = search_space.prediction_strategy_type,
+                                                       params             = params,
+                                                       input_features     = search_space.input_features,
+                                                       predicted_features = search_space.predicted_features,
+                                                       biasing_model      = search_space.biasing_model)
 
-                print("Validating model...")
+                print(f"Fold {fold}: training start (num_procs={train_procs})")
+                fold_model.train(fold_training_set, num_procs=train_procs)
+                print(f"Fold {fold}: training complete")
+
                 feature_order = list(search_space.predicted_features)
                 measured_rows = []
-                for series in validation_set:
+                for series in fold_validation_set:
                     parts = []
                     for name in feature_order:
                         v = np.asarray(series[0][name], dtype=float)
@@ -121,20 +177,28 @@ class OptunaStrategy(SearchStrategy):
                 measured = np.vstack(measured_rows)
 
                 predicted_rows = []
-                for series in model.predict(validation_set):
+                print(f"Fold {fold}: predicting start")
+                for series in fold_model.predict(fold_validation_set):
                     parts = []
                     for name in feature_order:
                         v = np.asarray(series[0][name], dtype=float)
                         v = np.atleast_1d(v).reshape(-1)
                         parts.append(v)
                     predicted_rows.append(np.concatenate(parts, axis=0))
+                print(f"Fold {fold}: predicting complete")
                 predicted = np.vstack(predicted_rows)
 
                 diff = measured - predicted
                 fold_rms = np.sqrt(np.mean(np.square(diff, dtype=float)))
-                print(f"Fold {fold + 1} RMS: {fold_rms}")
+                print(f"Fold {fold}: rms={fold_rms}")
+                return fold_rms
 
-                rms.append(fold_rms)
+            splits = list(enumerate(KFold(n_splits=number_of_folds, shuffle=True).split(series_collection), start=1))
+            if fold_workers > 1:
+                with ThreadPoolExecutor(max_workers=fold_workers) as executor:
+                    rms = list(executor.map(evaluate_fold, splits))
+            else:
+                rms = [evaluate_fold(split) for split in splits]
 
             average_rms = sum(rms) / len(rms)
             print(f"Optimization step completed. Average RMS across folds: {average_rms}")
