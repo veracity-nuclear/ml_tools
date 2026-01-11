@@ -251,7 +251,7 @@ class NNStrategy(PredictionStrategy):
             file_data = file.read()
             h5_group.create_dataset('serialized_keras_file', data=np.void(file_data))
 
-        self.base_save_model(h5_group)
+        super().write_model_to_hdf5(h5_group)
         h5_group.create_dataset('initial_learning_rate', data=self.initial_learning_rate)
         h5_group.create_dataset('learning_decay_rate',   data=self.learning_decay_rate)
         h5_group.create_dataset('epoch_limit',           data=self.epoch_limit)
@@ -270,7 +270,7 @@ class NNStrategy(PredictionStrategy):
         file_name = h5_group.file.filename
         keras_name = file_name[:-3] + ".keras"
 
-        self.base_load_model(h5_group)
+        super().load_model(h5_group)
         self.initial_learning_rate = float( h5_group['initial_learning_rate'][()] )
         self.learning_decay_rate   = float( h5_group['learning_decay_rate'][()]   )
         self.epoch_limit           = int(   h5_group['epoch_limit'][()]           )
@@ -279,7 +279,6 @@ class NNStrategy(PredictionStrategy):
         self._layer_sequence       = LayerSequence.from_h5(h5_group['neural_network'])
 
         read_keras_h5 = not os.path.exists(keras_name)
-        self.base_load_model(h5_group)
         if read_keras_h5:
             file_data = bytes(h5_group['serialized_keras_file'][()])
             with open(keras_name, 'wb') as file:

@@ -339,7 +339,19 @@ class PredictionStrategy(ABC):
 
         return same_pred and same_inputs and same_bias
 
-    def base_save_model(self, h5_group: h5py.Group) -> None:
+    def save_model(self, file_name: str) -> None:
+        """ A method for saving a trained model
+
+        Parameters
+        ----------
+        file_name : str
+            The name of the file to export the model to
+        """
+        file_name = file_name if file_name.endswith(".h5") else file_name + ".h5"
+        with h5py.File(file_name, 'w') as h5_file:
+            self.write_model_to_hdf5(h5_file)
+
+    def write_model_to_hdf5(self, h5_group: h5py.Group) -> None:
         """ A method for saving base-class data for a trained model
 
         Parameters
@@ -362,38 +374,7 @@ class PredictionStrategy(ABC):
         for name, feature in self.input_features.items():
             write_feature_processor(input_features_group.create_group(name), feature)
 
-    def save_model(self, file_name: str) -> None:
-        """ A method for saving a trained model
-
-        Parameters
-        ----------
-        file_name : str
-            The name of the file to export the model to
-        """
-        file_name = file_name if file_name.endswith(".h5") else file_name + ".h5"
-        with h5py.File(file_name, 'w') as h5_file:
-            self.write_model_to_hdf5(h5_file)
-
-    def write_model_to_hdf5(self, h5_group: h5py.Group) -> None:
-        """ A method for writing the model to an already opened HDF5 file
-
-        Parameters
-        ----------
-        h5_group : h5py.Group
-            The opened HDF5 file or group to which the model should be written
-        """
-
     def load_model(self, h5_group: h5py.Group) -> None:
-        """ A method for loading a trained model
-
-        Parameters
-        ----------
-        h5_group : h5py.Group
-            The opened HDF5 file or group from which the model should be loaded
-        """
-        self.base_load_model(h5_group)
-
-    def base_load_model(self, h5_group: h5py.Group) -> None:
         """ A method for loading base-class data for a trained model
 
         Parameters
