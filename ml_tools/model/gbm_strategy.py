@@ -255,6 +255,7 @@ class GBMStrategy(PredictionStrategy):
 
         self.input_features      = input_features
         self.predicted_features  = predicted_features
+        assert len(self.predicted_features) == 1, "GBMStrategy supports only one predicted feature"
         self.boosting_type      = boosting_type
         self.objective          = objective
         self.metric             = metric
