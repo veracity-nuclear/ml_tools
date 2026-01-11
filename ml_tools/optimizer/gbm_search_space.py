@@ -1,4 +1,7 @@
 from __future__ import annotations
+from typing import Optional
+
+from ml_tools.model.prediction_strategy import FeatureSpec, PredictionStrategy
 from ml_tools.optimizer.search_space import (
     SearchSpace,
     StructDimension,
@@ -15,10 +18,10 @@ class GBMSearchSpace(SearchSpace):
     ----------
     dimensions : GBMSearchSpace.Dimension
         The root hyperparameter search space to explore.
-    input_features : Dict[str, FeatureProcessor]
-        Input feature processors keyed by feature name.
-    predicted_feature : str
-        Name of the target feature to predict.
+    input_features : FeatureSpec
+        Input feature/processor pairs (Dict) or feature name(s) (str/List[str], automatically mapped to NoProcessing).
+    predicted_features : FeatureSpec
+        Output feature/processor pairs (Dict) or feature name(s) (str/List[str], automatically mapped to NoProcessing).
     biasing_model : Optional[PredictionStrategy], optional
         Optional prior model to bias predictions, by default None.
 
@@ -261,14 +264,14 @@ class GBMSearchSpace(SearchSpace):
 
     def __init__(self,
                  dimensions: StructDimension,
-                 input_features=None,
-                 predicted_feature=None,
-                 biasing_model=None) -> None:
+                 input_features: FeatureSpec,
+                 predicted_features: FeatureSpec,
+                 biasing_model: Optional[PredictionStrategy] = None) -> None:
         assert isinstance(dimensions, GBMSearchSpace.Dimension), (
             f"dimensions must be a GBMSearchSpace.Dimension, got {type(dimensions)}"
         )
         super().__init__(prediction_strategy_type="GBMStrategy",
                          dimensions=dimensions,
                          input_features=input_features,
-                         predicted_feature=predicted_feature,
+                         predicted_features=predicted_features,
                          biasing_model=biasing_model)

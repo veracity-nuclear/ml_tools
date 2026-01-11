@@ -9,9 +9,9 @@ import numpy as np
 import pylab as plt
 
 from ml_tools.model.state import SeriesCollection
-from ml_tools.model.prediction_strategy import PredictionStrategy
+from ml_tools.model.prediction_strategy import PredictionStrategy, FeatureSpec
 from ml_tools.model import register_prediction_strategy
-from ml_tools.model.feature_processor import FeatureProcessor
+from ml_tools.model.feature_processor import NoProcessing
 
 
 @register_prediction_strategy()  # registers under 'GBMStrategy' by default
@@ -23,10 +23,10 @@ class GBMStrategy(PredictionStrategy):
 
     Parameters
     ----------
-    input_features : Dict[str, FeatureProcessor]
-        A dictionary specifying the input features of this model and their corresponding feature processing strategy
-    predicted_feature : str
-        The string specifying the feature to be predicted
+    input_features : FeatureSpec
+        Input feature/processor pairs (Dict) or feature name(s) (str/List[str], automatically mapped to NoProcessing).
+    predicted_features : FeatureSpec
+        Output feature/processor pairs (Dict) or feature name(s) (str/List[str], automatically mapped to NoProcessing).
     boosting_type : str
         The boosting method to be used
         (see: https://lightgbm.readthedocs.io/en/stable/Parameters.html#boosting)
@@ -233,8 +233,8 @@ class GBMStrategy(PredictionStrategy):
 
 
     def __init__(self,
-                 input_features    : Dict[str, FeatureProcessor],
-                 predicted_feature : str,
+                 input_features    : FeatureSpec,
+                 predicted_features: FeatureSpec,
                  boosting_type     : str = "gbdt",
                  objective         : str = "regression",
                  metric            : str = "rmse",
@@ -253,9 +253,9 @@ class GBMStrategy(PredictionStrategy):
 
         super().__init__()
 
-        self._predicted_feature = predicted_feature
-        self.input_features     = input_features
-        self.predicted_feature  = predicted_feature
+        self.input_features      = input_features
+        self.predicted_features  = predicted_features
+        assert len(self.predicted_features) == 1, "GBMStrategy supports only one predicted feature"
         self.boosting_type      = boosting_type
         self.objective          = objective
         self.metric             = metric
@@ -279,14 +279,14 @@ class GBMStrategy(PredictionStrategy):
         if test_data is None:
             train_data, test_data = train_data.train_test_split(test_size=0.2)
 
-        X_train   = self.preprocess_inputs(train_data, num_procs)
+        X_train   = self.preprocess_features(train_data, self.input_features, num_procs)
         X_train   = X_train.reshape(-1, X_train.shape[-1])
         y_train   = np.vstack([np.array(series) for series in self._get_targets(train_data, num_procs=num_procs)])
         lgb_train = lgb.Dataset(X_train, y_train)
 
         lgb_eval  = None
 
-        X_test   = self.preprocess_inputs(test_data, num_procs)
+        X_test   = self.preprocess_features(test_data, self.input_features, num_procs)
         X_test   = X_test.reshape(-1, X_test.shape[-1])
         y_test   = np.vstack([np.array(series) for series in self._get_targets(test_data, num_procs=num_procs)])
         lgb_eval = lgb.Dataset(X_test, y_test, reference=lgb_train)
@@ -338,14 +338,15 @@ class GBMStrategy(PredictionStrategy):
         return self._predict_all([state_series])[0]
 
 
-    def _predict_all(self, series_collection: np.ndarray) -> np.ndarray:
+    def _predict_all(self, series_collection: np.ndarray, num_procs: int = 1) -> np.ndarray:
 
         assert self.isTrained
+        assert num_procs > 0, f"num_procs must be > 0, got {num_procs}"
 
         n_series, n_timesteps, n_features = series_collection.shape
 
         X = series_collection.reshape(-1, n_features)
-        y = self._gbm.predict(X, num_iteration=self._gbm.best_iteration)
+        y = self._gbm.predict(X, num_iteration=self._gbm.best_iteration, num_threads=num_procs)
 
         y = np.asarray(y)
         if y.ndim == 1:
@@ -449,7 +450,7 @@ class GBMStrategy(PredictionStrategy):
         file_name = file_name if file_name.endswith(".h5") else file_name + ".h5"
         assert os.path.exists(file_name), f"file name = {file_name}"
 
-        new_gbm = cls({}, None)
+        new_gbm = cls({}, {"__placeholder__": NoProcessing()})
         new_gbm.load_model(h5py.File(file_name, "r"))
 
         return new_gbm
@@ -457,8 +458,8 @@ class GBMStrategy(PredictionStrategy):
     @classmethod
     def from_dict(cls,
                   params:            Dict,
-                  input_features:    Dict[str, FeatureProcessor],
-                  predicted_feature: str,
+                  input_features:    FeatureSpec,
+                  predicted_features: FeatureSpec,
                   biasing_model:     Optional[PredictionStrategy] = None) -> GBMStrategy:
 
         known_keys = {
@@ -469,7 +470,7 @@ class GBMStrategy(PredictionStrategy):
         }
         kwargs = {k: v for k, v in (params or {}).items() if k in known_keys}
         instance = cls(input_features    = input_features,
-                       predicted_feature = predicted_feature,
+                       predicted_features = predicted_features,
                        **kwargs)
         if biasing_model is not None:
             instance.biasing_model = biasing_model
