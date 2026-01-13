@@ -1,5 +1,6 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
+from typing import Sequence
 from math import isclose
 import numpy as np
 import h5py
@@ -9,13 +10,13 @@ class FeatureProcessor(ABC):
     """
 
     @abstractmethod
-    def preprocess(self, orig_data: np.ndarray) -> np.ndarray:
+    def preprocess(self, orig_data: Sequence) -> np.ndarray:
         """ a method for pre-processing feature data
 
         Parameters
         ----------
-        orig_data : np.ndarray
-            The data in its original form
+        orig_data : Sequence
+            The data in its original form (list, tuple, array, nested sequences, etc.)
 
         Returns
         -------
@@ -25,7 +26,7 @@ class FeatureProcessor(ABC):
 
 
     @abstractmethod
-    def postprocess(self, processed_data: np.ndarray) -> np.ndarray:
+    def postprocess(self, processed_data: np.ndarray) -> Sequence:
         """ a method for post-processing feature data
 
         Post-processing here means the inverse operation of pre-processing
@@ -94,8 +95,9 @@ class MinMaxNormalize(FeatureProcessor):
         self._min = min_value
         self._max = max_value
 
-    def preprocess(self, orig_data: np.ndarray) -> np.ndarray:
-        return (orig_data - self.min)/(self.max - self.min)
+    def preprocess(self, orig_data: Sequence) -> np.ndarray:
+        data = np.asarray(orig_data)
+        return (data - self.min)/(self.max - self.min)
 
     def postprocess(self, processed_data: np.ndarray) -> np.ndarray:
         return processed_data * (self.max - self.min) + self.min
@@ -113,7 +115,7 @@ class NoProcessing(FeatureProcessor):
     def __init__(self):
         pass
 
-    def preprocess(self, orig_data: np.ndarray) -> np.ndarray:
+    def preprocess(self, orig_data: Sequence) -> np.ndarray:
         return np.array(orig_data, copy=True)
 
     def postprocess(self, processed_data: np.ndarray) -> np.ndarray:

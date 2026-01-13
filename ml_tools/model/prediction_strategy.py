@@ -197,7 +197,7 @@ class PredictionStrategy(ABC):
 
         processed_inputs = []
         for feature, processor in input_features.items():
-            feature_data = np.array([state.features[feature] for state in series])
+            feature_data = [state.features[feature] for state in series]
             processed_data = np.asarray(processor.preprocess(feature_data))
             if processed_data.ndim == 1:
                 processed_data = processed_data[:, np.newaxis]
