@@ -18,6 +18,10 @@ def register_prediction_strategy(name: Optional[str] = None):
     return decorator
 
 
+# Import strategies to register them (must be after register_prediction_strategy is defined)
+from ml_tools.model.sklearn_strategy import SklearnStrategy
+
+
 def build_prediction_strategy(strategy_type:     str,
                               params:            dict,
                               input_features:    FeatureSpec,
