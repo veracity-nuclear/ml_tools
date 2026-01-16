@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Optional, Dict
+from typing import Optional, Dict, Sequence
 import numpy as np
 import h5py
 
@@ -11,6 +11,21 @@ from ml_tools.model.prediction_strategy import PredictionStrategy
 from ml_tools.model import register_prediction_strategy
 from ml_tools.model.gbm_strategy import GBMStrategy
 from ml_tools.model.nn_strategy import NNStrategy
+
+class LOGProcessing(FeatureProcessor):
+    def __init__(self):
+        pass
+
+    def preprocess(self, orig_data: Sequence) -> np.ndarray:
+        dat = np.array(orig_data, copy=True)
+        return np.sign(dat) * np.log10(np.abs(dat) + 1)
+
+    def postprocess(self, processed_data: np.ndarray) -> np.ndarray:
+        processed = np.array(processed_data, copy=True)
+        return np.sign(processed) * (10**np.abs(processed) - 1)
+
+    def __eq__(self, other: FeatureProcessor) -> bool:
+        return isinstance(other, LOGProcessing)
 
 @register_prediction_strategy()  # registers under 'EnhancedPODStrategy' by default
 class EnhancedPODStrategy(PredictionStrategy):
@@ -79,11 +94,11 @@ class EnhancedPODStrategy(PredictionStrategy):
         self._pod_matrix       = None
         self._theta_model_type = theta_model_type
         if theta_model_type == "GBM":
-            self._theta_model      = [GBMStrategy(input_features, f'theta-{i+1}', **theta_model_settings)
+            self._theta_model      = [GBMStrategy(input_features, {f'theta-{i+1}': LOGProcessing()}, **theta_model_settings)
                                         for i in range(num_moments)]
         elif theta_model_type == "NN":
             # NN can predict all moments at once
-            self._theta_model      = [NNStrategy(input_features, 'theta', **theta_model_settings)]
+            self._theta_model      = [NNStrategy(input_features, {'theta': LOGProcessing()}, **theta_model_settings)]
         else:
             raise ValueError(f"Unsupported theta model type: {theta_model_type}")
 
