@@ -1,15 +1,19 @@
 import pytest
 import os
 import glob
+import tempfile
 import h5py
 from numpy.testing import assert_allclose
 import numpy as np
+from sklearn.linear_model import LinearRegression, Ridge
+from sklearn.ensemble import RandomForestRegressor
 from ml_tools.model import build_prediction_strategy
 
 from ml_tools.model.nn_strategy import Dense, LSTM, Transformer, SpatialConv, SpatialMaxPool, PassThrough, LayerSequence, CompoundLayer, GraphConv
 from ml_tools.model.nn_strategy.graph import SAGE, GAT
-from ml_tools import State, NNStrategy, GBMStrategy, PODStrategy, MinMaxNormalize, NoProcessing
+from ml_tools import State, NNStrategy, GBMStrategy, PODStrategy, MinMaxNormalize, NoProcessing, StateSeries, SeriesCollection
 from ml_tools.model.prediction_strategy import PredictionStrategy
+from ml_tools.model.sklearn_strategy import SklearnStrategy
 
 input_features = {'average_exposure' : MinMaxNormalize(0., 45.),
                   'is_refl'          : NoProcessing(),
@@ -335,3 +339,185 @@ def test_nn_strategy_GNN_GAT():
 
     for file in glob.glob('test_nn_model.*'):
         os.remove(file)
+
+
+# SklearnStrategy Tests
+
+
+def create_sklearn_data(n_series: int) -> SeriesCollection:
+    """Create synthetic data for testing."""
+    series_list = []
+    for _ in range(n_series):
+        x1 = np.random.randn()
+        x2 = np.random.randn()
+        y = 2 * x1 + 3 * x2 + np.random.randn() * 0.1
+
+        # Ensure y is a numpy array (not just a scalar)
+        state = State({'x1': x1, 'x2': x2, 'y': np.array([y])})
+        series_list.append(StateSeries([state]))
+
+    return SeriesCollection(series_list)
+
+
+@pytest.fixture
+def sklearn_train_data():
+    """Fixture for training data."""
+    return create_sklearn_data(n_series=50)
+
+
+@pytest.fixture
+def sklearn_test_data():
+    """Fixture for test data."""
+    return create_sklearn_data(n_series=10)
+
+
+def test_sklearn_initialization():
+    """Test strategy initialization."""
+    strategy = SklearnStrategy(
+        input_features=['x1', 'x2'],
+        predicted_features=['y'],
+        estimator=LinearRegression
+    )
+
+    assert strategy.estimator is not None
+    assert not strategy.isTrained
+    assert len(strategy.input_features) == 2
+    assert len(strategy.predicted_features) == 1
+
+
+def test_sklearn_train_and_predict(sklearn_train_data, sklearn_test_data):
+    """Test training and prediction."""
+    strategy = SklearnStrategy(
+        input_features=['x1', 'x2'],
+        predicted_features=['y'],
+        estimator=LinearRegression
+    )
+
+    # Train
+    strategy.train(sklearn_train_data)
+    assert strategy.isTrained
+
+    # Predict
+    predictions = strategy.predict(sklearn_test_data)
+    assert len(predictions) == len(sklearn_test_data)
+
+    # Check predictions are reasonable
+    for series in predictions:
+        for state in series:
+            assert 'y' in state.features
+            # Check that y is either a scalar or numpy array
+            y_val = state['y']
+            if isinstance(y_val, np.ndarray):
+                assert y_val.size > 0
+            else:
+                assert isinstance(y_val, (int, float, np.number))
+
+
+def test_sklearn_save_and_load(sklearn_train_data, sklearn_test_data):
+    """Test saving and loading a trained model."""
+    strategy = SklearnStrategy(
+        input_features=['x1', 'x2'],
+        predicted_features=['y'],
+        estimator=RandomForestRegressor,
+        estimator_args={'n_estimators': 10, 'random_state': 42}
+    )
+
+    # Train
+    strategy.train(sklearn_train_data)
+    predictions_before = strategy.predict(sklearn_test_data)
+
+    # Save to temporary file
+    with tempfile.NamedTemporaryFile(suffix='.h5', delete=False) as tmp:
+        tmp_path = tmp.name
+
+    try:
+        strategy.save_model(tmp_path)
+
+        # Load
+        loaded_strategy = SklearnStrategy.read_from_file(tmp_path)
+        assert loaded_strategy.isTrained
+
+        # Predict with loaded model
+        predictions_after = loaded_strategy.predict(sklearn_test_data)
+
+        # Compare predictions
+        for series_before, series_after in zip(predictions_before, predictions_after):
+            for state_before, state_after in zip(series_before, series_after):
+                np.testing.assert_almost_equal(
+                    state_before['y'],
+                    state_after['y'],
+                    decimal=6
+                )
+    finally:
+        # Clean up
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
+@pytest.mark.parametrize("estimator_class,estimator_args", [
+    (LinearRegression, {}),
+    (pytest.importorskip("sklearn.linear_model").Ridge, {'alpha': 1.0}),
+    (pytest.importorskip("sklearn.tree").DecisionTreeRegressor, {'max_depth': 3, 'random_state': 42}),
+    (RandomForestRegressor, {'n_estimators': 5, 'max_depth': 3, 'random_state': 42}),
+])
+def test_sklearn_multiple_estimators(sklearn_train_data, sklearn_test_data, estimator_class, estimator_args):
+    """Test that different sklearn estimators work."""
+    strategy = SklearnStrategy(
+        input_features=['x1', 'x2'],
+        predicted_features=['y'],
+        estimator=estimator_class,
+        estimator_args=estimator_args
+    )
+
+    strategy.train(sklearn_train_data)
+    assert strategy.isTrained
+
+    predictions = strategy.predict(sklearn_test_data)
+    assert len(predictions) == len(sklearn_test_data)
+
+
+def test_sklearn_predict_before_train_error(sklearn_test_data):
+    """Test that predicting before training raises an error."""
+    strategy = SklearnStrategy(
+        input_features=['x1', 'x2'],
+        predicted_features=['y'],
+        estimator=LinearRegression
+    )
+
+    with pytest.raises(AssertionError):
+        strategy.predict(sklearn_test_data)
+
+
+def test_sklearn_equality():
+    """Test equality comparison."""
+    strategy1 = SklearnStrategy(
+        input_features=['x1', 'x2'],
+        predicted_features=['y'],
+        estimator=LinearRegression
+    )
+
+    strategy2 = SklearnStrategy(
+        input_features=['x1', 'x2'],
+        predicted_features=['y'],
+        estimator=LinearRegression
+    )
+
+    # Should be equal (same configuration)
+    assert strategy1 == strategy2
+
+    # Different estimator type
+    strategy3 = SklearnStrategy(
+        input_features=['x1', 'x2'],
+        predicted_features=['y'],
+        estimator=Ridge
+    )
+    assert strategy1 != strategy3
+    
+    # Same class but different args
+    strategy4 = SklearnStrategy(
+        input_features=['x1', 'x2'],
+        predicted_features=['y'],
+        estimator=Ridge,
+        estimator_args={'alpha': 2.0}
+    )
+    assert strategy3 != strategy4
