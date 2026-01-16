@@ -192,7 +192,7 @@ class EnhancedPODStrategy(PredictionStrategy):
         """
         file_name = h5_group.file.filename
 
-        self.base_save_model(h5_group)
+        super().write_model_to_hdf5(h5_group)
         h5_group.create_dataset('num_moments', data=self.num_moments)
         h5_group.create_dataset('pod_mat', data=self._pod_matrix)
         h5_group.create_dataset('num_constraints', data=len(self._constraints))
@@ -220,7 +220,7 @@ class EnhancedPODStrategy(PredictionStrategy):
             An open HDF5 group or file object from which to load the model
         """
         file_name = h5_group.file.filename
-        self.base_load_model(h5_group)
+        super().load_model(h5_group)
 
         self._num_moments    = int(h5_group['num_moments'][()])
         self._pod_matrix     = h5_group['pod_mat'][()]
