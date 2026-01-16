@@ -158,6 +158,14 @@ class EnhancedPODStrategy(PredictionStrategy):
             else:
                 model.train(train_data, test_data, num_procs=num_procs)
 
+    def _predict_theta(self, collection: SeriesCollection) -> np.ndarray:
+        if self._theta_model_type == "NN":
+            theta_pred = self._theta_model[0].predict(collection)
+        else:
+            theta_pred = np.asarray([self._theta_model[r].predict(collection)
+                                    for r in range(self.num_moments)])
+        return theta_pred
+
     def _predict_one(self, state_series: np.ndarray) -> np.ndarray:
         assert self.isTrained
 
