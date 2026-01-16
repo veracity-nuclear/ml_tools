@@ -5,7 +5,6 @@ from ml_tools.model.prediction_strategy import PredictionStrategy, FeatureProces
 # Registry for PredictionStrategy builders
 _PREDICTION_STRATEGY_REGISTRY: Dict[str, type] = {}
 
-
 def register_prediction_strategy(name: Optional[str] = None):
     """Decorator to register a PredictionStrategy subclass by name.
 
@@ -16,11 +15,6 @@ def register_prediction_strategy(name: Optional[str] = None):
         _PREDICTION_STRATEGY_REGISTRY[key] = cls
         return cls
     return decorator
-
-
-# Import strategies to register them (must be after register_prediction_strategy is defined)
-from ml_tools.model.sklearn_strategy import SklearnStrategy
-
 
 def build_prediction_strategy(strategy_type:     str,
                               params:            dict,
