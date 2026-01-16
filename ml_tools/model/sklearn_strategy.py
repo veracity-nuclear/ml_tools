@@ -6,11 +6,12 @@ import pickle
 
 import h5py
 import numpy as np
+from sklearn.base import BaseEstimator
+from sklearn.utils.validation import check_is_fitted
 
 from ml_tools.model.state import SeriesCollection
 from ml_tools.model.prediction_strategy import PredictionStrategy, FeatureSpec
 from ml_tools.model import register_prediction_strategy
-
 
 @register_prediction_strategy()
 class SklearnStrategy(PredictionStrategy):
@@ -28,19 +29,19 @@ class SklearnStrategy(PredictionStrategy):
     predicted_features : FeatureSpec
         Output feature/processor pairs (Dict) or feature name(s) (str/List[str],
         automatically mapped to NoProcessing).
-    estimator : Type
+    estimator : Type[BaseEstimator]
         A scikit-learn estimator class (e.g., RandomForestRegressor, SVR, etc.).
         The class will be instantiated with estimator_args.
-    estimator_args : dict, optional
+    estimator_args : Dict[str, Any], optional
         Dictionary of keyword arguments to pass to the estimator class constructor.
 
     Attributes
     ----------
-    estimator : Any
+    estimator : BaseEstimator
         The scikit-learn estimator instance used for training and prediction.
-    estimator_class : Type
+    estimator_class : Type[BaseEstimator]
         The class of the estimator.
-    estimator_args : dict
+    estimator_args : Dict[str, Any]
         The parameters used to initialize the estimator.
     isTrained : bool
         Whether the model has been trained.
@@ -87,15 +88,16 @@ class SklearnStrategy(PredictionStrategy):
         """
         if self._estimator is None:
             return False
-        # Check if sklearn estimator has been fitted by looking for common fitted attributes
-        return hasattr(self._estimator, 'n_features_in_') or \
-               hasattr(self._estimator, 'coef_') or \
-               hasattr(self._estimator, 'feature_importances_')
+        try:
+            check_is_fitted(self._estimator)
+            return True
+        except Exception:
+            return False
 
     def __init__(self,
                  input_features: FeatureSpec,
                  predicted_features: FeatureSpec,
-                 estimator: Type,
+                 estimator: Type[BaseEstimator],
                  estimator_args: Optional[Dict[str, Any]] = None) -> None:
         """Initialize the SklearnStrategy.
 
@@ -105,9 +107,9 @@ class SklearnStrategy(PredictionStrategy):
             Input features specification.
         predicted_features : FeatureSpec
             Predicted features specification.
-        estimator : Type
+        estimator : Type[BaseEstimator]
             A scikit-learn estimator class.
-        estimator_args : dict, optional
+        estimator_args : Optional[Dict[str, Any]]
             Keyword arguments to pass to the estimator class constructor.
         """
         super().__init__()
