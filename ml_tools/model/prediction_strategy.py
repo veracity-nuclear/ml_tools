@@ -524,7 +524,7 @@ class PredictionStrategy(ABC):
 
         assert num_procs > 0, f"num_procs must be > 0, got {num_procs}"
         state = series_collection[0][0]
-        self._predicted_feature_sizes = {name: int(state[name].size)
+        self._predicted_feature_sizes = {name: int(len(state[name]))
                                          for name in self._predicted_feature_order}
 
         targets = PredictionStrategy.preprocess_features(series_collection,

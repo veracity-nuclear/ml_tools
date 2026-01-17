@@ -521,3 +521,37 @@ def test_sklearn_equality():
         estimator_args={'alpha': 2.0}
     )
     assert strategy3 != strategy4
+
+
+def test_sklearn_multioutput():
+    """Test SklearnStrategy with multiple predicted features."""
+    # Create synthetic data with two outputs
+    from ml_tools.model.state import State, StateSeries, SeriesCollection
+    series_list = []
+    for _ in range(30):
+        x1 = np.random.randn()
+        x2 = np.random.randn()
+        y1 = 2 * x1 + 3 * x2 + np.random.randn() * 0.1
+        y2 = -x1 + 0.5 * x2 + np.random.randn() * 0.1
+        state = State({'x1': x1, 'x2': x2, 'y1': np.array([y1]), 'y2': np.array([y2])})
+        series_list.append(StateSeries([state]))
+    train_data = SeriesCollection(series_list)
+    test_data = SeriesCollection(series_list[:5])
+
+    strategy = SklearnStrategy(
+        input_features=['x1', 'x2'],
+        predicted_features=['y1', 'y2'],
+        estimator=LinearRegression
+    )
+    strategy.train(train_data)
+    assert strategy.isTrained
+    predictions = strategy.predict(test_data)
+    assert len(predictions) == len(test_data)
+    for series in predictions:
+        for state in series:
+            assert 'y1' in state.features
+            assert 'y2' in state.features
+            y1_val = state['y1']
+            y2_val = state['y2']
+            assert isinstance(y1_val, np.ndarray) and y1_val.size > 0
+            assert isinstance(y2_val, np.ndarray) and y2_val.size > 0
