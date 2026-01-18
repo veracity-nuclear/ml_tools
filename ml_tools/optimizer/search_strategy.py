@@ -20,9 +20,9 @@ class SearchStrategy(ABC):
                checkpoint_dir:    Optional[str] = None,
                resume:            bool = False,
                save_every_n_trials: int = 0,
-               fold_workers:      int = 1,
+               num_fold_workers:  int = 1,
                study_storage:     Optional[str] = None,
-               n_jobs:            int = 1) -> PredictionStrategy:
+               num_jobs:          int = 1) -> PredictionStrategy:
         """ Method for performing model hyperparameter optimization
 
         Parameters
@@ -45,12 +45,12 @@ class SearchStrategy(ABC):
             Whether to resume from an existing study/checkpoint when available.
         save_every_n_trials : int
             Frequency (in trials) to dump lightweight checkpoints; 0 disables.
-        fold_workers : int
+        num_fold_workers : int
             Max workers for evaluating CV folds in parallel; 1 keeps sequential.
         study_storage : Optional[str]
             Optuna storage URI (e.g., sqlite:///optuna.db); inferred when checkpoint_dir is set.
-        n_jobs : int
-            Number of parallel workers per process when the backend supports it (Optuna's n_jobs).
+        num_jobs : int
+            Number of parallel workers per process when the backend supports it (Optuna's num_jobs).
 
         Returns
         -------
@@ -62,5 +62,5 @@ class SearchStrategy(ABC):
         assert number_of_folds > 1, f"number_of_folds = {number_of_folds}"
         assert num_procs > 0, f"num_procs = {num_procs}"
         assert save_every_n_trials >= 0, f"save_every_n_trials = {save_every_n_trials}"
-        assert fold_workers > 0, f"fold_workers = {fold_workers}"
-        assert n_jobs >= 1, f"n_jobs = {n_jobs}"
+        assert num_fold_workers > 0, f"num_fold_workers = {num_fold_workers}"
+        assert num_jobs >= 1, f"num_jobs = {num_jobs}"

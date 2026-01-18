@@ -36,9 +36,9 @@ class OptunaStrategy(SearchStrategy):
                checkpoint_dir:    Optional[str] = None,
                resume:            bool = False,
                save_every_n_trials: int = 0,
-               fold_workers:      int = 1,
+               num_fold_workers:  int = 1,
                study_storage:     Optional[str] = None,
-               n_jobs:            int = 1) -> PredictionStrategy:
+               num_jobs:          int = 1) -> PredictionStrategy:
 
         super().search(search_space,
                        series_collection,
@@ -49,9 +49,9 @@ class OptunaStrategy(SearchStrategy):
                        checkpoint_dir,
                        resume,
                        save_every_n_trials,
-                       fold_workers,
+                       num_fold_workers,
                        study_storage,
-                       n_jobs)
+                       num_jobs)
 
         checkpoint_path = None
         storage_uri = study_storage
@@ -94,16 +94,23 @@ class OptunaStrategy(SearchStrategy):
         with open(output_file, 'w') as output:
             output.write("RESULTS\n---------\n")
 
-        # Avoid nested parallelism: if n_jobs>1 (trial-level parallelism), force single fold worker
-        # and single-proc training per fold.
-        effective_fold_workers = fold_workers
+        # Avoid nested parallelism - priority: num_jobs > num_fold_workers > num_procs
+        # Only one level of parallelism should be active at a time
+        effective_fold_workers = num_fold_workers
         effective_num_procs = num_procs
-        if n_jobs and n_jobs > 1:
-            if fold_workers > 1:
-                print(f"n_jobs={n_jobs} > 1, forcing fold_workers=1 to avoid nested parallelism")
+        
+        if num_jobs and num_jobs > 1:
+            # Trial-level parallelism takes priority - disable fold and training parallelism
+            if num_fold_workers > 1:
+                print(f"num_jobs={num_jobs} > 1, forcing num_fold_workers=1 to avoid nested parallelism")
                 effective_fold_workers = 1
             if num_procs > 1:
-                print(f"n_jobs={n_jobs} > 1, forcing num_procs=1 inside folds to avoid nested parallelism")
+                print(f"num_jobs={num_jobs} > 1, forcing num_procs=1 to avoid nested parallelism")
+                effective_num_procs = 1
+        elif num_fold_workers > 1:
+            # Fold-level parallelism takes priority - disable training parallelism
+            if num_procs > 1:
+                print(f"num_fold_workers={num_fold_workers} > 1, forcing num_procs=1 to avoid nested parallelism")
                 effective_num_procs = 1
 
         study     = optuna.create_study(direction='minimize',
@@ -119,7 +126,7 @@ class OptunaStrategy(SearchStrategy):
         study.optimize(objective,
                    n_trials=num_trials,
                    callbacks=[log_progress],
-                   n_jobs=n_jobs)
+                   n_jobs=num_jobs)
 
         with open(output_file, 'a') as output:
             output.write("\nBEST PARAMETERS\n----------------\n")
@@ -143,7 +150,7 @@ class OptunaStrategy(SearchStrategy):
                          series_collection: SeriesCollection,
                          number_of_folds:   int,
                          num_procs:         int,
-                         fold_workers:      int) -> callable:
+                         num_fold_workers:  int) -> callable:
         """ Method to setup the objective function for the Optuna optimization
 
         Parameters
@@ -156,14 +163,14 @@ class OptunaStrategy(SearchStrategy):
             The number of folds to use in cross-validation
         num_procs : int
             The number of processes to use for parallel model training
-        fold_workers : int
+        num_fold_workers : int
             Max workers for evaluating CV folds in parallel; 1 keeps sequential.
         """
 
         def objective(trial: optuna.trial.Trial) -> float:
             params = self._get_sample(trial, search_space.dimensions)
-            # Avoid nested parallelism: when folds run in parallel, keep model training single-proc.
-            train_procs = 1 if fold_workers > 1 else num_procs
+            # Use num_procs passed to this function (already accounts for parallelism priority)
+            train_procs = num_procs
 
             def evaluate_fold(fold_split):
                 fold, (train_idx, val_idx) = fold_split
@@ -211,8 +218,8 @@ class OptunaStrategy(SearchStrategy):
                 return fold_rms
 
             splits = list(enumerate(KFold(n_splits=number_of_folds, shuffle=True).split(series_collection), start=1))
-            if fold_workers > 1:
-                with ThreadPoolExecutor(max_workers=fold_workers) as executor:
+            if num_fold_workers > 1:
+                with ThreadPoolExecutor(max_workers=num_fold_workers) as executor:
                     rms = list(executor.map(evaluate_fold, splits))
             else:
                 rms = [evaluate_fold(split) for split in splits]

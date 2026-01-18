@@ -56,9 +56,9 @@ class Optimizer():
                  checkpoint_dir:    Optional[str] = None,
                  resume:            bool = False,
                  save_every_n_trials: int = 0,
-                 fold_workers:      int = 1,
+                 num_fold_workers:  int = 1,
                  study_storage:     Optional[str] = None,
-                 n_jobs:            int = 1) -> PredictionStrategy:
+                 num_jobs:          int = 1) -> PredictionStrategy:
         """ Method for performing model hyperparameter optimization
 
         Parameters
@@ -79,12 +79,12 @@ class Optimizer():
             Whether to resume from an existing study/checkpoint when available.
         save_every_n_trials : int
             Frequency (in trials) to dump lightweight checkpoints; 0 disables.
-        fold_workers : int
+        num_fold_workers : int
             Max workers for evaluating CV folds in parallel; 1 keeps sequential.
         study_storage : Optional[str]
             Optuna storage URI (e.g., sqlite:///optuna.db); inferred when checkpoint_dir is set.
-        n_jobs : int
-            Number of parallel workers per process when the backend supports it (Optuna's n_jobs).
+        num_jobs : int
+            Number of parallel workers per process when the backend supports it (Optuna's num_jobs).
 
         Returns
         -------
@@ -101,6 +101,6 @@ class Optimizer():
                                            checkpoint_dir    = checkpoint_dir,
                                            resume            = resume,
                                            save_every_n_trials = save_every_n_trials,
-                                           fold_workers      = fold_workers,
+                                           num_fold_workers   = num_fold_workers,
                                            study_storage     = study_storage,
-                                           n_jobs            = n_jobs)
+                                           num_jobs          = num_jobs)
