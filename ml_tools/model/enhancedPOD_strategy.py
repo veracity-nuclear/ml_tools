@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from typing import Optional, Dict, Sequence
+from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 import h5py
 
@@ -45,12 +46,17 @@ class EnhancedPODStrategy(PredictionStrategy):
         The string specifying the feature to be predicted
     theta_model_type : Optional[str]
         The type of model to use for predicting theta.  Supported types are 'GBM' and 'NN'.  Default is 'GBM'.
+    theta_scaling : Optional[str]
+        The type of scaling to use for theta normalization. Supported types are 'singular_values', 'sqrt_singular_values',
+        'max_singular_value', 'max_sqrt_singular_value', and 'ones'. Default is 'singular_values'.
     max_svd_size : int
         The maximum allowed number of training samples to use for the SVD of a cluster POD model
     num_moments : int
         The number of total moments to use in the POD analysis
     constraints: List[Tuple[float, np.ndarray]]
         pairs of (gamma, W) constraints for computing theta.
+    theta_model_settings: Optional[Dict[str, any]]
+        Additional settings to pass to the theta model constructor
 
     Attributes
     ----------
@@ -82,23 +88,31 @@ class EnhancedPODStrategy(PredictionStrategy):
                  theta_model_type:      Optional[str] = 'GBM',
                  max_svd_size:          Optional[int] = None,
                  num_moments:           Optional[int] = 1,
-                 constraints:           Optional[list] = [],
-                 theta_model_settings:  Optional[dict] = {}) -> None:
+                 constraints:           Optional[list] = None,
+                 theta_scaling:         Optional[str] = 'singular_values',
+                 theta_model_settings:  Optional[Dict[str, any]] = None) -> None:
 
         super().__init__()
         self.input_features    = input_features
         self.predicted_features = predicted_features
         self._num_moments      = num_moments
         self._max_svd_size     = max_svd_size
-        self._constraints      = constraints
+        self._constraints      = constraints if constraints is not None else []
         self._pod_matrix       = None
         self._theta_model_type = theta_model_type
+        if theta_scaling in ['singular_values', 'sqrt_singular_values',
+                             'max_singular_value', 'max_sqrt_singular_value',
+                             'ones']: 
+            self._theta_scaling    = theta_scaling
+        else:
+            raise ValueError(f"Unsupported theta scaling type: {theta_scaling}")
+        theta_model_settings   = theta_model_settings if theta_model_settings is not None else {}
         if theta_model_type == "GBM":
-            self._theta_model      = [GBMStrategy(input_features, {f'theta-{i+1}': LOGProcessing()}, **theta_model_settings)
+            self._theta_model      = [GBMStrategy(input_features, f'theta-{i+1}', **theta_model_settings)
                                         for i in range(num_moments)]
         elif theta_model_type == "NN":
             # NN can predict all moments at once
-            self._theta_model      = [NNStrategy(input_features, {'theta': LOGProcessing()}, **theta_model_settings)]
+            self._theta_model      = [NNStrategy(input_features, 'theta', **theta_model_settings)]
         else:
             raise ValueError(f"Unsupported theta model type: {theta_model_type}")
 
@@ -123,23 +137,64 @@ class EnhancedPODStrategy(PredictionStrategy):
         theta_star, *_ = np.linalg.lstsq(np.vstack(A), np.concatenate(b), rcond=None)
         return theta_star
 
-    def _add_theta_to_collection(self, collection: SeriesCollection) -> None:
+    @staticmethod
+    def _compute_theta_for_state(args):
+        """Helper function for parallel theta computation."""
+        predicted, pod_matrix, constraints, scaling_vector = args
+        
+        # Solve theta
+        if len(constraints) == 0:
+            theta_star = pod_matrix.T @ predicted
+        else:
+            A = [pod_matrix]
+            b = [predicted]
+            for gamma, W in constraints:
+                A.append(gamma * W @ pod_matrix)
+                b.append(gamma * W @ predicted)
+            theta_star, *_ = np.linalg.lstsq(np.vstack(A), np.concatenate(b), rcond=None)
+        
+        # Normalize by scaling vector
+        theta_star = theta_star / scaling_vector
+        return theta_star
+
+    def _add_theta_to_collection(self, collection: SeriesCollection, scaling_vector: np.ndarray, num_procs: int = 1) -> None:
         assert len(self.predicted_feature_names) == 1, "EnhancedPODStrategy only supports one predicted feature"
+        
+        # Collect all states that need theta computation
+        all_states = []
         for series in collection:
             for state in series:
-                predicted   = state[self.predicted_feature_names[0]]
-                theta_star = self._solve_theta_star(predicted)
-                state.features['theta'] = theta_star
-
-                for i, theta_i in enumerate(theta_star):
-                    state.features[f'theta-{i+1}'] = [theta_i]
+                all_states.append(state)
+        
+        # Prepare arguments for parallel processing
+        args_list = [
+            (state[self.predicted_feature_names[0]], self._pod_matrix, self._constraints, scaling_vector)
+            for state in all_states
+        ]
+        
+        # Compute theta in parallel
+        if num_procs > 1:
+            with ProcessPoolExecutor(max_workers=num_procs) as executor:
+                theta_results = list(executor.map(self._compute_theta_for_state, args_list))
+        else:
+            theta_results = [self._compute_theta_for_state(args) for args in args_list]
+        
+        # Assign results back to states
+        for state, theta_star in zip(all_states, theta_results):
+            state.features['theta'] = theta_star
+            for i, theta_i in enumerate(theta_star):
+                state.features[f'theta-{i+1}'] = [theta_i]
 
     def _add_theta(self,
                    train_data: SeriesCollection,
-                   test_data: Optional[SeriesCollection] = None) -> None:
-        self._add_theta_to_collection(train_data)
+                   test_data: Optional[SeriesCollection] = None,
+                   scaling_vector: np.ndarray = None,
+                   num_procs: int = 1) -> None:
+        if scaling_vector is None:
+            scaling_vector = np.ones(self.num_moments)
+        self._add_theta_to_collection(train_data, scaling_vector, num_procs)
         if test_data is not None:
-            self._add_theta_to_collection(test_data)
+            self._add_theta_to_collection(test_data, scaling_vector, num_procs)
 
     def _compute_pod(self, data: SeriesCollection) -> None:
         if self._max_svd_size is None:
@@ -149,11 +204,27 @@ class EnhancedPODStrategy(PredictionStrategy):
         A = np.vstack([np.array(series) for series in self._get_targets(data)])
         if len(data) > self.max_svd_size:
             A = A[np.random.choice(A.shape[0], self.max_svd_size, replace=False), :]
-        u, _, _ = np.linalg.svd(A.T, full_matrices=False)
+        u, L, _ = np.linalg.svd(A.T, full_matrices=False)
 
         # store intermediate pod matrix
         self._pod_matrix = u[:, :self.num_moments]
+        self._singular_values = L[:self.num_moments]
 
+    def _scaling_vector(self) -> np.ndarray:
+        if self._theta_scaling == 'singular_values':
+            scaling_vector = self._singular_values + 1e-12
+        elif self._theta_scaling == 'sqrt_singular_values':
+            scaling_vector = np.sqrt(self._singular_values + 1e-12)
+        elif self._theta_scaling == 'max_singular_value':
+            scaling_vector = self._singular_values[0] * np.ones(self.num_moments)
+        elif self._theta_scaling == 'max_sqrt_singular_value':
+            scaling_vector = np.sqrt(self._singular_values[0]) * np.ones(self.num_moments)
+        elif self._theta_scaling == 'ones':
+            scaling_vector = np.ones(self.num_moments)
+        else:
+            raise ValueError(f"Unsupported theta scaling type: {self._theta_scaling}")
+        return scaling_vector
+    
     def train(self,
               train_data: SeriesCollection,
               test_data: Optional[SeriesCollection] = None, num_procs: int = 1) -> None:
@@ -162,7 +233,7 @@ class EnhancedPODStrategy(PredictionStrategy):
         self._compute_pod(train_data)
 
         # add theta_xi to collections for training
-        self._add_theta(train_data, test_data)
+        self._add_theta(train_data, test_data, scaling_vector=self._scaling_vector(), num_procs=num_procs)
 
         # train models
         for model in self._theta_model:
@@ -175,21 +246,30 @@ class EnhancedPODStrategy(PredictionStrategy):
         if self._theta_model_type == "NN":
             theta_pred = self._theta_model[0].predict(collection)
         else:
-            theta_pred = np.asarray([self._theta_model[r].predict(collection)
-                                    for r in range(self.num_moments)])
+            theta_pred_tmp = [self._theta_model[r].predict(collection)
+                                    for r in range(self.num_moments)]
+            theta_pred = theta_pred_tmp[0]
+            for i, series in enumerate(theta_pred):
+                for j, state in enumerate(series):
+                    for r in range(1, self.num_moments):
+                        state.features[f'theta-{r+1}'] = theta_pred_tmp[r][i][j][f'theta-{r+1}']
+                    state.features['theta'] = np.array([state[f'theta-{r+1}'] for r in range(self.num_moments)])
         return theta_pred
 
     def _predict_one(self, state_series: np.ndarray) -> np.ndarray:
         assert self.isTrained
 
-        n_timesteps = state_series.shape[0]
+        scaling_vector = self._scaling_vector()
 
+        n_timesteps = state_series.shape[0]
         pred = []
         for i in range(n_timesteps):
             X = state_series[i,:].reshape(1, -1)
             theta = np.asarray([self._theta_model[r].predict_processed_inputs(X[np.newaxis, :])[0]
                                     for r in range(self.num_moments)])
-            pred.append(self._pod_matrix @ theta.flatten())
+            # Denormalize theta by multiplying by singular values
+            theta = theta.flatten() * scaling_vector
+            pred.append(self._pod_matrix @ theta)
 
         y = np.asarray(pred)
         if y.ndim == 1:
@@ -210,9 +290,11 @@ class EnhancedPODStrategy(PredictionStrategy):
         super().write_model_to_hdf5(h5_group)
         h5_group.create_dataset('num_moments', data=self.num_moments)
         h5_group.create_dataset('pod_mat', data=self._pod_matrix)
+        h5_group.create_dataset('singular_values', data=self._singular_values)
         h5_group.create_dataset('num_constraints', data=len(self._constraints))
         h5_group.create_dataset('max_svd_size', data=self._max_svd_size)
         h5_group.create_dataset('theta_model_type', data=self._theta_model_type)
+        h5_group.create_dataset('theta_scaling', data=self._theta_scaling)
 
         for i, (gamma, W) in enumerate(self._constraints):
             h5_group.create_dataset(f'constraint_{i+1}_gamma', data=gamma)
@@ -239,7 +321,13 @@ class EnhancedPODStrategy(PredictionStrategy):
 
         self._num_moments    = int(h5_group['num_moments'][()])
         self._pod_matrix     = h5_group['pod_mat'][()]
+        self._singular_values = h5_group['singular_values'][()]
         self._theta_model_type = h5_group['theta_model_type'][()].decode('utf-8')
+        # Load theta_scaling with backward compatibility
+        if 'theta_scaling' in h5_group:
+            self._theta_scaling = h5_group['theta_scaling'][()].decode('utf-8')
+        else:
+            self._theta_scaling = 'ones'  # default for old models
         if self._theta_model_type == "GBM":
             self._theta_model    = [GBMStrategy(self.input_features, f'theta-{i+1}') for i in range(self.num_moments)]
         elif self._theta_model_type == "NN":
