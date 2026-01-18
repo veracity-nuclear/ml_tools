@@ -63,7 +63,7 @@ class SklearnStrategy(PredictionStrategy):
     """
 
     @property
-    def estimator(self) -> Any:
+    def estimator(self) -> BaseEstimator:
         """The wrapped scikit-learn estimator instance."""
         return self._estimator
 
