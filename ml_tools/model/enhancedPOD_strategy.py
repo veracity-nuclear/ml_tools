@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 import os
-from typing import Optional, Dict, Sequence
+from typing import Optional, Dict, Sequence, Type
 from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 import h5py
 
 from ml_tools.model.state import SeriesCollection
-from ml_tools.model.feature_processor import FeatureProcessor, NoProcessing
-from ml_tools.model.prediction_strategy import PredictionStrategy
+from ml_tools.model.prediction_strategy import PredictionStrategy, FeatureSpec
 from ml_tools.model import register_prediction_strategy
 from ml_tools.model.gbm_strategy import GBMStrategy
+from ml_tools.model.nn_strategy import NNStrategy
+from ml_tools.model.feature_processor import NoProcessing
 
 @register_prediction_strategy()  # registers under 'EnhancedPODStrategy' by default
 class EnhancedPODStrategy(PredictionStrategy):
@@ -24,11 +25,10 @@ class EnhancedPODStrategy(PredictionStrategy):
 
     Parameters
     ----------
-    input_feature : str
-        The feature to use as input for this model.  Note: This strategy only allows one input feature and
-        this feature is expected to be a vector of floats
-    predicted_feature : str
-        The string specifying the feature to be predicted
+    input_features : FeatureSpec
+        The features to use as input for this model
+    predicted_features : FeatureSpec
+        The string or FeatureSpec specifying the feature to be predicted
     theta_model_type : Optional[str]
         The type of model to use for predicting theta.  Supported types are 'GBM' and 'NN'.  Default is 'GBM'.
     theta_scaling : Optional[str]
@@ -45,18 +45,11 @@ class EnhancedPODStrategy(PredictionStrategy):
 
     Attributes
     ----------
-    input_feature : str
-        The feature to use as input for this model.  Note: This strategy only allows one input feature and
-        this feature is expected to be a vector of floats
     max_svd_size : int
         The maximum allowed number of training samples to use for the SVD of a cluster POD model
     num_moments : int
         The number of total moments to use in the POD analysis
     """
-
-    @property
-    def input_feature(self) -> str:
-        return self._input_feature
 
     @property
     def num_moments(self) -> Optional[int]:
@@ -75,19 +68,18 @@ class EnhancedPODStrategy(PredictionStrategy):
         return self._pod_matrix is not None
 
     def __init__(self,
-                 input_features:        Dict[str, FeatureProcessor],
-                 predicted_feature:     str,
+                 input_features:        FeatureSpec,
+                 predicted_features:    FeatureSpec,
                  theta_model_type:      Optional[str] = 'GBM',
                  max_svd_size:          Optional[int] = None,
                  num_moments:           Optional[int] = 1,
                  constraints:           Optional[list] = None,
-                 theta_scaling:         Optional[str] = 'singular_values',
+                 theta_scaling:         Optional[str] = 'sqrt_singular_values',
                  theta_model_settings:  Optional[Dict[str, any]] = None) -> None:
 
         super().__init__()
         self.input_features    = input_features
-        self.predicted_feature = predicted_feature
-        self._input_feature    = input_features.keys()
+        self.predicted_features = predicted_features
         self._num_moments      = num_moments
         self._max_svd_size     = max_svd_size
         self._constraints      = constraints if constraints is not None else []
@@ -109,27 +101,8 @@ class EnhancedPODStrategy(PredictionStrategy):
         else:
             raise ValueError(f"Unsupported theta model type: {theta_model_type}")
 
-    def _solve_theta_star(self, predicted):
-        """
-        theta = U^T * predicted_feature
-        theta_star = argmin_theta ||A theta - b||^2_2 + gamma ||theta||^2_2
-        """
-        if len(self._constraints) == 0:
-            return self._pod_matrix.T @ predicted
-
-        A = [self._pod_matrix]
-        b = [predicted]
-
-        for gamma, W in self._constraints:
-            A.append(gamma * W @ self._pod_matrix)
-            b.append(gamma * W @ predicted)
-
-        # Least-squares solve
-        theta_star, *_ = np.linalg.lstsq(np.vstack(A), np.concatenate(b), rcond=None)
-        return theta_star
-
     @staticmethod
-    def _compute_theta_for_state(args):
+    def _compute_theta_for_state(args) -> np.ndarray:
         """Helper function for parallel theta computation."""
         predicted, pod_matrix, constraints, scaling_vector = args
         
@@ -218,11 +191,12 @@ class EnhancedPODStrategy(PredictionStrategy):
     
     def train(self,
               train_data: SeriesCollection,
-              test_data: Optional[SeriesCollection] = None, num_procs: int = 1) -> None:
+              test_data: Optional[SeriesCollection] = None,
+              num_procs: int = 1) -> None:
 
         # compute pod matrix
         self._compute_pod(train_data)
-        
+
         # add theta_xi to collections for training
         self._add_theta(train_data, test_data, scaling_vector=self._scaling_vector(), num_procs=num_procs)
 
@@ -256,8 +230,13 @@ class EnhancedPODStrategy(PredictionStrategy):
         pred = []
         for i in range(n_timesteps):
             X = state_series[i,:].reshape(1, -1)
-            theta = np.asarray([self._theta_model[r].predict_processed_inputs(X[np.newaxis, :])[0]
-                                    for r in range(self.num_moments)])
+            if self._theta_model_type == "NN":
+                # NN predicts all moments at once
+                theta = self._theta_model[0].predict_processed_inputs(X[np.newaxis, :])[0].flatten()
+            else:
+                # GBM has separate models for each moment
+                theta = np.asarray([self._theta_model[r].predict_processed_inputs(X[np.newaxis, :])[0]
+                                        for r in range(self.num_moments)])
             # Denormalize theta by multiplying by singular values
             theta = theta.flatten() * scaling_vector
             pred.append(self._pod_matrix @ theta)
@@ -356,7 +335,7 @@ class EnhancedPODStrategy(PredictionStrategy):
         with h5py.File(file_name, "r") as h5_file:
             r = int(h5_file['num_moments'][()])
             theta_model_type = h5_file['theta_model_type'][()].decode('utf-8')
-        new_pod = cls({}, None, r, theta_model_type=theta_model_type)
+        new_pod = cls(input_features={'dummy_input': NoProcessing()}, predicted_features='dummy_output', num_moments=r, theta_model_type=theta_model_type)
         new_pod.load_model(h5py.File(file_name, "r"))
 
         return new_pod
