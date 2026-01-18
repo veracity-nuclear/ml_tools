@@ -116,8 +116,6 @@ class SklearnStrategy(PredictionStrategy):
 
         self.input_features = input_features
         self.predicted_features = predicted_features
-        assert len(self.predicted_features) == 1, \
-            "SklearnStrategy currently supports only one predicted feature"
 
         self._estimator_class = estimator
         self._estimator_args = estimator_args if estimator_args is not None else {}
@@ -158,10 +156,15 @@ class SklearnStrategy(PredictionStrategy):
         X_train = X_train.reshape(-1, X_train.shape[-1])
 
         # Get the target values
-        y_train = np.vstack([np.array(series) for series in self._get_targets(train_data, num_procs=num_procs)])
-
-        # Train the estimator
-        self._estimator.fit(X_train, y_train.ravel())
+        y_train = self._get_targets(train_data, num_procs=num_procs)
+        # Reshape y_train to 2D for sklearn
+        if y_train.ndim == 3:
+            y_train = y_train.reshape(-1, y_train.shape[-1])
+        elif y_train.ndim == 2 and y_train.shape[1] == 1:
+            pass  # already 2D, single output
+        elif y_train.ndim == 1:
+            y_train = y_train[:, np.newaxis]
+        self._estimator.fit(X_train, y_train)
 
     def _predict_one(self, state_series: np.ndarray) -> np.ndarray:
         """Predict for a single state series.
