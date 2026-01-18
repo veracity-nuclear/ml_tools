@@ -68,30 +68,31 @@ class MinMaxNormalize(FeatureProcessor):
 
     Parameters
     ----------
-    min_value : float
+    min_value : Union[float, np.ndarray]
         The minimum value of the value range
-    max_value : float
+    max_value : Union[float, np.ndarray]
         The maximum value of the value range
 
     Attributes
     ----------
-    min_value : float
+    min_value : Union[float, np.ndarray]
         The minimum value of the value range
-    max_value : float
+    max_value : Union[float, np.ndarray]
         The maximum value of the value range
     """
 
     @property
-    def min(self) -> float:
+    def min(self) -> Union[float, np.ndarray]:
         return self._min
 
     @property
-    def max(self) -> float:
+    def max(self) -> Union[float, np.ndarray]:
         return self._max
 
 
-    def __init__(self, min_value: float, max_value: float):
-        assert min_value < max_value, f"min value = {min_value}, max value = {max_value}"
+    def __init__(self, min_value: Union[float, np.ndarray], max_value: Union[float, np.ndarray]):
+        if np.any(np.greater_equal(min_value, max_value)):
+             raise ValueError(f"min value must be less than max value. min={min_value}, max={max_value}")
         self._min = min_value
         self._max = max_value
 
@@ -104,8 +105,8 @@ class MinMaxNormalize(FeatureProcessor):
 
     def __eq__(self, other: FeatureProcessor) -> bool:
         return (isinstance(other, MinMaxNormalize) and
-                isclose(self.min, other.min, rel_tol=1e-9) and
-                isclose(self.max, other.max, rel_tol=1e-9))
+                np.allclose(self.min, other.min, rtol=1e-9) and
+                np.allclose(self.max, other.max, rtol=1e-9))
 
 
 class NoProcessing(FeatureProcessor):

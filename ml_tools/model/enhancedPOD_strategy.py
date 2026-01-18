@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Optional, Dict, Sequence
+from typing import Optional, Dict
 import numpy as np
 import h5py
 
@@ -11,21 +11,6 @@ from ml_tools.model.prediction_strategy import PredictionStrategy
 from ml_tools.model import register_prediction_strategy
 from ml_tools.model.gbm_strategy import GBMStrategy
 from ml_tools.model.nn_strategy import NNStrategy
-
-class LOGProcessing(FeatureProcessor):
-    def __init__(self):
-        pass
-
-    def preprocess(self, orig_data: Sequence) -> np.ndarray:
-        dat = np.array(orig_data, copy=True)
-        return np.sign(dat) * np.log10(np.abs(dat) + 1)
-
-    def postprocess(self, processed_data: np.ndarray) -> np.ndarray:
-        processed = np.array(processed_data, copy=True)
-        return np.sign(processed) * (10**np.abs(processed) - 1)
-
-    def __eq__(self, other: FeatureProcessor) -> bool:
-        return isinstance(other, LOGProcessing)
 
 @register_prediction_strategy()  # registers under 'EnhancedPODStrategy' by default
 class EnhancedPODStrategy(PredictionStrategy):
@@ -94,11 +79,13 @@ class EnhancedPODStrategy(PredictionStrategy):
         self._pod_matrix       = None
         self._theta_model_type = theta_model_type
         if theta_model_type == "GBM":
-            self._theta_model      = [GBMStrategy(input_features, {f'theta-{i+1}': LOGProcessing()}, **theta_model_settings)
+            self._theta_model      = [GBMStrategy(input_features, f'theta-{i+1}', **theta_model_settings)
                                         for i in range(num_moments)]
         elif theta_model_type == "NN":
             # NN can predict all moments at once
-            self._theta_model      = [NNStrategy(input_features, {'theta': LOGProcessing()}, **theta_model_settings)]
+            theta_settings = dict(theta_model_settings)
+            theta_features = theta_settings.pop('predicted_features', 'theta')
+            self._theta_model      = [NNStrategy(input_features, theta_features, **theta_settings)]
         else:
             raise ValueError(f"Unsupported theta model type: {theta_model_type}")
 
@@ -171,31 +158,65 @@ class EnhancedPODStrategy(PredictionStrategy):
             else:
                 model.train(train_data, test_data, num_procs=num_procs)
 
-    def _predict_theta(self, collection: SeriesCollection) -> np.ndarray:
-        if self._theta_model_type == "NN":
-            theta_pred = self._theta_model[0].predict(collection)
-        else:
-            theta_pred = np.asarray([self._theta_model[r].predict(collection)
-                                    for r in range(self.num_moments)])
-        return theta_pred
-
     def _predict_one(self, state_series: np.ndarray) -> np.ndarray:
         assert self.isTrained
 
         n_timesteps = state_series.shape[0]
 
-        pred = []
-        for i in range(n_timesteps):
-            X = state_series[i,:].reshape(1, -1)
-            theta = np.asarray([self._theta_model[r].predict_processed_inputs(X[np.newaxis, :])[0]
-                                    for r in range(self.num_moments)])
-            pred.append(self._pod_matrix @ theta.flatten())
+        if self._theta_model_type == 'NN':
+            theta_scaled = self._theta_model[0].predict_processed_inputs(state_series[np.newaxis, :])[0]
+            feat_name = self._theta_model[0].predicted_feature_names[0]
+            processor = self._theta_model[0].predicted_features[feat_name]
+            theta = processor.postprocess(theta_scaled)
+            y = theta @ self._pod_matrix.T
+        else:
+            pred = []
+            for i in range(n_timesteps):
+                X = state_series[i,:].reshape(1, -1)
+                theta_vals = []
+                for r in range(self.num_moments):
+                    t_scaled = self._theta_model[r].predict_processed_inputs(X[np.newaxis, :])[0]
+                    feat_name = f'theta-{r+1}'
+                    processor = self._theta_model[r].predicted_features[feat_name]
+                    theta_vals.append(processor.postprocess(t_scaled).flatten())
+                theta = np.concatenate(theta_vals)
+                pred.append(self._pod_matrix @ theta)
+            y = np.asarray(pred)
 
-        y = np.asarray(pred)
         if y.ndim == 1:
             y = y[:, np.newaxis]
 
         return y.reshape(n_timesteps, -1)
+
+    def _predict_theta(self, series_collection: SeriesCollection) -> SeriesCollection:
+        """ Predict the POD moments (thetas) for the given collection
+        """
+        X = self.preprocess_features(series_collection, self.input_features)
+
+        if self._theta_model_type == 'NN':
+            theta_scaled = self._theta_model[0].predict_processed_inputs(X)
+            feat_name = self._theta_model[0].predicted_feature_names[0]
+            processor = self._theta_model[0].predicted_features[feat_name]
+            theta_unscaled = processor.postprocess(theta_scaled)
+        else:
+            # GBM
+            theta_unscaled = np.zeros((X.shape[0], X.shape[1], self.num_moments))
+            for r in range(self.num_moments):
+                t_scaled = self._theta_model[r].predict_processed_inputs(X)
+                feat_name = f'theta-{r+1}'
+                processor = self._theta_model[r].predicted_features[feat_name]
+                theta_unscaled[:, :, r] = processor.postprocess(t_scaled).squeeze()
+
+        # Create a new collection with these thetas
+        from copy import deepcopy
+        pred_collection = deepcopy(series_collection)
+        for i, series in enumerate(pred_collection):
+            for j, state in enumerate(series):
+                state.features['theta'] = theta_unscaled[i, j, :]
+                for r in range(self.num_moments):
+                    state.features[f'theta-{r+1}'] = [theta_unscaled[i, j, r]]
+
+        return pred_collection
 
     def write_model_to_hdf5(self, h5_group: h5py.Group) -> None:
         """ A method for saving a trained model
@@ -207,7 +228,7 @@ class EnhancedPODStrategy(PredictionStrategy):
         """
         file_name = h5_group.file.filename
 
-        super().write_model_to_hdf5(h5_group)
+        self.base_save_model(h5_group)
         h5_group.create_dataset('num_moments', data=self.num_moments)
         h5_group.create_dataset('pod_mat', data=self._pod_matrix)
         h5_group.create_dataset('num_constraints', data=len(self._constraints))
@@ -235,7 +256,7 @@ class EnhancedPODStrategy(PredictionStrategy):
             An open HDF5 group or file object from which to load the model
         """
         file_name = h5_group.file.filename
-        super().load_model(h5_group)
+        self.base_load_model(h5_group)
 
         self._num_moments    = int(h5_group['num_moments'][()])
         self._pod_matrix     = h5_group['pod_mat'][()]
