@@ -1,15 +1,19 @@
 import pytest
 import os
 import glob
+import tempfile
 import h5py
 from numpy.testing import assert_allclose
 import numpy as np
+from sklearn.linear_model import LinearRegression, Ridge
+from sklearn.ensemble import RandomForestRegressor
 from ml_tools.model import build_prediction_strategy
 
 from ml_tools.model.nn_strategy import Dense, LSTM, Transformer, SpatialConv, SpatialMaxPool, PassThrough, LayerSequence, CompoundLayer, GraphConv
 from ml_tools.model.nn_strategy.graph import SAGE, GAT
-from ml_tools import State, NNStrategy, GBMStrategy, PODStrategy, MinMaxNormalize, NoProcessing
+from ml_tools import State, NNStrategy, GBMStrategy, PODStrategy, MinMaxNormalize, NoProcessing, StateSeries, SeriesCollection
 from ml_tools.model.prediction_strategy import PredictionStrategy
+from ml_tools.model.sklearn_strategy import SklearnStrategy
 
 input_features = {'average_exposure' : MinMaxNormalize(0., 45.),
                   'is_refl'          : NoProcessing(),
@@ -335,3 +339,40 @@ def test_nn_strategy_GNN_GAT():
 
     for file in glob.glob('test_nn_model.*'):
         os.remove(file)
+
+
+def test_sklearn_strategy():
+    # Test with LinearRegression
+    sklearn_input_features = {'average_exposure': MinMaxNormalize(0., 45.)}
+    cips_calculator = SklearnStrategy(sklearn_input_features, output_feature, estimator=LinearRegression)
+    cips_calculator.train([[state]]*5, [[state]]*5)
+    assert_allclose(state["cips_index"],
+                    cips_calculator.predict([[state]])[0][0][output_feature],
+                    atol=1E-1)
+
+    cips_calculator.save_model('test_sklearn_model.h5')
+
+    new_cips_calculator = SklearnStrategy.read_from_file('test_sklearn_model.h5')
+    assert new_cips_calculator == cips_calculator
+    assert_allclose(state["cips_index"],
+                    new_cips_calculator.predict([[state]])[0][0][output_feature],
+                    atol=1E-1)
+
+    os.remove('test_sklearn_model.h5')
+
+    # Test with RandomForestRegressor
+    cips_calculator = SklearnStrategy(sklearn_input_features, output_feature, 
+                                     estimator=RandomForestRegressor,
+                                     estimator_args={'n_estimators': 10, 'random_state': 42})
+    cips_calculator.train([[state]]*10)
+    assert_allclose(state["cips_index"],
+                    cips_calculator.predict([[state]])[0][0][output_feature],
+                    atol=1E-1)
+
+    # Test equality
+    cips_calculator2 = SklearnStrategy(sklearn_input_features, output_feature, estimator=LinearRegression)
+    cips_calculator3 = SklearnStrategy(sklearn_input_features, output_feature, estimator=LinearRegression)
+    assert cips_calculator2 == cips_calculator3
+
+    cips_calculator4 = SklearnStrategy(sklearn_input_features, output_feature, estimator=Ridge)
+    assert cips_calculator2 != cips_calculator4

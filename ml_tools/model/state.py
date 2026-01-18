@@ -788,6 +788,8 @@ class SeriesCollection:
             self.features == other.features
         ), f"Features of the two SeriesCollections do not match: {self.features} != {other.features}"
         assert isinstance(other, SeriesCollection), f"'{other}' is not a SeriesCollection object"
+        if other is None:
+            return self
         return SeriesCollection(self.state_series_list + other.state_series_list)
 
     @property
