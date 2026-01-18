@@ -32,12 +32,12 @@ class OptunaStrategy(SearchStrategy):
                num_trials:        int,
                number_of_folds:   int,
                output_file:       str,
-               num_procs:         int,
                checkpoint_dir:    Optional[str] = None,
                resume:            bool = False,
                save_every_n_trials: int = 0,
-               num_fold_workers:  int = 1,
                study_storage:     Optional[str] = None,
+               num_procs:         int = 1,
+               num_fold_workers:  int = 1,
                num_jobs:          int = 1) -> PredictionStrategy:
 
         super().search(search_space,
@@ -45,12 +45,12 @@ class OptunaStrategy(SearchStrategy):
                        num_trials,
                        number_of_folds,
                        output_file,
-                       num_procs,
                        checkpoint_dir,
                        resume,
                        save_every_n_trials,
-                       num_fold_workers,
                        study_storage,
+                       num_procs,
+                       num_fold_workers,
                        num_jobs)
 
         checkpoint_path = None
@@ -98,7 +98,7 @@ class OptunaStrategy(SearchStrategy):
         # Only one level of parallelism should be active at a time
         effective_fold_workers = num_fold_workers
         effective_num_procs = num_procs
-        
+
         if num_jobs and num_jobs > 1:
             # Trial-level parallelism takes priority - disable fold and training parallelism
             if num_fold_workers > 1:
@@ -120,8 +120,8 @@ class OptunaStrategy(SearchStrategy):
         objective = self._setup_objective(search_space,
                                           series_collection,
                                           number_of_folds,
-                                          effective_num_procs,
-                                          effective_fold_workers)
+                                          effective_fold_workers,
+                                          effective_num_procs)
 
         study.optimize(objective,
                    n_trials=num_trials,
@@ -149,8 +149,8 @@ class OptunaStrategy(SearchStrategy):
                          search_space:      SearchSpace,
                          series_collection: SeriesCollection,
                          number_of_folds:   int,
-                         num_procs:         int,
-                         num_fold_workers:  int) -> callable:
+                         num_fold_workers:  int,
+                         num_procs:         int) -> callable:
         """ Method to setup the objective function for the Optuna optimization
 
         Parameters
@@ -161,10 +161,10 @@ class OptunaStrategy(SearchStrategy):
             The collection of series to use for training and validation
         number_of_folds : int
             The number of folds to use in cross-validation
-        num_procs : int
-            The number of processes to use for parallel model training
         num_fold_workers : int
             Max workers for evaluating CV folds in parallel; 1 keeps sequential.
+        num_procs : int
+            The number of processes to use for parallel model training
         """
 
         def objective(trial: optuna.trial.Trial) -> float:

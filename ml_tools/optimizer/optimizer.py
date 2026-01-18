@@ -52,12 +52,12 @@ class Optimizer():
                  num_trials:        int = 10,
                  number_of_folds:   int = 5,
                  output_file:       str = "optimization_results.out",
-                 num_procs:         int = 1,
                  checkpoint_dir:    Optional[str] = None,
                  resume:            bool = False,
                  save_every_n_trials: int = 0,
-                 num_fold_workers:  int = 1,
                  study_storage:     Optional[str] = None,
+                 num_procs:         int = 1,
+                 num_fold_workers:  int = 1,
                  num_jobs:          int = 1) -> PredictionStrategy:
         """ Method for performing model hyperparameter optimization
 
@@ -71,18 +71,18 @@ class Optimizer():
             The number of folds to use in cross-validation (Default is 5)
         output_file : str
             The file to which optimization results are written (Default is "optimization_results.out")
-        num_procs : int
-            The number of processes to use for parallel model training (Default is 1)
         checkpoint_dir : Optional[str]
             Directory to write checkpoint artifacts (study DB, JSON snapshots).
         resume : bool
             Whether to resume from an existing study/checkpoint when available.
         save_every_n_trials : int
             Frequency (in trials) to dump lightweight checkpoints; 0 disables.
-        num_fold_workers : int
-            Max workers for evaluating CV folds in parallel; 1 keeps sequential.
         study_storage : Optional[str]
             Optuna storage URI (e.g., sqlite:///optuna.db); inferred when checkpoint_dir is set.
+        num_procs : int
+            The number of processes to use for parallel model training (Default is 1)
+        num_fold_workers : int
+            Max workers for evaluating CV folds in parallel; 1 keeps sequential.
         num_jobs : int
             Number of parallel workers per process when the backend supports it (Optuna's num_jobs).
 
@@ -97,10 +97,11 @@ class Optimizer():
                                            num_trials        = num_trials,
                                            number_of_folds   = number_of_folds,
                                            output_file       = output_file,
-                                           num_procs         = num_procs,
                                            checkpoint_dir    = checkpoint_dir,
                                            resume            = resume,
                                            save_every_n_trials = save_every_n_trials,
-                                           num_fold_workers   = num_fold_workers,
                                            study_storage     = study_storage,
+                                           num_procs         = num_procs,
+                                           num_fold_workers   = num_fold_workers,
                                            num_jobs          = num_jobs)
+    
