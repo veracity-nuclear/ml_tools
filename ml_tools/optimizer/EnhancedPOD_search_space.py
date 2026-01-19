@@ -1,11 +1,11 @@
 from __future__ import annotations
+from typing import Optional
 from ml_tools.optimizer.search_space import (
     SearchSpace,
     StructDimension,
     IntDimension,
     CategoricalDimension,
 )
-from ml_tools.optimizer.gbm_search_space import GBMSearchSpace
 
 
 class EnhancedPODSearchSpace(SearchSpace):
@@ -74,7 +74,7 @@ class EnhancedPODSearchSpace(SearchSpace):
         @property
         def theta_model_type(self) -> CategoricalDimension:
             return self.fields["theta_model_type"]
-        
+
         @theta_model_type.setter
         def theta_model_type(self, value: CategoricalDimension) -> None:
             self.fields["theta_model_type"] = value
@@ -92,7 +92,7 @@ class EnhancedPODSearchSpace(SearchSpace):
                      max_svd_size:   CategoricalDimension = CategoricalDimension([None]),
                      num_moments:    IntDimension = IntDimension(6, 6),
                      constraints:    CategoricalDimension=CategoricalDimension([[]]),
-                     theta_model_settings:   StructDimension = StructDimension()) -> None:
+                     theta_model_settings:   Optional[StructDimension] = None) -> None:
 
             self.fields = {}
             self.theta_model_type = theta_model_type
@@ -106,7 +106,7 @@ class EnhancedPODSearchSpace(SearchSpace):
     def __init__(self,
                  dimensions: StructDimension,
                  input_features=None,
-                 predicted_feature=None,
+                 predicted_features=None,
                  biasing_model=None) -> None:
         assert isinstance(dimensions, EnhancedPODSearchSpace.Dimension), (
             f"dimensions must be a EnhancedPODSearchSpace.Dimension, got {type(dimensions)}"
@@ -114,5 +114,5 @@ class EnhancedPODSearchSpace(SearchSpace):
         super().__init__(prediction_strategy_type="EnhancedPODStrategy",
                          dimensions=dimensions,
                          input_features=input_features,
-                         predicted_feature=predicted_feature,
+                         predicted_features=predicted_features,
                          biasing_model=biasing_model)

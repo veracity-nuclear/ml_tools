@@ -104,4 +104,3 @@ class Optimizer():
                                            num_procs         = num_procs,
                                            num_fold_workers   = num_fold_workers,
                                            num_jobs          = num_jobs)
-    

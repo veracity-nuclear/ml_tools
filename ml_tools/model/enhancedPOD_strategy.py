@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Optional, Dict, Sequence, Type
+from typing import Optional, Dict, Type
 from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 import h5py
@@ -58,7 +58,7 @@ class EnhancedPODStrategy(PredictionStrategy):
     @property
     def max_svd_size(self) -> Optional[int]:
         return self._max_svd_size
-    
+
     @property
     def theta_model_type(self) -> Optional[str]:
         return self._theta_model_type
@@ -84,10 +84,11 @@ class EnhancedPODStrategy(PredictionStrategy):
         self._max_svd_size     = max_svd_size
         self._constraints      = constraints if constraints is not None else []
         self._pod_matrix       = None
+        self._singular_values  = None
         self._theta_model_type = theta_model_type
         if theta_scaling in ['singular_values', 'sqrt_singular_values',
                              'max_singular_value', 'max_sqrt_singular_value',
-                             'ones']: 
+                             'ones']:
             self._theta_scaling    = theta_scaling
         else:
             raise ValueError(f"Unsupported theta scaling type: {theta_scaling}")
@@ -105,7 +106,7 @@ class EnhancedPODStrategy(PredictionStrategy):
     def _compute_theta_for_state(args) -> np.ndarray:
         """Helper function for parallel theta computation."""
         predicted, pod_matrix, constraints, scaling_vector = args
-        
+
         # Solve theta
         if len(constraints) == 0:
             theta_star = pod_matrix.T @ predicted
@@ -116,33 +117,33 @@ class EnhancedPODStrategy(PredictionStrategy):
                 A.append(gamma * W @ pod_matrix)
                 b.append(gamma * W @ predicted)
             theta_star, *_ = np.linalg.lstsq(np.vstack(A), np.concatenate(b), rcond=None)
-        
+
         # Normalize by scaling vector
         theta_star = theta_star / scaling_vector
         return theta_star
 
     def _add_theta_to_collection(self, collection: SeriesCollection, scaling_vector: np.ndarray, num_procs: int = 1) -> None:
         assert len(self.predicted_feature_names) == 1, "EnhancedPODStrategy only supports one predicted feature"
-        
+
         # Collect all states that need theta computation
         all_states = []
         for series in collection:
             for state in series:
                 all_states.append(state)
-        
+
         # Prepare arguments for parallel processing
         args_list = [
             (state[self.predicted_feature_names[0]], self._pod_matrix, self._constraints, scaling_vector)
             for state in all_states
         ]
-        
+
         # Compute theta in parallel
         if num_procs > 1:
             with ProcessPoolExecutor(max_workers=num_procs) as executor:
                 theta_results = list(executor.map(self._compute_theta_for_state, args_list))
         else:
             theta_results = [self._compute_theta_for_state(args) for args in args_list]
-        
+
         # Assign results back to states
         for state, theta_star in zip(all_states, theta_results):
             state.features['theta'] = theta_star
@@ -188,7 +189,7 @@ class EnhancedPODStrategy(PredictionStrategy):
         else:
             raise ValueError(f"Unsupported theta scaling type: {self._theta_scaling}")
         return scaling_vector
-    
+
     def train(self,
               train_data: SeriesCollection,
               test_data: Optional[SeriesCollection] = None,
@@ -335,7 +336,12 @@ class EnhancedPODStrategy(PredictionStrategy):
         with h5py.File(file_name, "r") as h5_file:
             r = int(h5_file['num_moments'][()])
             theta_model_type = h5_file['theta_model_type'][()].decode('utf-8')
-        new_pod = cls(input_features={'dummy_input': NoProcessing()}, predicted_features='dummy_output', num_moments=r, theta_model_type=theta_model_type)
+        new_pod = cls(
+            input_features={'dummy_input': NoProcessing()},
+            predicted_features='dummy_output',
+            num_moments=r,
+            theta_model_type=theta_model_type
+        )
         new_pod.load_model(h5py.File(file_name, "r"))
 
         return new_pod
