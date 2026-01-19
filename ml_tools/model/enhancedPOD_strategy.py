@@ -293,10 +293,12 @@ class EnhancedPODStrategy(PredictionStrategy):
         self._num_moments    = int(h5_group['num_moments'][()])
         self._pod_matrix     = h5_group['pod_mat'][()]
         self._singular_values = h5_group['singular_values'][()]
-        self._theta_model_type = h5_group['theta_model_type'][()].decode('utf-8')
+        theta_model_type_bytes = bytes(h5_group['theta_model_type'][()])
+        self._theta_model_type = theta_model_type_bytes.decode('utf-8')
         # Load theta_scaling with backward compatibility
         if 'theta_scaling' in h5_group:
-            self._theta_scaling = h5_group['theta_scaling'][()].decode('utf-8')
+            theta_scaling_bytes = bytes(h5_group['theta_scaling'][()])
+            self._theta_scaling = theta_scaling_bytes.decode('utf-8')
         else:
             self._theta_scaling = 'ones'  # default for old models
         if self._theta_model_type == "GBM":
@@ -335,7 +337,7 @@ class EnhancedPODStrategy(PredictionStrategy):
 
         with h5py.File(file_name, "r") as h5_file:
             r = int(h5_file['num_moments'][()])
-            theta_model_type = h5_file['theta_model_type'][()].decode('utf-8')
+            theta_model_type = bytes(h5_file['theta_model_type'][()]).decode('utf-8')
         new_pod = cls(
             input_features={'dummy_input': NoProcessing()},
             predicted_features='dummy_output',
