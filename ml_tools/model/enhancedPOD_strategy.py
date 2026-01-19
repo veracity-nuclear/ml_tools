@@ -5,12 +5,14 @@ from typing import Optional, Dict, Type
 from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 import h5py
+from sklearn.linear_model import LinearRegression
 
 from ml_tools.model.state import SeriesCollection
 from ml_tools.model.prediction_strategy import PredictionStrategy, FeatureSpec
 from ml_tools.model import register_prediction_strategy
 from ml_tools.model.gbm_strategy import GBMStrategy
 from ml_tools.model.nn_strategy import NNStrategy
+from ml_tools.model.sklearn_strategy import SklearnStrategy
 from ml_tools.model.feature_processor import NoProcessing
 
 @register_prediction_strategy()  # registers under 'EnhancedPODStrategy' by default
@@ -85,7 +87,7 @@ class EnhancedPODStrategy(PredictionStrategy):
         self._constraints      = constraints if constraints is not None else []
         self._pod_matrix       = None
         self._singular_values  = None
-        self._theta_model_type = theta_model_type
+        self._theta_model_type = theta_model_type.upper() if theta_model_type else 'GBM'
         if theta_scaling in ['singular_values', 'sqrt_singular_values',
                              'max_singular_value', 'max_sqrt_singular_value',
                              'ones']:
@@ -93,12 +95,15 @@ class EnhancedPODStrategy(PredictionStrategy):
         else:
             raise ValueError(f"Unsupported theta scaling type: {theta_scaling}")
         theta_model_settings   = theta_model_settings if theta_model_settings is not None else {}
-        if theta_model_type == "GBM":
+        if self._theta_model_type == "GBM":
             self._theta_model      = [GBMStrategy(input_features, f'theta-{i+1}', **theta_model_settings)
                                         for i in range(num_moments)]
-        elif theta_model_type == "NN":
+        elif self._theta_model_type == "NN":
             # NN can predict all moments at once
             self._theta_model      = [NNStrategy(input_features, 'theta', **theta_model_settings)]
+        elif self._theta_model_type == "SKLEARN":
+            estimator = theta_model_settings.pop('estimator', LinearRegression)
+            self._theta_model      = [SklearnStrategy(input_features, 'theta', estimator, **theta_model_settings)]
         else:
             raise ValueError(f"Unsupported theta model type: {theta_model_type}")
 
@@ -203,13 +208,15 @@ class EnhancedPODStrategy(PredictionStrategy):
 
         # train models
         for model in self._theta_model:
-            if isinstance(model, NNStrategy):
-                model.train(train_data + test_data, num_procs=num_procs)
+            if self._theta_model_type in ["NN", "SKLEARN"]:
+                # NN and sklearn need combined data for multi-output
+                combined_data = train_data + test_data if test_data is not None else train_data
+                model.train(combined_data, num_procs=num_procs)
             else:
                 model.train(train_data, test_data, num_procs=num_procs)
 
     def _predict_theta(self, collection: SeriesCollection) -> np.ndarray:
-        if self._theta_model_type == "NN":
+        if self._theta_model_type in ["NN", "SKLEARN"]:
             theta_pred = self._theta_model[0].predict(collection)
         else:
             theta_pred_tmp = [self._theta_model[r].predict(collection)
@@ -231,8 +238,8 @@ class EnhancedPODStrategy(PredictionStrategy):
         pred = []
         for i in range(n_timesteps):
             X = state_series[i,:].reshape(1, -1)
-            if self._theta_model_type == "NN":
-                # NN predicts all moments at once
+            if self._theta_model_type in ["NN", "SKLEARN"]:
+                # NN and sklearn predict all moments at once
                 theta = self._theta_model[0].predict_processed_inputs(X[np.newaxis, :])[0].flatten()
             else:
                 # GBM has separate models for each moment
@@ -271,7 +278,7 @@ class EnhancedPODStrategy(PredictionStrategy):
             h5_group.create_dataset(f'constraint_{i+1}_gamma', data=gamma)
             h5_group.create_dataset(f'constraint_{i+1}_W', data=W)
 
-        if self._theta_model_type == "NN":
+        if self._theta_model_type in ["NN", "SKLEARN"]:
             theta_group = h5_group.require_group('theta')
             self._theta_model[0].write_model_to_hdf5(theta_group)
         else:
@@ -305,6 +312,9 @@ class EnhancedPODStrategy(PredictionStrategy):
             self._theta_model    = [GBMStrategy(self.input_features, f'theta-{i+1}') for i in range(self.num_moments)]
         elif self._theta_model_type == "NN":
             self._theta_model    = [NNStrategy(self.input_features, 'theta')]
+        elif self._theta_model_type == "SKLEARN":
+            # Use LinearRegression as placeholder - will be replaced by load_model
+            self._theta_model    = [SklearnStrategy(self.input_features, 'theta', estimator=LinearRegression)]
         else:
             raise ValueError(f"Unsupported theta model type: {self._theta_model_type}")
 
@@ -314,6 +324,8 @@ class EnhancedPODStrategy(PredictionStrategy):
 
         if self._theta_model_type == "NN":
             self._theta_model[0].load_model(h5_group['theta'])
+        elif self._theta_model_type == "SKLEARN":
+            self._theta_model[0].load_model_from_hdf5(h5_group['theta'])
         else:
             for i in range(self.num_moments):
                 self._theta_model[i].load_model(h5_group[f'theta-{i+1}'])

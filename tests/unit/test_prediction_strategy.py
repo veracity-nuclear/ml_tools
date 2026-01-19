@@ -398,6 +398,36 @@ def test_enhanced_pod_strategy_nn():
         os.remove(file)
 
 
+def test_enhanced_pod_strategy_sklearn():
+    # Test EnhancedPOD with sklearn theta model
+    from sklearn.linear_model import LinearRegression
+    enhanced_input_features = {'average_exposure': MinMaxNormalize(0., 45.)}
+    cips_calculator = EnhancedPODStrategy(enhanced_input_features, output_feature,
+                                         theta_model_type='sklearn', num_moments=1,
+                                         theta_model_settings={'estimator': LinearRegression})
+    cips_calculator.train([[state]]*40, [[state]]*10, num_procs=1)
+    
+    assert cips_calculator.isTrained
+    assert cips_calculator.num_moments == 1
+    assert cips_calculator.theta_model_type == 'SKLEARN'
+    
+    assert_allclose(state["cips_index"],
+                    cips_calculator.predict([[state]])[0][0][output_feature],
+                    atol=1E-1)
+
+    cips_calculator.save_model('test_enhanced_pod_sklearn_model.h5')
+    
+    new_cips_calculator = EnhancedPODStrategy.read_from_file('test_enhanced_pod_sklearn_model.h5')
+    assert new_cips_calculator.num_moments == cips_calculator.num_moments
+    assert new_cips_calculator.theta_model_type == cips_calculator.theta_model_type
+    assert_allclose(state["cips_index"],
+                    new_cips_calculator.predict([[state]])[0][0][output_feature],
+                    atol=1E-1)
+    
+    for file in glob.glob('test_enhanced_pod_sklearn_model.*'):
+        os.remove(file)
+
+
 def test_sklearn_strategy():
     # Test with LinearRegression
     sklearn_input_features = {'average_exposure': MinMaxNormalize(0., 45.)}
