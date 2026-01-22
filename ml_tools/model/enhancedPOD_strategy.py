@@ -161,7 +161,7 @@ class EnhancedPODStrategy(PredictionStrategy):
                    scaling_vector: np.ndarray = None,
                    num_procs: int = 1) -> None:
         if scaling_vector is None:
-            scaling_vector = np.ones(self.num_moments)
+            scaling_vector = self._scaling_vector() 
         self._add_theta_to_collection(train_data, scaling_vector, num_procs)
         if test_data is not None:
             self._add_theta_to_collection(test_data, scaling_vector, num_procs)
