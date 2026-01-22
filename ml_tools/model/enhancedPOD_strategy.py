@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Optional, Dict, Type
+from typing import Optional, Dict, Type, List, Tuple
 from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 import h5py
@@ -32,7 +32,7 @@ class EnhancedPODStrategy(PredictionStrategy):
     predicted_features : FeatureSpec
         The string or FeatureSpec specifying the feature to be predicted
     theta_model_type : Optional[str]
-        The type of model to use for predicting theta.  Supported types are 'GBM' and 'NN'.  Default is 'GBM'.
+        The type of model to use for predicting theta.  Supported types are 'GBM', 'NN', and 'sklearn'.  Default is 'GBM'.
     theta_scaling : Optional[str]
         The type of scaling to use for theta normalization. Supported types are 'singular_values', 'sqrt_singular_values',
         'max_singular_value', 'max_sqrt_singular_value', and 'ones'. Default is 'singular_values'.
@@ -40,7 +40,7 @@ class EnhancedPODStrategy(PredictionStrategy):
         The maximum allowed number of training samples to use for the SVD of a cluster POD model
     num_moments : int
         The number of total moments to use in the POD analysis
-    constraints: List[Tuple[float, np.ndarray]]
+    constraints: Optional[List[Tuple[float, np.ndarray]]]
         pairs of (gamma, W) constraints for computing theta.
     theta_model_settings: Optional[Dict[str, any]]
         Additional settings to pass to the theta model constructor
@@ -75,7 +75,7 @@ class EnhancedPODStrategy(PredictionStrategy):
                  theta_model_type:      Optional[str] = 'GBM',
                  max_svd_size:          Optional[int] = None,
                  num_moments:           Optional[int] = 1,
-                 constraints:           Optional[list] = None,
+                 constraints:           Optional[List[Tuple[float, np.ndarray]]] = None,
                  theta_scaling:         Optional[str] = 'sqrt_singular_values',
                  theta_model_settings:  Optional[Dict[str, any]] = None) -> None:
 
@@ -105,7 +105,7 @@ class EnhancedPODStrategy(PredictionStrategy):
             estimator = theta_model_settings.pop('estimator', LinearRegression)
             self._theta_model      = [SklearnStrategy(input_features, 'theta', estimator, **theta_model_settings)]
         else:
-            raise ValueError(f"Unsupported theta model type: {theta_model_type}")
+            raise ValueError(f"Unsupported theta model type: {self._theta_model_type}")
 
     @staticmethod
     def _compute_theta_for_state(args) -> np.ndarray:
@@ -160,15 +160,14 @@ class EnhancedPODStrategy(PredictionStrategy):
                    test_data: Optional[SeriesCollection] = None,
                    scaling_vector: np.ndarray = None,
                    num_procs: int = 1) -> None:
-        if scaling_vector is None:
-            scaling_vector = self._scaling_vector() 
+        scaling_vector = scaling_vector or self._scaling_vector()
+
         self._add_theta_to_collection(train_data, scaling_vector, num_procs)
         if test_data is not None:
             self._add_theta_to_collection(test_data, scaling_vector, num_procs)
 
     def _compute_pod(self, data: SeriesCollection) -> None:
-        if self._max_svd_size is None:
-            self._max_svd_size = len(data)
+        self._max_svd_size = self._max_svd_size or len(data)
 
         # setup matrix and perform SVD
         A = np.vstack([np.array(series) for series in self._get_targets(data)])
@@ -210,8 +209,7 @@ class EnhancedPODStrategy(PredictionStrategy):
         for model in self._theta_model:
             if self._theta_model_type in ["NN", "SKLEARN"]:
                 # NN and sklearn need combined data for multi-output
-                combined_data = train_data + test_data if test_data is not None else train_data
-                model.train(combined_data, num_procs=num_procs)
+                model.train(train_data + test_data, num_procs=num_procs)
             else:
                 model.train(train_data, test_data, num_procs=num_procs)
 
