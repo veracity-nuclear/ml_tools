@@ -278,11 +278,9 @@ class NNStrategy(PredictionStrategy):
         self.batch_size            = int(   h5_group['batch_size'][()]            )
         self._layer_sequence       = LayerSequence.from_h5(h5_group['neural_network'])
 
-        read_keras_h5 = not os.path.exists(keras_name)
-        if read_keras_h5:
-            file_data = bytes(h5_group['serialized_keras_file'][()])
-            with open(keras_name, 'wb') as file:
-                file.write(file_data)
+        file_data = bytes(h5_group['serialized_keras_file'][()])
+        with open(keras_name, 'wb') as file:
+            file.write(file_data)
 
         self._model = load_model(keras_name, custom_objects={
             "gather_indices": gather_indices,

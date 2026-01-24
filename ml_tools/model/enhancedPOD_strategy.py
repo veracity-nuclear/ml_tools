@@ -128,8 +128,6 @@ class EnhancedPODStrategy(PredictionStrategy):
         return theta_star
 
     def _add_theta_to_collection(self, collection: SeriesCollection, scaling_vector: np.ndarray, num_procs: int = 1) -> None:
-        assert len(self.predicted_feature_names) == 1, "EnhancedPODStrategy only supports one predicted feature"
-
         # Collect all states that need theta computation
         all_states = []
         for series in collection:
@@ -138,7 +136,8 @@ class EnhancedPODStrategy(PredictionStrategy):
 
         # Prepare arguments for parallel processing
         args_list = [
-            (state[self.predicted_feature_names[0]], self._pod_matrix, self._constraints, scaling_vector)
+            (np.concatenate([state[name] for name in self.predicted_feature_names]),
+             self._pod_matrix, self._constraints, scaling_vector)
             for state in all_states
         ]
 
@@ -160,7 +159,8 @@ class EnhancedPODStrategy(PredictionStrategy):
                    test_data: Optional[SeriesCollection] = None,
                    scaling_vector: np.ndarray = None,
                    num_procs: int = 1) -> None:
-        scaling_vector = scaling_vector or self._scaling_vector()
+        if scaling_vector is None:
+            scaling_vector = self._scaling_vector()
 
         self._add_theta_to_collection(train_data, scaling_vector, num_procs)
         if test_data is not None:
@@ -320,11 +320,9 @@ class EnhancedPODStrategy(PredictionStrategy):
         self._constraints = [(h5_group[f'constraint_{i+1}_gamma'][()],
                                   h5_group[f'constraint_{i+1}_W'][()]) for i in range(num_constraints)]
 
-        if self._theta_model_type == "NN":
+        if self._theta_model_type in ["NN","SKLEARN"]:
             self._theta_model[0].load_model(h5_group['theta'])
-        elif self._theta_model_type == "SKLEARN":
-            self._theta_model[0].load_model_from_hdf5(h5_group['theta'])
-        else:
+        elif self._theta_model_type == "GBM":
             for i in range(self.num_moments):
                 self._theta_model[i].load_model(h5_group[f'theta-{i+1}'])
 
