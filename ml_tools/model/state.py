@@ -529,10 +529,10 @@ class StateSeries:
             The StateSeries to extend the current series with
         """
 
+        assert isinstance(other, StateSeries), f"'{other}' is not a StateSeries object"
         assert (
             self.features == other.features
         ), f"Features of the two StateSeries do not match: {self.features} != {other.features}"
-        assert isinstance(other, StateSeries), f"'{other}' is not a StateSeries object"
         self.states.extend(other.states)
 
     def combine_features(self, other: StateSeries) -> StateSeries:
@@ -887,10 +887,10 @@ class SeriesCollection:
             The SeriesCollection to extend the current list with
         """
 
+        assert isinstance(other, SeriesCollection), f"'{other}' is not a SeriesCollection object"
         assert (
             self.features == other.features
         ), f"Features of the two SeriesCollections do not match: {self.features} != {other.features}"
-        assert isinstance(other, SeriesCollection), f"'{other}' is not a SeriesCollection object"
         self.state_series_list.extend(other.state_series_list)
 
     def combine_features(self, other: SeriesCollection) -> SeriesCollection:
