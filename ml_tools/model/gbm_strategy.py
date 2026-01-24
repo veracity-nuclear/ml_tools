@@ -404,13 +404,10 @@ class GBMStrategy(PredictionStrategy):
         file_name = h5_group.file.filename
         lgbm_name = file_name.removesuffix(".h5") + ".lgbm" if file_name.endswith(".h5") else file_name + ".lgbm"
 
-        read_lgbm_h5 = not os.path.exists(lgbm_name)
         super().load_model(h5_group)
-        if read_lgbm_h5:
-            file_data = h5_group['serialized_lgbm_file'][()]
-            with open(lgbm_name, 'wb') as file:
-                file.write(file_data)
-
+        file_data = h5_group['serialized_lgbm_file'][()]
+        with open(lgbm_name, 'wb') as file:
+            file.write(file_data)
         self._gbm = lgb.Booster(model_file=lgbm_name)
 
     @classmethod
