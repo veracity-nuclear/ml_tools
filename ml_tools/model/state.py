@@ -532,6 +532,8 @@ class StateSeries:
         assert (
             self.features == other.features
         ), f"Features of the two StateSeries do not match: {self.features} != {other.features}"
+        assert isinstance(other, StateSeries), f"'{other}' is not a StateSeries object"
+        self.states.extend(other.states)
 
     def combine_features(self, other: StateSeries) -> StateSeries:
         """Combine features from another StateSeries into this one.
@@ -562,8 +564,6 @@ class StateSeries:
             self_state.combine_features(other_state)
 
         return self
-        assert isinstance(other, StateSeries), f"'{other}' is not a StateSeries object"
-        self.states.extend(other.states)
 
     def pop(self) -> State:
         """Pop a state from the series
