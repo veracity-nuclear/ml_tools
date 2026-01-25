@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Callable, Dict, Optional
+from typing import Dict, Optional
 
 import h5py
 

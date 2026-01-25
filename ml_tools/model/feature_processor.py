@@ -75,7 +75,7 @@ class FeatureProcessor(ABC):
         group.create_dataset("type", data=self.__class__.__name__, dtype=h5py.string_dtype())
 
     @classmethod
-    def from_hdf5(cls, group: h5py.Group) -> FeatureProcessor:
+    def from_hdf5(cls, group: h5py.Group) -> FeatureProcessor:  # pylint: disable=unused-argument
         """ A method for constructing a FeatureProcessor from an HDF5 Group
 
         Parameters

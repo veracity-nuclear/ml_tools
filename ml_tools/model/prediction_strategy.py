@@ -381,8 +381,8 @@ class PredictionStrategy(ABC):
             An opened HDF5 group or file handle
         """
         # Import here to avoid circular dependency
-        from ml_tools.model import build_feature_processor
-        
+        from ml_tools.model import build_feature_processor  # pylint: disable=import-outside-toplevel
+
         pred_group = h5_group['predicted_features']
         pred_order = list(pred_group.keys())
         predicted_features = {}
