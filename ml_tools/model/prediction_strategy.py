@@ -8,9 +8,7 @@ import h5py
 from ml_tools.model.state import State, StateSeries, SeriesCollection
 from ml_tools.model.feature_processor import (
     FeatureProcessor,
-    NoProcessing,
-    read_feature_processor,
-    write_feature_processor,
+    NoProcessing
 )
 
 FeatureSpec = Union[Dict[str, FeatureProcessor], str, Sequence[str]]
@@ -366,13 +364,13 @@ class PredictionStrategy(ABC):
         pred_group = h5_group.create_group('predicted_features')
         pred_order = self.predicted_feature_names
         for name in pred_order:
-            write_feature_processor(pred_group.create_group(name), self.predicted_features[name])
+            self.predicted_features[name].to_hdf5(pred_group.create_group(name))
         if self._predicted_feature_sizes is not None:
             sizes = [self._predicted_feature_sizes[name] for name in pred_order]
             h5_group.create_dataset('predicted_feature_sizes', data=sizes)
         input_features_group = h5_group.create_group('input_features')
         for name, feature in self.input_features.items():
-            write_feature_processor(input_features_group.create_group(name), feature)
+            feature.to_hdf5(input_features_group.create_group(name))
 
     def load_model(self, h5_group: h5py.Group) -> None:
         """ A method for loading base-class data for a trained model
@@ -382,18 +380,25 @@ class PredictionStrategy(ABC):
         h5_group : h5py.Group
             An opened HDF5 group or file handle
         """
+        # Import here to avoid circular dependency
+        from ml_tools.model import build_feature_processor
+        
         pred_group = h5_group['predicted_features']
         pred_order = list(pred_group.keys())
         predicted_features = {}
         for name in pred_order:
-            predicted_features[name] = read_feature_processor(pred_group[name])
+            # Read the type from the HDF5 group instead of using the feature name
+            processor_type = pred_group[name]['type'][()].decode('utf-8')
+            predicted_features[name] = build_feature_processor(processor_type, pred_group[name])
         self.predicted_features = predicted_features
         if 'predicted_feature_sizes' in h5_group:
             sizes = [int(v) for v in h5_group['predicted_feature_sizes'][()]]
             self._predicted_feature_sizes = dict(zip(pred_order, sizes))
         input_features = {}
         for name, feature in h5_group['input_features'].items():
-            input_features[name] = read_feature_processor(feature)
+            # Read the type from the HDF5 group instead of using the feature name
+            processor_type = feature['type'][()].decode('utf-8')
+            input_features[name] = build_feature_processor(processor_type, feature)
         self.input_features = input_features
 
         if 'biasing_model' in h5_group:
