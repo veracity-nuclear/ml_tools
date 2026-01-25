@@ -78,6 +78,40 @@ class State:
             s += f"  {feature_name}: {values}\n"
         return s
 
+    def combine_features(self, other: State) -> State:
+        """Combine features from another State into this one.
+
+        This method adds features from 'other' to 'self'. The two states must
+        not share any feature names.
+
+        Parameters
+        ----------
+        other : State
+            The State whose features will be added to this state
+
+        Returns
+        -------
+        State
+            Returns self for method chaining
+
+        Raises
+        ------
+        AssertionError
+            If the states share any feature names
+        """
+        # Check that no features overlap
+        self_features = set(self.features.keys())
+        other_features = set(other.features.keys())
+        overlap = self_features & other_features
+        assert not overlap, \
+            f"States must not share features. Overlapping features: {overlap}"
+
+        # Add features from other to self
+        for feature_name, feature_value in other.features.items():
+            self._features[feature_name] = feature_value
+
+        return self
+
     def to_dataframe(self, features: Optional[List[str]] = None) -> pd.DataFrame:
         """Convert the State into a Pandas DataFrame.
 
@@ -495,11 +529,41 @@ class StateSeries:
             The StateSeries to extend the current series with
         """
 
+        assert isinstance(other, StateSeries), f"'{other}' is not a StateSeries object"
         assert (
             self.features == other.features
         ), f"Features of the two StateSeries do not match: {self.features} != {other.features}"
-        assert isinstance(other, StateSeries), f"'{other}' is not a StateSeries object"
         self.states.extend(other.states)
+
+    def combine_features(self, other: StateSeries) -> StateSeries:
+        """Combine features from another StateSeries into this one.
+
+        This method adds features from 'other' to 'self'. The two series must
+        have the same length but must not share any feature names.
+
+        Parameters
+        ----------
+        other : StateSeries
+            The StateSeries whose features will be added to this series
+
+        Returns
+        -------
+        StateSeries
+            Returns self for method chaining
+
+        Raises
+        ------
+        AssertionError
+            If the series have different lengths or if they share any feature names
+        """
+        assert len(self) == len(other), \
+            f"StateSeries must have the same length: {len(self)} != {len(other)}"
+
+        # Combine features for each state in the series
+        for self_state, other_state in zip(self.states, other.states):
+            self_state.combine_features(other_state)
+
+        return self
 
     def pop(self) -> State:
         """Pop a state from the series
@@ -823,11 +887,41 @@ class SeriesCollection:
             The SeriesCollection to extend the current list with
         """
 
+        assert isinstance(other, SeriesCollection), f"'{other}' is not a SeriesCollection object"
         assert (
             self.features == other.features
         ), f"Features of the two SeriesCollections do not match: {self.features} != {other.features}"
-        assert isinstance(other, SeriesCollection), f"'{other}' is not a SeriesCollection object"
         self.state_series_list.extend(other.state_series_list)
+
+    def combine_features(self, other: SeriesCollection) -> SeriesCollection:
+        """Combine features from another SeriesCollection into this one.
+
+        This method adds features from 'other' to 'self'. The two collections must
+        have the same length and structure, but must not share any feature names.
+
+        Parameters
+        ----------
+        other : SeriesCollection
+            The SeriesCollection whose features will be added to this collection
+
+        Returns
+        -------
+        SeriesCollection
+            Returns self for method chaining
+
+        Raises
+        ------
+        AssertionError
+            If the collections have different lengths or if they share any feature names
+        """
+        assert len(self) == len(other), \
+            f"SeriesCollections must have the same length: {len(self)} != {len(other)}"
+
+        # Combine features for each series
+        for self_series, other_series in zip(self.state_series_list, other.state_series_list):
+            self_series.combine_features(other_series)
+
+        return self
 
     def random_sample(self, num_samples: int, seed: Optional[int] = None) -> SeriesCollection:
         """Return a random subset of this SeriesCollection.
