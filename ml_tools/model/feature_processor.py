@@ -5,6 +5,8 @@ from math import isclose
 import numpy as np
 import h5py
 
+from ml_tools.model import register_feature_processor
+
 class FeatureProcessor(ABC):
     """ An abstract class for pre-processing and post-processing input / output features
     """
@@ -62,7 +64,33 @@ class FeatureProcessor(ABC):
         The relative tolerance is 1e-9 for float comparisons
         """
 
+    def to_hdf5(self, group: h5py.Group) -> None:
+        """ A method for writing a FeatureProcessor to an HDF5 Group
 
+        Parameters
+        ----------
+        group : h5py.Group
+            The HDF5 Group to write the FeatureProcessor to
+        """
+        group.create_dataset("type", data=self.__class__.__name__, dtype=h5py.string_dtype())
+
+    @classmethod
+    def from_hdf5(cls, group: h5py.Group) -> FeatureProcessor:  # pylint: disable=unused-argument
+        """ A method for constructing a FeatureProcessor from an HDF5 Group
+
+        Parameters
+        ----------
+        group : h5py.Group
+            The HDF5 Group to read the FeatureProcessor from
+
+        Returns
+        -------
+        FeatureProcessor
+            The FeatureProcessor constructed from the HDF5 Group
+        """
+        return cls()
+
+@register_feature_processor()
 class MinMaxNormalize(FeatureProcessor):
     """ A feature processor that performs Min-Max normalization
 
@@ -107,7 +135,18 @@ class MinMaxNormalize(FeatureProcessor):
                 isclose(self.min, other.min, rel_tol=1e-9) and
                 isclose(self.max, other.max, rel_tol=1e-9))
 
+    def to_hdf5(self, group: h5py.Group) -> None:
+        super().to_hdf5(group)
+        group.create_dataset("min", data=self.min)
+        group.create_dataset("max", data=self.max)
 
+    @classmethod
+    def from_hdf5(cls, group: h5py.Group) -> MinMaxNormalize:
+        min_value = group["min"][()]
+        max_value = group["max"][()]
+        return cls(min_value, max_value)
+
+@register_feature_processor()
 class NoProcessing(FeatureProcessor):
     """ A feature processor that performs no processing operations
     """
@@ -123,49 +162,3 @@ class NoProcessing(FeatureProcessor):
 
     def __eq__(self, other: FeatureProcessor) -> bool:
         return isinstance(other, NoProcessing)
-
-
-def write_feature_processor(group: h5py.Group, processor: FeatureProcessor) -> None:
-    """ A function for writing feature processors to an HDF5 Group
-
-    Parameters
-    ----------
-    group : h5py.Group
-        The HDF5 Group to write the feature processor to
-    processor : FeatureProcessor
-        The Feature Processor to write to the HDF5 Group
-    """
-
-    def get_public_properties(obj: FeatureProcessor):
-        for attr_name in dir(obj):
-            attr_value = getattr(obj, attr_name)
-            if isinstance(attr_value, property) or \
-               (not attr_name.startswith('_') and isinstance(getattr(type(obj), attr_name, None), property)):
-                yield attr_name
-
-    group.create_dataset("type", data=type(processor).__name__, dtype=h5py.string_dtype())
-    for var in get_public_properties(processor):
-        val = getattr(processor, var)
-        group.create_dataset(var, data=val)
-
-
-def read_feature_processor(group: h5py.Group) -> FeatureProcessor:
-    """ A function for reading feature processors from an HDF5 Group
-
-    Parameters
-    ----------
-    group : h5py.Group
-        The HDF5 Group to read the feature processor from
-
-    Returns
-    -------
-    FeatureProcessor
-        The feature processor read from the HDF5 Group
-    """
-
-    processor_type = group["type"][()].decode('utf-8')
-    if processor_type == "MinMaxNormalize":
-        return MinMaxNormalize(group["min"][()], group["max"][()])
-    if processor_type == "NoProcessing":
-        return NoProcessing()
-    assert False, f"Unsupported processor type: {processor_type}"

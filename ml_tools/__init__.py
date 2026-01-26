@@ -1,6 +1,6 @@
 from .model.state import State, StateSeries, SeriesCollection
 from .model.feature_processor import (
-    FeatureProcessor, MinMaxNormalize, NoProcessing, write_feature_processor, read_feature_processor
+    FeatureProcessor, MinMaxNormalize, NoProcessing
 )
 from .model.feature_perturbator import (
     FeaturePerturbator, NonPerturbator, NormalPerturbator, RelativeNormalPerturbator
