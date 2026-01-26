@@ -1,7 +1,10 @@
 from __future__ import annotations
-from typing import Dict, Optional
-
+from typing import Dict, Optional, TYPE_CHECKING
 import h5py
+
+if TYPE_CHECKING:
+    from ml_tools.model.prediction_strategy import PredictionStrategy, FeatureSpec
+    from ml_tools.model.feature_processor import FeatureProcessor
 
 # Registry for PredictionStrategy builders
 _PREDICTION_STRATEGY_REGISTRY: Dict[str, type] = {}
