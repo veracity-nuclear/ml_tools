@@ -318,3 +318,10 @@ class SklearnStrategy(PredictionStrategy):
             return False
 
         return self._estimator_args == other._estimator_args
+
+    def to_dict(self) -> Dict:
+        """Return a serializable representation of the strategy parameters.
+
+        SklearnStrategy does not currently support to_dict-based construction.
+        """
+        raise NotImplementedError("SklearnStrategy does not support to_dict")
