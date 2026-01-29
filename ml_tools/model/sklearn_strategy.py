@@ -310,7 +310,8 @@ class SklearnStrategy(PredictionStrategy):
         if not super().__eq__(other):
             return False
 
-        assert isinstance(other, SklearnStrategy)
+        if not isinstance(other, SklearnStrategy):
+            return False
 
         # Compare estimator classes and estimator args
         if self._estimator_class != other._estimator_class:

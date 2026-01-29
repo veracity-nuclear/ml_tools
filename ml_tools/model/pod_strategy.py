@@ -187,7 +187,8 @@ class PODStrategy(PredictionStrategy):
     def __eq__(self, other: object) -> bool:
         if not super().__eq__(other):
             return False
-        assert isinstance(other, PODStrategy)
+        if not isinstance(other, PODStrategy):
+            return False
         return (self.input_feature == other.input_feature and
                 self.nclusters     == other.nclusters     and
                 self.max_svd_size  == other.max_svd_size  and

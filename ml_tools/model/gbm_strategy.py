@@ -358,7 +358,8 @@ class GBMStrategy(PredictionStrategy):
         if not super().__eq__(other):
             return False
 
-        assert isinstance(other, GBMStrategy)
+        if not isinstance(other, GBMStrategy):
+            return False
         return (self.boosting_type     == other.boosting_type     and
                 self.objective         == other.objective         and
                 self.metric            == other.metric            and

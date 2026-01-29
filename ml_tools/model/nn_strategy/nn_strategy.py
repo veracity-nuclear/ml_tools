@@ -224,7 +224,8 @@ class NNStrategy(PredictionStrategy):
     def __eq__(self, other: object) -> bool:
         if not super().__eq__(other):
             return False
-        assert isinstance(other, NNStrategy)
+        if not isinstance(other, NNStrategy):
+            return False
         return (len(self.layers) == len(other.layers)                   and
                 all(a == b for a, b in zip(self.layers, other.layers))  and
                 self.epoch_limit          == other.epoch_limit          and

@@ -78,6 +78,34 @@ class State:
             s += f"  {feature_name}: {values}\n"
         return s
 
+    def featurewise(self,
+                    op: np.ufunc,
+                    other: State,
+                    features: Optional[List[str]] = None) -> State:
+        """Apply an elementwise feature operation with another State.
+
+        Parameters
+        ----------
+        op : np.ufunc
+            NumPy ufunc to apply to each feature value.
+        other : State
+            The other State to apply the operation with.
+        features : Optional[List[str]]
+            Features to operate on. Defaults to all features in this State.
+
+        Returns
+        -------
+        State
+            A new State with only the operated feature values.
+        """
+        features = list(self.features.keys()) if features is None else features
+        for name in features:
+            assert name in self.features, f"'{name}' not found in this State"
+            assert name in other.features, f"'{name}' not found in other State"
+        new_features = {name: op(np.asarray(self[name]), np.asarray(other[name]))
+                        for name in features}
+        return State(new_features)
+
     def to_dataframe(self, features: Optional[List[str]] = None) -> pd.DataFrame:
         """Convert the State into a Pandas DataFrame.
 
@@ -454,6 +482,33 @@ class StateSeries:
         assert isinstance(other, StateSeries), f"'{other}' is not a StateSeries object"
         return StateSeries(self.states + other.states)
 
+    def featurewise(self,
+                    op:       np.ufunc,
+                    other:    StateSeries,
+                    features: Optional[List[str]] = None) -> StateSeries:
+        """Apply an elementwise feature operation with another StateSeries.
+
+        Parameters
+        ----------
+        op : np.ufunc
+            NumPy ufunc to apply to each feature value.
+        other : StateSeries
+            The other StateSeries to apply the operation with.
+        features : Optional[List[str]]
+            Features to operate on. Defaults to all features in this StateSeries.
+
+        Returns
+        -------
+        StateSeries
+            A new StateSeries with only the operated feature values.
+        """
+        assert isinstance(op, np.ufunc), "op must be a NumPy ufunc"
+        assert isinstance(other, StateSeries), "other must be a StateSeries"
+        assert len(self) == len(other), "StateSeries lengths do not match"
+        new_states = [left.featurewise(op, right, features)
+                      for left, right in zip(self.states, other.states)]
+        return StateSeries(new_states)
+
     @property
     def features(self) -> List[str]:
         if not self.states:
@@ -791,6 +846,34 @@ class SeriesCollection:
         if other is None:
             return self
         return SeriesCollection(self.state_series_list + other.state_series_list)
+
+    def featurewise(self,
+                    op: np.ufunc,
+                    other: SeriesCollection,
+                    features: Optional[List[str]] = None) -> SeriesCollection:
+        """Apply an elementwise feature operation with another SeriesCollection.
+
+        Parameters
+        ----------
+        op : np.ufunc
+            NumPy ufunc to apply to each feature value.
+        other : SeriesCollection
+            The other SeriesCollection to apply the operation with.
+        features : Optional[List[str]]
+            Features to operate on. Defaults to all features in this SeriesCollection.
+
+        Returns
+        -------
+        SeriesCollection
+            A new SeriesCollection with only the operated feature values.
+        """
+        assert isinstance(op, np.ufunc), "op must be a NumPy ufunc"
+        assert isinstance(other, SeriesCollection), "other must be a SeriesCollection"
+        assert len(self) == len(other), "SeriesCollection lengths do not match"
+        features = self.features if features is None else features
+        new_series = [left.featurewise(op, right, features)
+                      for left, right in zip(self.state_series_list, other.state_series_list)]
+        return SeriesCollection(new_series)
 
     @property
     def features(self) -> List[str]:
