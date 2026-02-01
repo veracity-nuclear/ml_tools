@@ -272,13 +272,40 @@ class ResidualCorrectionStrategy(PredictionStrategy):
                                                    input_features     = input_features,
                                                    predicted_features = predicted_features)
 
-        return cls(residual_model=residual_model,
-                   reference_model=None,
-                   reference_model_frozen=reference_model_frozen)
+        reference_model = None
+        reference_strategy_type = params.get("reference_strategy_type")
+        if reference_strategy_type is not None:
+            ref_input_features     = params.get("reference_input_features")
+            ref_predicted_features = params.get("reference_predicted_features")
+            reference_model = build_prediction_strategy(
+                strategy_type      = reference_strategy_type,
+                params             = params.get("reference_strategy_params", {}),
+                input_features     = cls._feature_map_from_dict(ref_input_features),
+                predicted_features = cls._feature_map_from_dict(ref_predicted_features),
+            )
+
+        return cls(residual_model, reference_model, reference_model_frozen)
+
 
     def to_dict(self) -> dict:
         assert self.residual_model is not None, "residual_model must be set before saving to dict"
 
-        return {"residual_strategy_type": type(self.residual_model).__name__,
-                "residual_strategy_params": self.residual_model.to_dict(),
-                "reference_model_frozen": self.reference_model_frozen}
+        params = {"residual_strategy_type": type(self.residual_model).__name__,
+                  "residual_strategy_params": self.residual_model.to_dict(),
+                  "reference_model_frozen": self.reference_model_frozen}
+
+        if self.reference_model is not None:
+            params["reference_strategy_type"] = type(self.reference_model).__name__
+            params["reference_strategy_params"] = self.reference_model.to_dict()
+            params["reference_input_features"] = self._feature_map_to_dict(self.reference_model.input_features)
+            params["reference_predicted_features"] = self._feature_map_to_dict(self.reference_model.predicted_features)
+
+        return params
+
+    @staticmethod
+    def _feature_map_to_dict(features: Dict[str, FeatureProcessor]) -> Dict[str, Dict[str, Any]]:
+        return {name: proc.to_dict() for name, proc in features.items()}
+
+    @staticmethod
+    def _feature_map_from_dict(features: Dict[str, Dict[str, Any]]) -> Dict[str, FeatureProcessor]:
+        return {name: FeatureProcessor.from_dict(payload) for name, payload in features.items()}
