@@ -19,7 +19,6 @@ from tensorflow.keras.callbacks import EarlyStopping
 from ml_tools.model.state import SeriesCollection
 from ml_tools.model.prediction_strategy import PredictionStrategy, FeatureSpec
 from ml_tools.model import register_prediction_strategy
-from ml_tools.model.feature_processor import NoProcessing
 from ml_tools.model.nn_strategy.layer import Layer, gather_indices
 from ml_tools.model.nn_strategy.layer_sequence import LayerSequence
 from ml_tools.model.nn_strategy.dense import Dense
@@ -281,11 +280,9 @@ class NNStrategy(PredictionStrategy):
         self.batch_size            = int(   h5_group['batch_size'][()]            )
         self._layer_sequence       = LayerSequence.from_h5(h5_group['neural_network'])
 
-        read_keras_h5 = not os.path.exists(keras_name)
-        if read_keras_h5:
-            file_data = bytes(h5_group['serialized_keras_file'][()])
-            with open(keras_name, 'wb') as file:
-                file.write(file_data)
+        file_data = bytes(h5_group['serialized_keras_file'][()])
+        with open(keras_name, 'wb') as file:
+            file.write(file_data)
 
         self._model = load_model(keras_name, custom_objects={
             "gather_indices": gather_indices,

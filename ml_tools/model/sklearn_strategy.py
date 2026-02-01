@@ -50,14 +50,14 @@ class SklearnStrategy(PredictionStrategy):
     --------
     >>> from sklearn.ensemble import RandomForestRegressor
     >>> from ml_tools.model.sklearn_strategy import SklearnStrategy
-    >>> 
+    >>>
     >>> strategy = SklearnStrategy(
     ...     input_features=['feature1', 'feature2'],
     ...     predicted_features=['target'],
     ...     estimator=RandomForestRegressor,
     ...     estimator_args={'n_estimators': 100, 'max_depth': 10}
     ... )
-    >>> 
+    >>>
     >>> strategy.train(train_data)
     >>> predictions = strategy.predict(test_data)
     """

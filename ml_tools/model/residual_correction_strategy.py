@@ -178,8 +178,8 @@ class ResidualCorrectionStrategy(PredictionStrategy):
         assert self.residual_model.input_features == self.reference_model.input_features, \
             "Input features of residual_model and reference_model must match for this method."
 
-        reference_preds = self.reference_model._predict_one(state_series)
-        residual_preds  = self.residual_model._predict_one(state_series)
+        reference_preds = self.reference_model._predict_one(state_series) # pylint: disable=protected-access
+        residual_preds  = self.residual_model._predict_one(state_series) # pylint: disable=protected-access
         final_preds     = reference_preds + residual_preds
         return final_preds
 
@@ -189,8 +189,8 @@ class ResidualCorrectionStrategy(PredictionStrategy):
         assert self.residual_model.input_features == self.reference_model.input_features, \
             "Input features of residual_model and reference_model must match for this method."
 
-        reference_preds = self.reference_model._predict_all(series_collection, num_procs)
-        residual_preds  = self.residual_model._predict_all(series_collection, num_procs)
+        reference_preds = self.reference_model._predict_all(series_collection, num_procs) # pylint: disable=protected-access
+        residual_preds  = self.residual_model._predict_all(series_collection, num_procs) # pylint: disable=protected-access
         final_preds     = reference_preds + residual_preds
         return final_preds
 

@@ -2,11 +2,13 @@ from __future__ import annotations
 from typing import Optional, Type, Dict
 from math import isclose
 import pickle
+import os
+
 import numpy as np
 from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans
 import h5py
-import os
+
 from threadpoolctl import threadpool_limits
 
 from ml_tools.model.state import SeriesCollection

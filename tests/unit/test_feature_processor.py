@@ -4,7 +4,7 @@ import numpy as np
 import os
 import h5py
 
-from ml_tools import FeatureProcessor, MinMaxNormalize, NoProcessing, write_feature_processor, read_feature_processor
+from ml_tools import FeatureProcessor, MinMaxNormalize, NoProcessing
 
 def test_minmax_normalize():
     orig_data = np.array([2., 5., 6., 8.])
@@ -45,16 +45,16 @@ def test_read_write_functions():
         input_features = h5_file.create_group('input_features')
 
         min_max_normalize_group = input_features.create_group('min_max_normalize')
-        write_feature_processor(min_max_normalize_group, min_max_normalize )
+        min_max_normalize.to_hdf5(min_max_normalize_group)
 
         no_processing_group = input_features.create_group('no_processing')
-        write_feature_processor(no_processing_group, no_processing)
+        no_processing.to_hdf5(no_processing_group)
 
     with h5py.File('read_write_processor.h5', 'r') as h5_file:
-        processor = read_feature_processor(h5_file['input_features']['min_max_normalize'])
+        processor = MinMaxNormalize.from_hdf5(h5_file['input_features']['min_max_normalize'])
         assert(processor == min_max_normalize)
 
-        processor = read_feature_processor(h5_file['input_features']['no_processing'])
+        processor = NoProcessing.from_hdf5(h5_file['input_features']['no_processing'])
         assert(processor == no_processing)
 
     os.system('rm read_write_processor.h5')

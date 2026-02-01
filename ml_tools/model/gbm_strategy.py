@@ -11,7 +11,6 @@ import pylab as plt
 from ml_tools.model.state import SeriesCollection
 from ml_tools.model.prediction_strategy import PredictionStrategy, FeatureSpec
 from ml_tools.model import register_prediction_strategy
-from ml_tools.model.feature_processor import NoProcessing
 
 
 @register_prediction_strategy()  # registers under 'GBMStrategy' by default
@@ -419,7 +418,6 @@ class GBMStrategy(PredictionStrategy):
         """
         lgbm_name = self._lgbm_name_for_group(h5_group)
 
-        read_lgbm_h5 = not os.path.exists(lgbm_name)
         super().load_model(h5_group)
         boosting_type = h5_group['boosting_type'][()]
         objective = h5_group['objective'][()]
@@ -445,11 +443,10 @@ class GBMStrategy(PredictionStrategy):
         self.verbose           = int(h5_group['verbose'][()])
         self.num_boost_round   = int(h5_group['num_boost_round'][()])
         self.stopping_rounds   = int(h5_group['stopping_rounds'][()])
-        if read_lgbm_h5:
-            file_data = h5_group['serialized_lgbm_file'][()]
-            with open(lgbm_name, 'wb') as file:
-                file.write(file_data)
 
+        file_data = h5_group['serialized_lgbm_file'][()]
+        with open(lgbm_name, 'wb') as file:
+            file.write(file_data)
         self._gbm = lgb.Booster(model_file=lgbm_name)
 
     @staticmethod

@@ -395,3 +395,228 @@ def test_series_collection():
     os.remove(csv_file)
     os.remove(file_name)
     os.rmdir(test_dir)
+
+def test_state_combine_features():
+    """Test the combine_features method of State."""
+
+    # Create two states with different features
+    state_a = State({"x": 1.0, "y": 2.0})
+    state_b = State({"z": 10.0, "w": 20.0})
+
+    # Combine features
+    result = state_a.combine_features(state_b)
+
+    # Verify result is the same object (in-place modification)
+    assert result is state_a
+
+    # Verify combined features
+    assert set(state_a.features.keys()) == {"x", "y", "z", "w"}
+    assert_almost_equal(state_a["x"], 1.0)
+    assert_almost_equal(state_a["y"], 2.0)
+    assert_almost_equal(state_a["z"], 10.0)
+    assert_almost_equal(state_a["w"], 20.0)
+
+    # Test error case: overlapping features
+    state_c = State({"x": 100.0})
+    state_d = State({"x": 200.0, "z": 300.0})
+    with pytest.raises(AssertionError, match="must not share features"):
+        state_c.combine_features(state_d)
+
+
+def test_state_series_combine_features():
+    """Test the combine_features method of StateSeries."""
+
+    # Create two series with different features
+    series_a = StateSeries([
+        State({"x": 1.0, "y": 2.0}),
+        State({"x": 3.0, "y": 4.0}),
+    ])
+    series_b = StateSeries([
+        State({"z": 10.0, "w": 20.0}),
+        State({"z": 30.0, "w": 40.0}),
+    ])
+
+    # Combine features
+    result = series_a.combine_features(series_b)
+
+    # Verify result is the same object (in-place modification)
+    assert result is series_a
+
+    # Verify combined features
+    assert set(series_a.features) == {"x", "y", "z", "w"}
+
+    # Verify first state
+    assert_almost_equal(series_a[0]["x"], 1.0)
+    assert_almost_equal(series_a[0]["y"], 2.0)
+    assert_almost_equal(series_a[0]["z"], 10.0)
+    assert_almost_equal(series_a[0]["w"], 20.0)
+
+    # Verify second state
+    assert_almost_equal(series_a[1]["x"], 3.0)
+    assert_almost_equal(series_a[1]["y"], 4.0)
+    assert_almost_equal(series_a[1]["z"], 30.0)
+    assert_almost_equal(series_a[1]["w"], 40.0)
+
+    # Test error case: different lengths
+    series_c = StateSeries([State({"a": 1.0})])
+    series_d = StateSeries([State({"b": 2.0}), State({"b": 3.0})])
+    with pytest.raises(AssertionError, match="must have the same length"):
+        series_c.combine_features(series_d)
+
+    # Test error case: overlapping features
+    series_e = StateSeries([State({"x": 100.0})])
+    series_f = StateSeries([State({"x": 200.0, "z": 300.0})])
+    with pytest.raises(AssertionError, match="must not share features"):
+        series_e.combine_features(series_f)
+
+
+def test_series_collection_combine_features():
+    """Test the combine_features method of SeriesCollection."""
+
+    # Create first collection with features 'x' and 'y'
+    series1a = StateSeries([
+        State({"x": 1.0, "y": 2.0}),
+        State({"x": 3.0, "y": 4.0}),
+    ])
+    series2a = StateSeries([
+        State({"x": 5.0, "y": 6.0}),
+    ])
+    collection_a = SeriesCollection([series1a, series2a])
+
+    # Create second collection with features 'z' and 'w'
+    series1b = StateSeries([
+        State({"z": 10.0, "w": 20.0}),
+        State({"z": 30.0, "w": 40.0}),
+    ])
+    series2b = StateSeries([
+        State({"z": 50.0, "w": 60.0}),
+    ])
+    collection_b = SeriesCollection([series1b, series2b])
+
+    # Combine features
+    result = collection_a.combine_features(collection_b)
+
+    # Verify result is the same object (in-place modification)
+    assert result is collection_a
+
+    # Verify combined features
+    assert set(collection_a.features) == {"x", "y", "z", "w"}
+
+    # Verify values in first series, first state
+    assert_almost_equal(collection_a[0][0]["x"], 1.0)
+    assert_almost_equal(collection_a[0][0]["y"], 2.0)
+    assert_almost_equal(collection_a[0][0]["z"], 10.0)
+    assert_almost_equal(collection_a[0][0]["w"], 20.0)
+
+    # Verify values in first series, second state
+    assert_almost_equal(collection_a[0][1]["x"], 3.0)
+    assert_almost_equal(collection_a[0][1]["y"], 4.0)
+    assert_almost_equal(collection_a[0][1]["z"], 30.0)
+    assert_almost_equal(collection_a[0][1]["w"], 40.0)
+
+    # Verify values in second series, first state
+    assert_almost_equal(collection_a[1][0]["x"], 5.0)
+    assert_almost_equal(collection_a[1][0]["y"], 6.0)
+    assert_almost_equal(collection_a[1][0]["z"], 50.0)
+    assert_almost_equal(collection_a[1][0]["w"], 60.0)
+
+    # Test error cases
+
+    # Test: different lengths
+    collection_c = SeriesCollection([series1a])  # Only one series
+    collection_d = SeriesCollection([series1b, series2b])  # Two series
+    with pytest.raises(AssertionError, match="must have the same length"):
+        collection_c.combine_features(collection_d)
+
+    # Test: overlapping features
+    series_overlap = StateSeries([
+        State({"x": 100.0, "z": 200.0}),  # 'x' overlaps with collection_a
+    ])
+    collection_overlap = SeriesCollection([series_overlap])
+
+    # Create fresh collection for this test
+    collection_fresh = SeriesCollection([StateSeries([State({"x": 1.0})])])
+    with pytest.raises(AssertionError, match="must not share features"):
+        collection_fresh.combine_features(collection_overlap)
+
+    # Test: series with different state lengths
+    series_short = StateSeries([State({"z": 1.0})])  # Only 1 state
+    series_long = StateSeries([
+        State({"a": 10.0}),
+        State({"a": 20.0})  # 2 states
+    ])
+    collection_short = SeriesCollection([series_short])
+    collection_long = SeriesCollection([series_long])
+    with pytest.raises(AssertionError, match="Series must have the same length"):
+        collection_long.combine_features(collection_short)
+
+
+def test_state_series_extend():
+    """Test the extend method of StateSeries including error conditions."""
+
+    # Test successful extend
+    series_a = StateSeries([
+        State({"x": 1.0, "y": 2.0}),
+        State({"x": 3.0, "y": 4.0}),
+    ])
+    series_b = StateSeries([
+        State({"x": 5.0, "y": 6.0}),
+    ])
+
+    original_length = len(series_a)
+    series_a.extend(series_b)
+
+    assert len(series_a) == original_length + len(series_b)
+    assert_almost_equal(series_a[2]["x"], 5.0)
+    assert_almost_equal(series_a[2]["y"], 6.0)
+
+    # Test error case: mismatched features
+    series_c = StateSeries([State({"x": 1.0, "y": 2.0})])
+    series_d = StateSeries([State({"a": 10.0, "b": 20.0})])
+    with pytest.raises(AssertionError, match="Features of the two StateSeries do not match"):
+        series_c.extend(series_d)
+
+    # Test error case: wrong type (string)
+    series_e = StateSeries([State({"x": 1.0})])
+    with pytest.raises(AssertionError, match="is not a StateSeries object"):
+        series_e.extend("not a series")
+
+    # Test error case: passing State instead of StateSeries
+    series_f = StateSeries([State({"x": 1.0})])
+    with pytest.raises(AssertionError, match="is not a StateSeries object"):
+        series_f.extend(State({"x": 2.0}))
+
+
+def test_series_collection_extend():
+    """Test the extend method of SeriesCollection including error conditions."""
+
+    # Test successful extend
+    series1 = StateSeries([State({"x": 1.0, "y": 2.0})])
+    series2 = StateSeries([State({"x": 3.0, "y": 4.0})])
+    series3 = StateSeries([State({"x": 5.0, "y": 6.0})])
+
+    collection_a = SeriesCollection([series1, series2])
+    collection_b = SeriesCollection([series3])
+
+    original_length = len(collection_a)
+    collection_a.extend(collection_b)
+
+    assert len(collection_a) == original_length + len(collection_b)
+    assert_almost_equal(collection_a[2][0]["x"], 5.0)
+    assert_almost_equal(collection_a[2][0]["y"], 6.0)
+
+    # Test error case: mismatched features
+    collection_c = SeriesCollection([StateSeries([State({"x": 1.0, "y": 2.0})])])
+    collection_d = SeriesCollection([StateSeries([State({"a": 10.0, "b": 20.0})])])
+    with pytest.raises(AssertionError, match="Features of the two SeriesCollections do not match"):
+        collection_c.extend(collection_d)
+
+    # Test error case: wrong type (string)
+    collection_e = SeriesCollection([StateSeries([State({"x": 1.0})])])
+    with pytest.raises(AssertionError, match="is not a SeriesCollection object"):
+        collection_e.extend("not a collection")
+
+    # Test error case: passing StateSeries instead of SeriesCollection
+    collection_f = SeriesCollection([StateSeries([State({"x": 1.0})])])
+    with pytest.raises(AssertionError, match="is not a SeriesCollection object"):
+        collection_f.extend(StateSeries([State({"x": 2.0})]))
