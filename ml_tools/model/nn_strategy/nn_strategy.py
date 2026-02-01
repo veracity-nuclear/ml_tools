@@ -257,6 +257,7 @@ class NNStrategy(PredictionStrategy):
         h5_group.create_dataset('learning_decay_rate',   data=self.learning_decay_rate)
         h5_group.create_dataset('epoch_limit',           data=self.epoch_limit)
         h5_group.create_dataset('convergence_criteria',  data=self.convergence_criteria)
+        h5_group.create_dataset('convergence_patience',  data=self.convergence_patience)
         h5_group.create_dataset('batch_size',            data=self.batch_size)
         self._layer_sequence.save(h5_group.create_group('neural_network'))
 
@@ -276,6 +277,7 @@ class NNStrategy(PredictionStrategy):
         self.learning_decay_rate   = float( h5_group['learning_decay_rate'][()]   )
         self.epoch_limit           = int(   h5_group['epoch_limit'][()]           )
         self.convergence_criteria  = float( h5_group['convergence_criteria'][()]  )
+        self.convergence_patience  = int(   h5_group['convergence_patience'][()]  )
         self.batch_size            = int(   h5_group['batch_size'][()]            )
         self._layer_sequence       = LayerSequence.from_h5(h5_group['neural_network'])
 
@@ -309,16 +311,16 @@ class NNStrategy(PredictionStrategy):
         file_name = file_name if file_name.endswith(".h5") else file_name + ".h5"
         assert os.path.exists(file_name), f"file name = {file_name}"
 
-        new_model = cls({}, {"__placeholder__": NoProcessing()})
-        new_model.load_model(h5py.File(file_name, "r"))
-        return new_model
+        instance = cls.__new__(cls)
+        PredictionStrategy.__init__(instance)
+        instance.load_model(h5py.File(file_name, "r"))
+        return instance
 
     @classmethod
     def from_dict(cls,
                   params:            Dict,
                   input_features:    FeatureSpec,
-                  predicted_features: FeatureSpec,
-                  biasing_model:     Optional[PredictionStrategy] = None) -> NNStrategy:
+                  predicted_features: FeatureSpec) -> NNStrategy:
 
         nn_cfg = params.get('neural_network')
         if nn_cfg is None:
@@ -349,8 +351,6 @@ class NNStrategy(PredictionStrategy):
                        convergence_criteria  = convergence_criteria,
                        convergence_patience  = convergence_patience,
                        batch_size            = batch_size)
-        if biasing_model is not None:
-            instance.biasing_model = biasing_model
         return instance
 
     def to_dict(self) -> dict:

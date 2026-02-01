@@ -240,7 +240,7 @@ class SklearnStrategy(PredictionStrategy):
             estimator_bytes = pickle.dumps(self._estimator)
             h5_group.create_dataset('estimator', data=np.void(estimator_bytes))
 
-    def load_model_from_hdf5(self, h5_group: h5py.Group) -> None:
+    def load_model(self, h5_group: h5py.Group) -> None:
         """Load the model from an HDF5 group.
 
         Parameters
@@ -291,7 +291,7 @@ class SklearnStrategy(PredictionStrategy):
             PredictionStrategy.__init__(instance)
             instance._estimator = None
             # Load all data from file
-            instance.load_model_from_hdf5(h5_file)
+            instance.load_model(h5_file)
         return instance
 
     def __eq__(self, other: object) -> bool:

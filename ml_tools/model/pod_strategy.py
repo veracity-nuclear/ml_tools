@@ -1,9 +1,12 @@
 from __future__ import annotations
 from typing import Optional, Type, Dict
 from math import isclose
+import pickle
 import numpy as np
 from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans
+import h5py
+import os
 from threadpoolctl import threadpool_limits
 
 from ml_tools.model.state import SeriesCollection
@@ -165,7 +168,6 @@ class PODStrategy(PredictionStrategy):
     def _predict_all(self, series_collection: np.ndarray, num_procs: int = 1) -> np.ndarray:
 
         assert self.isTrained
-        assert not self.hasBiasingModel
         assert series_collection.shape[1] == 1, \
             "All State Series must be static statepoints (i.e. len(series) == 1)"
         assert num_procs > 0, f"num_procs must be > 0, got {num_procs}"
@@ -195,6 +197,59 @@ class PODStrategy(PredictionStrategy):
                 self.ndims         == other.ndims         and
                 np.allclose(self.fine_to_coarse_map, other.fine_to_coarse_map))
 
+    def write_model_to_hdf5(self, h5_group: h5py.Group) -> None:
+        super().write_model_to_hdf5(h5_group)
+        str_dtype = h5py.string_dtype(encoding="utf-8")
+        h5_group.create_dataset('input_feature',      data = self.input_feature, dtype=str_dtype)
+        h5_group.create_dataset('fine_to_coarse_map', data = self.fine_to_coarse_map)
+        h5_group.create_dataset('nclusters',          data = self.nclusters)
+        h5_group.create_dataset('max_svd_size',       data = -1 if self.max_svd_size is None else self.max_svd_size)
+        h5_group.create_dataset('ndims',              data = -1 if self.ndims is None else self.ndims)
+
+        if self._pod_mat is not None:
+            pod_group = h5_group.create_group('pod_mat')
+            for idx, mat in enumerate(self._pod_mat):
+                if mat is not None:
+                    pod_group.create_dataset(str(idx), data=mat)
+
+        if self._pca is not None:
+            h5_group.create_dataset('pca', data=np.void(pickle.dumps(self._pca)))
+        if self._kmeans is not None:
+            h5_group.create_dataset('kmeans', data=np.void(pickle.dumps(self._kmeans)))
+
+    def load_model(self, h5_group: h5py.Group) -> None:
+        super().load_model(h5_group)
+        input_feature = h5_group['input_feature'][()]
+        if isinstance(input_feature, bytes):
+            input_feature = input_feature.decode('utf-8')
+        self._input_feature      = input_feature
+        self._fine_to_coarse_map = np.asarray(h5_group['fine_to_coarse_map'][()])
+        self._nclusters          = int(h5_group['nclusters'][()])
+        max_svd_size             = int(h5_group['max_svd_size'][()])
+        self._max_svd_size       = None if max_svd_size < 0 else max_svd_size
+        ndims                    = int(h5_group['ndims'][()])
+        self._ndims              = None if ndims < 0 else ndims
+
+        if 'pod_mat' in h5_group:
+            pod_group = h5_group['pod_mat']
+            pod_mat = [None] * self._nclusters
+            for key in pod_group.keys():
+                idx = int(key)
+                pod_mat[idx] = np.asarray(pod_group[key][()])
+            self._pod_mat = pod_mat
+        else:
+            self._pod_mat = None
+
+        if 'pca' in h5_group:
+            self._pca = pickle.loads(bytes(h5_group['pca'][()]))
+        else:
+            self._pca = None
+
+        if 'kmeans' in h5_group:
+            self._kmeans = pickle.loads(bytes(h5_group['kmeans'][()]))
+        else:
+            self._kmeans = None
+
     @classmethod
     def read_from_file(cls, file_name: str) -> Type[PODStrategy]:
         """ A method for loading a trained model from a file
@@ -204,14 +259,19 @@ class PODStrategy(PredictionStrategy):
         file_name : str
             The name of the file to load the model from
         """
-        raise NotImplementedError
+        file_name = file_name if file_name.endswith(".h5") else file_name + ".h5"
+        assert os.path.exists(file_name), f"file name = {file_name}"
+
+        instance = cls.__new__(cls)
+        PredictionStrategy.__init__(instance)
+        instance.load_model(h5py.File(file_name, "r"))
+        return instance
 
     @classmethod
     def from_dict(cls,
                   params:            Dict,
                   input_features:    FeatureSpec,
-                  predicted_features: FeatureSpec,
-                  biasing_model:     Optional[PredictionStrategy] = None) -> PODStrategy:
+                  predicted_features: FeatureSpec) -> PODStrategy:
 
         assert input_features is not None and len(input_features) == 1, \
             "PODStrategy requires exactly one input feature"
@@ -226,8 +286,6 @@ class PODStrategy(PredictionStrategy):
         instance = cls(input_feature     = input_feature,
                        predicted_features = predicted_features,
                        **kwargs)
-        if biasing_model is not None:
-            instance.biasing_model = biasing_model
         return instance
 
     def to_dict(self) -> Dict:

@@ -25,10 +25,6 @@ class PredictionStrategy(ABC):
         Input feature and processor pairs, keyed by feature name.
     predicted_features : Dict[str, FeatureProcessor]
         Output feature and processor pairs, keyed by feature name.
-    biasing_model : PredictionStrategy
-        A model that it is used to provide an initial prediction of the predicted output, acting ultimately as an initial bias
-    hasBiasingModel : bool
-        Whether or not this model has a bias model
     isTrained : bool
         Whether or not this model has been trained
     """
@@ -67,25 +63,6 @@ class PredictionStrategy(ABC):
         return list(self._predicted_feature_order)
 
     @property
-    def biasing_model(self) -> PredictionStrategy:
-        return self._biasing_model
-
-    @biasing_model.setter
-    def biasing_model(self, bias: PredictionStrategy) -> None:
-        assert bias.isTrained
-        if self._predicted_features:
-            assert set(bias.predicted_features) == set(self.predicted_features), \
-                "Biasing model outputs must match predicted features"
-            for feature, processor in self.predicted_features.items():
-                assert processor == bias.predicted_features[feature], \
-                    f"Processor mismatch for predicted feature '{feature}'"
-        self._biasing_model = bias
-
-    @property
-    def hasBiasingModel(self) -> bool:
-        return self._biasing_model is not None
-
-    @property
     @abstractmethod
     def isTrained(self) -> bool:
         pass
@@ -95,7 +72,6 @@ class PredictionStrategy(ABC):
         self._predicted_features = {}
         self._predicted_feature_order = []
         self._predicted_feature_sizes = None
-        self._biasing_model = None
         self._input_features = {}
 
     @staticmethod
@@ -318,7 +294,7 @@ class PredictionStrategy(ABC):
         """Structural equality for prediction strategies.
 
         Compares class/type, predicted feature, input feature mapping (keys and
-        processors), and biasing model (if present). Subclasses should call
+        processors). Subclasses should call
         super().__eq__(other) and then compare their own configuration fields.
         """
         if self is other:
@@ -334,10 +310,8 @@ class PredictionStrategy(ABC):
         same_inputs = (set(self.input_features) == set(other.input_features) and
                        all(proc == other.input_features[key]
                            for key, proc in self.input_features.items()))
-        same_bias = (self.hasBiasingModel == other.hasBiasingModel and
-                    (not self.hasBiasingModel or self.biasing_model == other.biasing_model))
 
-        return same_pred and same_inputs and same_bias
+        return same_pred and same_inputs
 
     def save_model(self, file_name: str) -> None:
         """ A method for saving a trained model
@@ -359,10 +333,6 @@ class PredictionStrategy(ABC):
         h5_group : h5py.Group
             An opened, writeable HDF5 group or file handle
         """
-        if self._biasing_model is not None:
-            biasing_model_group = h5_group.create_group('biasing_model')
-            self._biasing_model.write_model_to_hdf5(biasing_model_group)
-
         pred_group = h5_group.create_group('predicted_features')
         pred_order = self.predicted_feature_names
         for name in pred_order:
@@ -395,9 +365,6 @@ class PredictionStrategy(ABC):
         for name, feature in h5_group['input_features'].items():
             input_features[name] = read_feature_processor(feature)
         self.input_features = input_features
-
-        if 'biasing_model' in h5_group:
-            self._biasing_model.load_model(h5_group['biasing_model'])
 
     @classmethod
     @abstractmethod
@@ -465,10 +432,6 @@ class PredictionStrategy(ABC):
 
         y = np.asarray(self._predict_all(processed_inputs, num_procs=num_procs), dtype=np.float32)
 
-        if self.hasBiasingModel:
-            # pylint: disable=protected-access
-            y += self.biasing_model._predict_all(processed_inputs, num_procs=num_procs)
-
         return y
 
 
@@ -531,20 +494,13 @@ class PredictionStrategy(ABC):
                                                          self.predicted_features,
                                                          num_procs=num_procs)
 
-        if self.hasBiasingModel:
-            bias_series = self.biasing_model.predict(series_collection, num_procs=num_procs)
-            bias = PredictionStrategy.preprocess_features(bias_series,
-                                                         self.predicted_features,
-                                                         num_procs=num_procs)
-            targets = targets - bias
         return targets
 
     @classmethod
     def from_dict(cls,
                   params:            Dict,
                   input_features:    FeatureSpec,
-                  predicted_features: FeatureSpec,
-                  biasing_model:     Optional[PredictionStrategy] = None) -> PredictionStrategy:
+                  predicted_features: FeatureSpec) -> PredictionStrategy:
         """Construct a concrete PredictionStrategy from a parameter dict.
 
         Parameters
@@ -557,9 +513,6 @@ class PredictionStrategy(ABC):
             Input feature/processor pairs (Dict) or feature name(s) (str/List[str], automatically mapped to NoProcessing).
         predicted_features : FeatureSpec
             Output feature/processor pairs (Dict) or feature name(s) (str/List[str], automatically mapped to NoProcessing).
-        biasing_model : Optional[PredictionStrategy], optional
-            Optional prior model used to bias predictions.
-
         Returns
         -------
         PredictionStrategy
@@ -569,8 +522,6 @@ class PredictionStrategy(ABC):
         instance = cls(input_features     = input_features,
                        predicted_features = predicted_features,
                        **params)
-        if biasing_model is not None:
-            instance.biasing_model = biasing_model
         return instance
 
     @abstractmethod

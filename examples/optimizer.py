@@ -1,7 +1,7 @@
 from __future__ import annotations
-from typing import Dict, Optional
+from typing import Dict
 
-from ml_tools.model.prediction_strategy import PredictionStrategy, FeatureProcessor
+from ml_tools.model.prediction_strategy import FeatureProcessor
 from ml_tools.model.feature_processor import NoProcessing
 from ml_tools.optimizer.optimizer import Optimizer
 from ml_tools.optimizer.optuna_strategy import OptunaStrategy
@@ -14,8 +14,7 @@ from ml_tools.optimizer.nn_search_space.spatial_conv import SpatialConv as Spati
 
 
 def build_dnn_optimizer(input_features: Dict[str, FeatureProcessor],
-                        predicted_features: str,
-                        biasing_model: Optional[PredictionStrategy] = None) -> Optimizer:
+                        predicted_features: str) -> Optimizer:
     """Build an Optuna-backed optimizer for a DNN search space with variable depth.
 
     Chooses among LayerSequence lengths 1..5, each composed of Dense layers.
@@ -45,15 +44,13 @@ def build_dnn_optimizer(input_features: Dict[str, FeatureProcessor],
     predicted_feature_map = {predicted_features: NoProcessing()}
     search_space = NNSearchSpace(dims,
                                  input_features     = input_features,
-                                 predicted_features = predicted_feature_map,
-                                 biasing_model      = biasing_model)
+                                 predicted_features = predicted_feature_map)
 
     return Optimizer(search_space=search_space, search_strategy=OptunaStrategy())
 
 
 def build_cnn_optimizer(input_features: Dict[str, FeatureProcessor],
-                        predicted_features: str,
-                        biasing_model: Optional[PredictionStrategy] = None) -> Optimizer:
+                        predicted_features: str) -> Optimizer:
     """Build an Optuna-backed optimizer for the CNN search space used in the example.
     """
 
@@ -79,8 +76,7 @@ def build_cnn_optimizer(input_features: Dict[str, FeatureProcessor],
     predicted_feature_map = {predicted_features: NoProcessing()}
     search_space = NNSearchSpace(dims,
                                  input_features     = input_features,
-                                 predicted_features = predicted_feature_map,
-                                 biasing_model      = biasing_model)
+                                 predicted_features = predicted_feature_map)
 
     return Optimizer(search_space=search_space, search_strategy=OptunaStrategy())
 
