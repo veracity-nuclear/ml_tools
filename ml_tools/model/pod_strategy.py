@@ -296,10 +296,17 @@ class PODStrategy(PredictionStrategy):
         return instance
 
     @classmethod
+<<<<<<< HEAD
     def _from_params_dict(cls,
                           params:            Dict,
                           input_features:    FeatureSpec,
                           predicted_features: FeatureSpec) -> PODStrategy:
+=======
+    def from_dict(cls,
+                  params:            Dict,
+                  input_features:    FeatureSpec,
+                  predicted_features: FeatureSpec) -> PODStrategy:
+>>>>>>> ca66f1fcf20cd8997be154ddf3edba3af6e82d25
 
         assert input_features is not None and len(input_features) == 1, \
             "PODStrategy requires exactly one input feature"

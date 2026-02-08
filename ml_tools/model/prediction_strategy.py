@@ -658,6 +658,17 @@ class PredictionStrategy(ABC):
 
 
     @abstractmethod
+    def to_dict(self) -> dict:
+        """ Convert the prediction strategy to a dictionary representation
+
+        Returns
+        -------
+        dict
+            A dictionary representation of the prediction strategy
+        """
+
+
+    @abstractmethod
     def _predict_one(self, state_series: np.ndarray) -> np.ndarray:
         """ The method that predicts the target values corresponding to the given state series
 
