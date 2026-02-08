@@ -13,6 +13,24 @@ from ml_tools.model.feature_perturbator import FeaturePerturbator
 
 
 def _featurewise_state_series_chunk(args):
+    """Worker helper to parallelize featurewise operations on state series chunks.
+
+    This function is intended for parallel execution (for example via
+    ``ProcessPoolExecutor``) in higher-level featurewise series operations.
+
+    Parameters
+    ----------
+    args : Tuple[int, List[State], List[State], np.ufunc, Optional[List[str]], bool]
+        Packed worker arguments as
+        ``(start, left_states, right_states, op, features, keep_only_modified)``.
+        `left_states` and `right_states` are zipped and processed pairwise.
+
+    Returns
+    -------
+    Tuple[int, List[State]]
+        The original `start` index and the list of resulting states for the
+        processed chunk.
+    """
     start, left_states, right_states, op, features, keep_only_modified = args
     out_states = [left.featurewise(op, right, features, keep_only_modified=keep_only_modified)
                   for left, right in zip(left_states, right_states)]
@@ -20,6 +38,24 @@ def _featurewise_state_series_chunk(args):
 
 
 def _featurewise_series_collection_chunk(args):
+    """Worker helper to parallelize featurewise operations in a series collection.
+
+    This function is intended for parallel execution (for example via
+    ``ProcessPoolExecutor``) in higher-level collection featurewise operations.
+
+    Parameters
+    ----------
+    args : Tuple[int, int, List[State], List[State], np.ufunc, Optional[List[str]], bool]
+        Packed worker arguments as
+        ``(series_idx, start, left_states, right_states, op, features, keep_only_modified)``.
+        `left_states` and `right_states` are zipped and processed pairwise.
+
+    Returns
+    -------
+    Tuple[int, int, List[State]]
+        The original series index, chunk `start` index, and the list of
+        resulting states for the processed chunk.
+    """
     series_idx, start, left_states, right_states, op, features, keep_only_modified = args
     out_states = [left.featurewise(op, right, features, keep_only_modified=keep_only_modified)
                   for left, right in zip(left_states, right_states)]

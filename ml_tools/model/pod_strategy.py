@@ -1,7 +1,6 @@
 from __future__ import annotations
 from typing import Optional, Type, Dict
 from math import isclose
-import pickle
 import os
 
 import numpy as np
@@ -107,8 +106,9 @@ class PODStrategy(PredictionStrategy):
         self._max_svd_size       = max_svd_size
 
         self._pod_mat = None
-        self._pca     = None
-        self._kmeans  = None
+        self._pca_components = None
+        self._pca_mean = None
+        self._kmeans_centers = None
 
 
     def train(self, train_data: SeriesCollection, test_data: Optional[SeriesCollection] = None, num_procs: int = 1) -> None:
@@ -129,20 +129,30 @@ class PODStrategy(PredictionStrategy):
         # Setup of the PCA project and K-means clustering of the input feature based on the training samples
         targets = np.vstack([np.array(series) for series in self._get_targets(train_data, num_procs=num_procs)])
         if self.nclusters > 1:
-            self._kmeans = KMeans(n_clusters=self.nclusters)
-            X            = self.preprocess_features(train_data, self.input_features)
-            X            = X.reshape(-1, X.shape[-1])
+            X = self.preprocess_features(train_data, self.input_features)
+            X = X.reshape(-1, X.shape[-1])
 
-            if not self.ndims is None:
-                self._pca = PCA(n_components=self.ndims)
-                X         = self._pca.fit_transform(X)
+            if self.ndims is not None:
+                pca = PCA(n_components=self.ndims)
+                X_cluster = pca.fit_transform(X)
+                self._pca_components = np.asarray(pca.components_)
+                self._pca_mean = np.asarray(pca.mean_)
+            else:
+                X_cluster = X
+                self._pca_components = None
+                self._pca_mean = None
 
-            labels = self._kmeans.fit_predict(X)
+            kmeans = KMeans(n_clusters=self.nclusters)
+            labels = kmeans.fit_predict(X_cluster)
+            self._kmeans_centers = np.asarray(kmeans.cluster_centers_)
             nlabel = np.bincount(labels)
 
         else:
             labels = np.zeros(len(targets), dtype=int)
             nlabel = np.asarray([len(targets)])
+            self._pca_components = None
+            self._pca_mean = None
+            self._kmeans_centers = None
 
         C = self.fine_to_coarse_map
         nvec = self.fine_to_coarse_map.shape[0]
@@ -166,8 +176,20 @@ class PODStrategy(PredictionStrategy):
     def _predict_one(self, state_series: np.ndarray) -> np.ndarray:
         return self._predict_all([state_series])[0]
 
+    def _project_for_clustering(self, X: np.ndarray) -> np.ndarray:
+        if self._pca_components is None:
+            return X
+        assert self._pca_mean is not None, "Missing PCA mean for projection."
+        return np.matmul(X - self._pca_mean, self._pca_components.T)
+
+    def _predict_cluster_labels(self, X_cluster: np.ndarray) -> np.ndarray:
+        assert self._kmeans_centers is not None, "Missing KMeans centers for cluster prediction."
+        # Equivalent to sklearn KMeans.predict: nearest centroid by squared Euclidean distance.
+        distances = np.sum((X_cluster[:, np.newaxis, :] - self._kmeans_centers[np.newaxis, :, :]) ** 2, axis=2)
+        return np.argmin(distances, axis=1)
 
     def _predict_all(self, series_collection: np.ndarray, num_procs: int = 1) -> np.ndarray:
+        series_collection = np.asarray(series_collection)
 
         assert self.isTrained
         assert series_collection.shape[1] == 1, \
@@ -178,8 +200,8 @@ class PODStrategy(PredictionStrategy):
             X = series_collection[:, 0, :]
 
             if self.nclusters > 1:
-                X_reduced = X if self.ndims is None else self._pca.transform(X)
-                labels    = self._kmeans.predict(X_reduced)
+                X_cluster = self._project_for_clustering(X)
+                labels = self._predict_cluster_labels(X_cluster)
             else:
                 labels = np.zeros(X.shape[0], dtype=int)
 
@@ -214,10 +236,13 @@ class PODStrategy(PredictionStrategy):
                 if mat is not None:
                     pod_group.create_dataset(str(idx), data=mat)
 
-        if self._pca is not None:
-            h5_group.create_dataset('pca', data=np.void(pickle.dumps(self._pca)))
-        if self._kmeans is not None:
-            h5_group.create_dataset('kmeans', data=np.void(pickle.dumps(self._kmeans)))
+        if self._pca_components is not None:
+            pca_group = h5_group.create_group('pca')
+            pca_group.create_dataset('components', data=self._pca_components)
+            pca_group.create_dataset('mean', data=self._pca_mean)
+
+        if self._kmeans_centers is not None:
+            h5_group.create_dataset('kmeans_centers', data=self._kmeans_centers)
 
     def load_model(self, h5_group: h5py.Group) -> None:
         super().load_model(h5_group)
@@ -242,15 +267,16 @@ class PODStrategy(PredictionStrategy):
         else:
             self._pod_mat = None
 
+        self._pca_components = None
+        self._pca_mean = None
         if 'pca' in h5_group:
-            self._pca = pickle.loads(bytes(h5_group['pca'][()]))
-        else:
-            self._pca = None
+            pca_node = h5_group['pca']
+            self._pca_components = np.asarray(pca_node['components'][()])
+            self._pca_mean = np.asarray(pca_node['mean'][()])
 
-        if 'kmeans' in h5_group:
-            self._kmeans = pickle.loads(bytes(h5_group['kmeans'][()]))
-        else:
-            self._kmeans = None
+        self._kmeans_centers = None
+        if 'kmeans_centers' in h5_group:
+            self._kmeans_centers = np.asarray(h5_group['kmeans_centers'][()])
 
     @classmethod
     def read_from_file(cls, file_name: str) -> Type[PODStrategy]:

@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Dict, Optional, Type, Any
+from typing import Dict, Optional, Type
 import os
 
 import numpy as np
@@ -173,6 +173,10 @@ class ResidualCorrectionStrategy(PredictionStrategy):
                                                 num_procs = num_procs)
 
     def _predict_one(self, state_series: np.ndarray) -> np.ndarray:
+        """Note: This method expects already-preprocessed inputs and therefore
+        requires identical input feature definitions for reference and residual
+        models. If input features differ, preprocess and predict with each model
+        separately before combining outputs."""
         assert self.isTrained, "Both reference_model and residual_model must be trained before prediction."
 
         assert self.residual_model.input_features == self.reference_model.input_features, \
@@ -184,6 +188,10 @@ class ResidualCorrectionStrategy(PredictionStrategy):
         return final_preds
 
     def _predict_all(self, series_collection: np.ndarray, num_procs: int = 1) -> np.ndarray:
+        """Note: This method expects already-preprocessed inputs and therefore
+        requires identical input feature definitions for reference and residual
+        models. If input features differ, preprocess and predict with each model
+        separately before combining outputs."""
         assert self.isTrained, "Both reference_model and residual_model must be trained before prediction."
 
         assert self.residual_model.input_features == self.reference_model.input_features, \
@@ -273,15 +281,15 @@ class ResidualCorrectionStrategy(PredictionStrategy):
                                                    predicted_features = predicted_features)
 
         reference_model = None
-        reference_strategy_type = params.get("reference_strategy_type")
+        reference_strategy_type = params.get("reference_strategy_type", None)
         if reference_strategy_type is not None:
             ref_input_features     = params.get("reference_input_features")
             ref_predicted_features = params.get("reference_predicted_features")
             reference_model = build_prediction_strategy(
                 strategy_type      = reference_strategy_type,
                 params             = params.get("reference_strategy_params", {}),
-                input_features     = cls._feature_map_from_dict(ref_input_features),
-                predicted_features = cls._feature_map_from_dict(ref_predicted_features),
+                input_features     = cls.features_from_dict(ref_input_features),
+                predicted_features = cls.features_from_dict(ref_predicted_features),
             )
 
         return cls(residual_model, reference_model, reference_model_frozen)
@@ -297,15 +305,7 @@ class ResidualCorrectionStrategy(PredictionStrategy):
         if self.reference_model is not None:
             params["reference_strategy_type"] = type(self.reference_model).__name__
             params["reference_strategy_params"] = self.reference_model.to_dict()
-            params["reference_input_features"] = self._feature_map_to_dict(self.reference_model.input_features)
-            params["reference_predicted_features"] = self._feature_map_to_dict(self.reference_model.predicted_features)
+            params["reference_input_features"] = self.features_to_dict(self.reference_model.input_features)
+            params["reference_predicted_features"] = self.features_to_dict(self.reference_model.predicted_features)
 
         return params
-
-    @staticmethod
-    def _feature_map_to_dict(features: Dict[str, FeatureProcessor]) -> Dict[str, Dict[str, Any]]:
-        return {name: proc.to_dict() for name, proc in features.items()}
-
-    @staticmethod
-    def _feature_map_from_dict(features: Dict[str, Dict[str, Any]]) -> Dict[str, FeatureProcessor]:
-        return {name: FeatureProcessor.from_dict(payload) for name, payload in features.items()}

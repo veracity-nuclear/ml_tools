@@ -1,6 +1,6 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import List, Dict, Optional, Type, Union, Sequence
+from typing import List, Dict, Optional, Type, Union, Sequence, Any
 from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 import h5py
@@ -108,6 +108,38 @@ class PredictionStrategy(ABC):
             assert isinstance(name, str) and name, "feature names must be non-empty strings"
             assert isinstance(processor, FeatureProcessor), f"Invalid processor for '{name}'"
         return feature_map
+
+    @staticmethod
+    def features_to_dict(features: Dict[str, FeatureProcessor]) -> Dict[str, Dict[str, Any]]:
+        """Serialize feature/processor mappings into dictionary payloads.
+
+        Parameters
+        ----------
+        features : Dict[str, FeatureProcessor]
+            Feature/processor pairs keyed by feature name.
+
+        Returns
+        -------
+        Dict[str, Dict[str, Any]]
+            Serialized feature mapping suitable for strategy config dictionaries.
+        """
+        return {name: processor.to_dict() for name, processor in features.items()}
+
+    @staticmethod
+    def features_from_dict(features: Dict[str, Dict[str, Any]]) -> Dict[str, FeatureProcessor]:
+        """Deserialize feature/processor mappings from dictionary payloads.
+
+        Parameters
+        ----------
+        features : Dict[str, Dict[str, Any]]
+            Serialized feature mapping keyed by feature name.
+
+        Returns
+        -------
+        Dict[str, FeatureProcessor]
+            Feature/processor pairs keyed by feature name.
+        """
+        return {name: FeatureProcessor.from_dict(payload) for name, payload in features.items()}
 
 
     @abstractmethod

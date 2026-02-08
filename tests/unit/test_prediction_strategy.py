@@ -67,6 +67,15 @@ def test_create_feature_processor_map():
     assert feature_map == {"a": NoProcessing(), "b": NoProcessing()}
 
 
+def test_features_to_from_dict_round_trip():
+    serialized = PredictionStrategy.features_to_dict(input_features)
+    round_tripped = PredictionStrategy.features_from_dict(serialized)
+
+    assert set(round_tripped.keys()) == set(input_features.keys())
+    for name, processor in input_features.items():
+        assert round_tripped[name] == processor
+
+
 def test_postprocess_features():
     data_array = np.array([
         [[1.0, 10.0], [2.0, 20.0], [3.0, 30.0]],
@@ -393,7 +402,7 @@ def test_enhanced_pod_strategy_gbm():
                     atol=1E-1)
 
     os.remove('test_enhanced_pod_model.h5')
-    for file in glob.glob('test_enhanced_pod_model.lgbm'):
+    for file in glob.glob('test_enhanced_pod_model*.lgbm'):
         os.remove(file)
 
 
@@ -546,5 +555,5 @@ def test_enhanced_pod_strategy_multiple_features():
                     atol=1E-6)
 
     os.remove('test_enhanced_pod_multi_model.h5')
-    for file in glob.glob('test_enhanced_pod_multi_model.lgbm'):
+    for file in glob.glob('test_enhanced_pod_multi_model*.lgbm'):
         os.remove(file)
