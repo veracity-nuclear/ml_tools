@@ -85,8 +85,7 @@ def test_gbm_optimizer():
     model    = build_prediction_strategy(strategy_type     = "GBMStrategy",
                                          params            = params,
                                          input_features    = {"x": NoProcessing()},
-                                         predicted_features = {"y": NoProcessing()},
-                                         biasing_model     = None)
+                                         predicted_features = {"y": NoProcessing()})
 
     expected = GBMStrategy(input_features    = {"x": NoProcessing()},
                            predicted_features = {"y": NoProcessing()},
@@ -124,8 +123,7 @@ def test_pod_optimizer():
     model    = build_prediction_strategy(strategy_type     = "PODStrategy",
                                          params            = params,
                                          input_features    = {"x": NoProcessing()},
-                                         predicted_features = {"y": NoProcessing()},
-                                         biasing_model     = None)
+                                         predicted_features = {"y": NoProcessing()})
 
     expected = PODStrategy(input_feature     = "x",
                            predicted_features = {"y": NoProcessing()},
@@ -155,8 +153,7 @@ def test_nn_optimizer_Dense():
     model    = build_prediction_strategy(strategy_type     = "NNStrategy",
                                          params            = params,
                                          input_features    = {"x": NoProcessing()},
-                                         predicted_features = {"y": NoProcessing()},
-                                         biasing_model     = None)
+                                         predicted_features = {"y": NoProcessing()})
 
     expected = NNStrategy(input_features        = {"x": NoProcessing()},
                           predicted_features = {"y": NoProcessing()},
@@ -189,8 +186,7 @@ def test_nn_optimizer_LSTM():
     model    = build_prediction_strategy(strategy_type     = "NNStrategy",
                                          params            = params,
                                          input_features    = {"x": NoProcessing()},
-                                         predicted_features = {"y": NoProcessing()},
-                                         biasing_model     = None)
+                                         predicted_features = {"y": NoProcessing()})
 
     expected = NNStrategy(input_features        = {"x": NoProcessing()},
                           predicted_features = {"y": NoProcessing()},
@@ -225,8 +221,7 @@ def test_nn_optimizer_Transformer():
     model    = build_prediction_strategy(strategy_type     = "NNStrategy",
                                          params            = params,
                                          input_features    = {"x": NoProcessing()},
-                                         predicted_features = {"y": NoProcessing()},
-                                         biasing_model     = None)
+                                         predicted_features = {"y": NoProcessing()})
 
     expected = NNStrategy(input_features        = {"x": NoProcessing()},
                           predicted_features = {"y": NoProcessing()},
@@ -268,8 +263,7 @@ def test_nn_optimizer_CNN():
     model    = build_prediction_strategy(strategy_type     = "NNStrategy",
                                          params            = params,
                                          input_features    = {"x": NoProcessing()},
-                                         predicted_features = {"y": NoProcessing()},
-                                         biasing_model     = None)
+                                         predicted_features = {"y": NoProcessing()})
 
     expected = NNStrategy(input_features        = {"x": NoProcessing()},
                           predicted_features = {"y": NoProcessing()},
@@ -303,8 +297,7 @@ def test_nn_optimizer_LayerSequence():
     model    = build_prediction_strategy(strategy_type     = "NNStrategy",
                                          params            = params,
                                          input_features    = {"x": NoProcessing()},
-                                         predicted_features = {"y": NoProcessing()},
-                                         biasing_model     = None)
+                                         predicted_features = {"y": NoProcessing()})
 
     expected = NNStrategy(input_features        = {"x": NoProcessing()},
                           predicted_features = {"y": NoProcessing()},
@@ -340,8 +333,7 @@ def test_nn_optimizer_CompoundLayer():
     model    = build_prediction_strategy(strategy_type     = "NNStrategy",
                                          params            = params,
                                          input_features    = {"x": NoProcessing()},
-                                         predicted_features = {"y": NoProcessing()},
-                                         biasing_model     = None)
+                                         predicted_features = {"y": NoProcessing()})
 
     expected = NNStrategy(input_features        = {"x": NoProcessing()},
                           predicted_features = {"y": NoProcessing()},
@@ -380,8 +372,7 @@ def test_nn_optimizer_GNN_SAGE():
     model    = build_prediction_strategy(strategy_type     = "NNStrategy",
                                          params            = params,
                                          input_features    = {"x": NoProcessing()},
-                                         predicted_features = {"y": NoProcessing()},
-                                         biasing_model     = None)
+                                         predicted_features = {"y": NoProcessing()})
 
     expected_graph = SAGE(input_shape              = (3, 3),
                           units                    = 4,
@@ -436,8 +427,7 @@ def test_nn_optimizer_GNN_GAT():
     model    = build_prediction_strategy(strategy_type     = "NNStrategy",
                                          params            = params,
                                          input_features    = {"x": NoProcessing()},
-                                         predicted_features = {"y": NoProcessing()},
-                                         biasing_model     = None)
+                                         predicted_features = {"y": NoProcessing()})
 
     expected_graph = GAT(input_shape              = (3, 3),
                          units                    = 4,

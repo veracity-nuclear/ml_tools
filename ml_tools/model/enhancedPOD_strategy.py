@@ -355,3 +355,6 @@ class EnhancedPODStrategy(PredictionStrategy):
         new_pod.load_model(h5py.File(file_name, "r"))
 
         return new_pod
+
+    def to_dict(self):
+        raise NotImplementedError("EnhancedPODStrategy does not support to_dict serialization yet.")

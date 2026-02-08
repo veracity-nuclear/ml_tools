@@ -138,8 +138,7 @@ class OptunaStrategy(SearchStrategy):
         best_model  = build_prediction_strategy(strategy_type     = search_space.prediction_strategy_type,
                                                 params            = best_params,
                                                 input_features    = search_space.input_features,
-                                                predicted_features = search_space.predicted_features,
-                                                biasing_model     = search_space.biasing_model)
+                                                predicted_features = search_space.predicted_features)
 
         best_model.train(series_collection, num_procs=num_procs)
 
@@ -182,8 +181,7 @@ class OptunaStrategy(SearchStrategy):
                 fold_model = build_prediction_strategy(strategy_type      = search_space.prediction_strategy_type,
                                                        params             = params,
                                                        input_features     = search_space.input_features,
-                                                       predicted_features = search_space.predicted_features,
-                                                       biasing_model      = search_space.biasing_model)
+                                                       predicted_features = search_space.predicted_features)
 
                 print(f"Fold {fold}: training start (num_procs={train_procs})")
                 fold_model.train(fold_training_set, num_procs=train_procs)

@@ -150,6 +150,62 @@ def test_state_series():
     os.remove(os.path.join(test_dir, "test_state_series.h5"))
     os.rmdir(test_dir)
 
+def test_state_featurewise():
+    left = State({"a": np.array([1.0, 2.0]), "b": np.array([3.0])})
+    right = State({"a": np.array([10.0, 20.0]), "b": np.array([4.0])})
+
+    combined = left.featurewise(np.add, right)
+    assert set(combined.features.keys()) == {"a", "b"}
+    assert_allclose(combined["a"], [11.0, 22.0])
+    assert_allclose(combined["b"], [7.0])
+
+    subset = left.featurewise(np.subtract, right, features=["a"], keep_only_modified=True)
+    assert set(subset.features.keys()) == {"a"}
+    assert_allclose(subset["a"], [-9.0, -18.0])
+
+def test_state_series_featurewise_serial_and_parallel():
+    left = StateSeries([
+        State({"a": np.array([1.0]), "b": np.array([2.0])}),
+        State({"a": np.array([3.0]), "b": np.array([4.0])}),
+        State({"a": np.array([5.0]), "b": np.array([6.0])}),
+    ])
+    right = StateSeries([
+        State({"a": np.array([10.0]), "b": np.array([20.0])}),
+        State({"a": np.array([30.0]), "b": np.array([40.0])}),
+        State({"a": np.array([50.0]), "b": np.array([60.0])}),
+    ])
+
+    serial = left.featurewise(np.subtract, right, features=["a"], num_procs=1, keep_only_modified=True)
+    assert len(serial) == 3
+    assert serial[0].features.keys() == {"a"}
+    assert_allclose(serial[0]["a"], [-9.0])
+    assert_allclose(serial[1]["a"], [-27.0])
+    assert_allclose(serial[2]["a"], [-45.0])
+
+    parallel = left.featurewise(np.subtract, right, features=["a"], num_procs=2, keep_only_modified=True)
+    assert len(parallel) == 3
+    assert parallel[0].features.keys() == {"a"}
+    assert_allclose(parallel[0]["a"], [-9.0])
+    assert_allclose(parallel[1]["a"], [-27.0])
+    assert_allclose(parallel[2]["a"], [-45.0])
+
+def test_series_collection_featurewise_parallel():
+    left = SeriesCollection([
+        StateSeries([State({"a": 1.0}), State({"a": 2.0})]),
+        StateSeries([State({"a": 3.0}), State({"a": 4.0})]),
+    ])
+    right = SeriesCollection([
+        StateSeries([State({"a": 10.0}), State({"a": 20.0})]),
+        StateSeries([State({"a": 30.0}), State({"a": 40.0})]),
+    ])
+
+    combined = left.featurewise(np.add, right, num_procs=2)
+    assert len(combined) == 2
+    assert_allclose(combined[0][0]["a"], [11.0])
+    assert_allclose(combined[0][1]["a"], [22.0])
+    assert_allclose(combined[1][0]["a"], [33.0])
+    assert_allclose(combined[1][1]["a"], [44.0])
+
 def test_state_vector_features():
     series = StateSeries([
         State({"feature1": [10.0, 20.0, 30.0, 40.0, 50.0], "feature2": [120.0, 121.0, 126.0, 132.0, 140.0]}),

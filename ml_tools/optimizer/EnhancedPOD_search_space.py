@@ -19,8 +19,6 @@ class EnhancedPODSearchSpace(SearchSpace):
         Input feature processors keyed by feature name.
     predicted_feature : str
         Name of the target feature to predict.
-    biasing_model : Optional[PredictionStrategy], optional
-        Optional prior model to bias predictions, by default None.
     """
 
     class Dimension(StructDimension):
@@ -34,7 +32,7 @@ class EnhancedPODSearchSpace(SearchSpace):
 		    Comment here
 		gbm_settings : CategoricalDimension, optional
 	        Arguments to pass to underlying GBMStrategy
-		
+
 
         Attributes
         ----------
@@ -106,13 +104,11 @@ class EnhancedPODSearchSpace(SearchSpace):
     def __init__(self,
                  dimensions: StructDimension,
                  input_features=None,
-                 predicted_features=None,
-                 biasing_model=None) -> None:
+                 predicted_features=None) -> None:
         assert isinstance(dimensions, EnhancedPODSearchSpace.Dimension), (
             f"dimensions must be a EnhancedPODSearchSpace.Dimension, got {type(dimensions)}"
         )
         super().__init__(prediction_strategy_type="EnhancedPODStrategy",
                          dimensions=dimensions,
                          input_features=input_features,
-                         predicted_features=predicted_features,
-                         biasing_model=biasing_model)
+                         predicted_features=predicted_features)

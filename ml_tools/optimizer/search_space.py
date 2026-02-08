@@ -22,8 +22,6 @@ class SearchSpace(ABC):
         Input feature/processor pairs (Dict) or feature name(s) (str/List[str], automatically mapped to NoProcessing).
     predicted_features : FeatureSpec
         Output feature/processor pairs (Dict) or feature name(s) (str/List[str], automatically mapped to NoProcessing).
-    biasing_model : Optional[PredictionStrategy]
-        Optional biasing/initial model for predictions.
 
     Parameters
     ----------
@@ -35,8 +33,6 @@ class SearchSpace(ABC):
         Input feature/processor pairs (Dict) or feature name(s) (str/List[str], automatically mapped to NoProcessing).
     predicted_features : FeatureSpec
         Output feature/processor pairs (Dict) or feature name(s) (str/List[str], automatically mapped to NoProcessing).
-    biasing_model : Optional[PredictionStrategy], optional
-        Optional prior model to bias predictions, by default None.
     """
 
     class Dimension(ABC):
@@ -59,16 +55,11 @@ class SearchSpace(ABC):
     def predicted_features(self) -> Dict[str, FeatureProcessor]:
         return self._predicted_features
 
-    @property
-    def biasing_model(self) -> Optional[PredictionStrategy]:
-        return self._biasing_model
-
     def __init__(self,
                  prediction_strategy_type: str,
                  dimensions:               StructDimension,
                  input_features:           FeatureSpec,
-                 predicted_features:       FeatureSpec,
-                 biasing_model:            Optional[PredictionStrategy] = None) -> None:
+                 predicted_features:       FeatureSpec) -> None:
         assert prediction_strategy_type in _PREDICTION_STRATEGY_REGISTRY, \
             f"Unknown prediction strategy: {prediction_strategy_type}"
         self._prediction_strategy_type = prediction_strategy_type
@@ -79,7 +70,6 @@ class SearchSpace(ABC):
         assert len(predicted_features) > 0, "predicted_features must be a non-empty dict"
         self._input_features     = input_features
         self._predicted_features = predicted_features
-        self._biasing_model     = biasing_model
 
 class IntDimension(SearchSpace.Dimension):
     """ Integer hyperparameter dimension.
