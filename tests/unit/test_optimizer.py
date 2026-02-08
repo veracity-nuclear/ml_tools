@@ -14,12 +14,14 @@ from ml_tools.model.nn_strategy.graph import SAGE, GAT
 from ml_tools.model.nn_strategy.graph_conv import GraphConv
 from ml_tools.model.gbm_strategy import GBMStrategy
 from ml_tools.model.pod_strategy import PODStrategy
+from ml_tools.model.residual_correction_strategy import ResidualCorrectionStrategy
 
 from ml_tools.optimizer.optuna_strategy import OptunaStrategy
 from ml_tools.optimizer.search_space import (FloatDimension,
                                              IntDimension,
                                              CategoricalDimension,
-                                             BoolDimension)
+                                             BoolDimension,
+                                             StructDimension)
 from ml_tools.optimizer.nn_search_space.nn_search_space import NNSearchSpace
 from ml_tools.optimizer.nn_search_space.dense import Dense as DenseDim
 from ml_tools.optimizer.nn_search_space.lstm import LSTM as LSTMDim
@@ -32,6 +34,7 @@ from ml_tools.optimizer.nn_search_space.graph.sage import SAGE as SAGEDim
 from ml_tools.optimizer.nn_search_space.graph.gat import GAT as GATDim
 from ml_tools.optimizer.gbm_search_space import GBMSearchSpace
 from ml_tools.optimizer.pod_search_space import PODSearchSpace
+from ml_tools.optimizer.residual_correction_search_space import ResidualCorrectionSearchSpace
 
 class MockOptunaTrial:
     """ A mock optuna.trial.Trial.
@@ -488,3 +491,48 @@ def test_optuna_strategy(series_collection, tmp_path):
     assert model.convergence_criteria  == 1e-6
     assert model.convergence_patience  == 1
     assert model.batch_size            == 2
+
+
+def test_residual_correction_optimizer():
+    residual_input_features = {"x_res": NoProcessing()}
+    reference_input_features = {"x_ref": NoProcessing()}
+    predicted_features = {"y": NoProcessing()}
+
+    residual_model_dim = StructDimension({
+        "strategy_type": CategoricalDimension(["GBMStrategy"]),
+        "input_features": CategoricalDimension([PredictionStrategy.features_to_dict(residual_input_features)]),
+        "predicted_features": CategoricalDimension([PredictionStrategy.features_to_dict(predicted_features)]),
+        "params": GBMSearchSpace.Dimension(num_leaves=IntDimension(31, 31)),
+    })
+    reference_model_dim = StructDimension({
+        "strategy_type": CategoricalDimension(["GBMStrategy"]),
+        "input_features": CategoricalDimension([PredictionStrategy.features_to_dict(reference_input_features)]),
+        "predicted_features": CategoricalDimension([PredictionStrategy.features_to_dict(predicted_features)]),
+        "params": GBMSearchSpace.Dimension(num_leaves=IntDimension(41, 41)),
+    })
+
+    search_space = ResidualCorrectionSearchSpace(
+        dimensions=ResidualCorrectionSearchSpace.Dimension(residual_model=residual_model_dim,
+                                                           reference_model=reference_model_dim),
+        input_features=None,
+        predicted_features=None,
+    )
+
+    strategy = OptunaStrategy()
+    params = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
+    model = PredictionStrategy.from_dict(
+        strategy_dict={"strategy_type": "ResidualCorrectionStrategy", "params": params},
+        input_features=search_space.input_features,
+        predicted_features=search_space.predicted_features,
+    )
+
+    assert isinstance(model, ResidualCorrectionStrategy)
+    assert isinstance(model.residual_model, GBMStrategy)
+    assert isinstance(model.reference_model, GBMStrategy)
+    assert model.reference_model_frozen is False
+    assert model.residual_model.input_features == residual_input_features
+    assert model.reference_model.input_features == reference_input_features
+    assert model.residual_model.predicted_features == predicted_features
+    assert model.reference_model.predicted_features == predicted_features
+    assert model.residual_model.num_leaves == 31
+    assert model.reference_model.num_leaves == 41

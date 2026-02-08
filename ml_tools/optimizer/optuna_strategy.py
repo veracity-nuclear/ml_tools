@@ -188,7 +188,7 @@ class OptunaStrategy(SearchStrategy):
                 fold_model.train(fold_training_set, num_procs=train_procs)
                 print(f"Fold {fold}: training complete")
 
-                feature_order = list(search_space.predicted_features)
+                feature_order = list(fold_model.predicted_features)
                 measured_rows = []
                 for series in fold_validation_set:
                     parts = []

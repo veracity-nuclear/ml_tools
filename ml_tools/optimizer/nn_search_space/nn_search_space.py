@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import List
+from typing import List, Optional
 
 
 from ml_tools.model.prediction_strategy import FeatureSpec
@@ -15,10 +15,10 @@ class NNSearchSpace(SearchSpace):
     dimensions : NNSearchSpace.Dimension
         Root struct of dimensions to sample. Each field is a
         SearchSpace dimension (range or choices), not a finalized value.
-    input_features : FeatureSpec
-        Input feature/processor pairs (Dict) or feature name(s) (str/List[str], automatically mapped to NoProcessing).
-    predicted_features : FeatureSpec
-        Output feature/processor pairs (Dict) or feature name(s) (str/List[str], automatically mapped to NoProcessing).
+    input_features : Optional[FeatureSpec]
+        Default input features. Must be provided for NN search spaces.
+    predicted_features : Optional[FeatureSpec]
+        Default predicted features. Must be provided for NN search spaces.
     """
 
     class Dimension(StructDimension):
@@ -146,10 +146,16 @@ class NNSearchSpace(SearchSpace):
 
     def __init__(self,
                  dimensions: StructDimension,
-                 input_features: FeatureSpec,
-                 predicted_features: FeatureSpec) -> None:
+                 input_features: Optional[FeatureSpec],
+                 predicted_features: Optional[FeatureSpec]) -> None:
         assert isinstance(dimensions, NNSearchSpace.Dimension), \
             f"dimensions must be a NNSearchSpace.Dimension, got {type(dimensions)}"
+        if input_features is None:
+            assert "input_features" in dimensions.fields, \
+                "NNSearchSpace requires 'input_features' either as defaults or in dimensions"
+        if predicted_features is None:
+            assert "predicted_features" in dimensions.fields, \
+                "NNSearchSpace requires 'predicted_features' either as defaults or in dimensions"
         super().__init__(prediction_strategy_type="NNStrategy",
                          dimensions=dimensions,
                          input_features=input_features,

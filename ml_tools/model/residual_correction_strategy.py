@@ -264,8 +264,8 @@ class ResidualCorrectionStrategy(PredictionStrategy):
     @classmethod
     def _from_params_dict(cls,
                           params:             Dict,
-                          input_features:     FeatureSpec,
-                          predicted_features: FeatureSpec) -> ResidualCorrectionStrategy:
+                          input_features:     Optional[FeatureSpec],
+                          predicted_features: Optional[FeatureSpec]) -> ResidualCorrectionStrategy:
         reference_model_frozen = params.get("reference_model_frozen", False)
         residual_model = cls._build_nested_model_from_params(params=params,
                                                              model_key="residual_model",
@@ -286,8 +286,8 @@ class ResidualCorrectionStrategy(PredictionStrategy):
     def _build_nested_model_from_params(cls,
                                         params: Dict,
                                         model_key: str,
-                                        default_input_features: FeatureSpec,
-                                        default_predicted_features: FeatureSpec,
+                                        default_input_features: Optional[FeatureSpec],
+                                        default_predicted_features: Optional[FeatureSpec],
                                         required: bool = False) -> Optional[PredictionStrategy]:
         strategy_dict = params.get(model_key)
         if strategy_dict is None:
@@ -299,11 +299,15 @@ class ResidualCorrectionStrategy(PredictionStrategy):
         if "input_features" in strategy_dict:
             input_features_arg = None
         else:
+            assert default_input_features is not None, \
+                f"'{model_key}.input_features' is missing and no default input_features were provided"
             input_features_arg = cls.create_feature_processor_map(default_input_features)
 
         if "predicted_features" in strategy_dict:
             predicted_features_arg = None
         else:
+            assert default_predicted_features is not None, \
+                f"'{model_key}.predicted_features' is missing and no default predicted_features were provided"
             predicted_features_arg = cls.create_feature_processor_map(default_predicted_features)
 
         from_dict_kwargs = {"strategy_dict": strategy_dict}

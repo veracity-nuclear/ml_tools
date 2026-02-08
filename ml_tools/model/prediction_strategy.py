@@ -543,8 +543,8 @@ class PredictionStrategy(ABC):
         strategy_dict : Dict[str, Any]
             Strategy payload with keys:
             - ``strategy_type``: registered strategy class name
-            - ``input_features``: serialized input feature/processor mapping
-            - ``predicted_features``: serialized predicted feature/processor mapping
+            - ``input_features``: serialized input feature/processor mapping (optional)
+            - ``predicted_features``: serialized predicted feature/processor mapping (optional)
             - ``params``: strategy-specific parameter dictionary
         input_features : Optional[FeatureSpec]
             Optional feature override. If provided, ``strategy_dict`` must not contain
@@ -564,27 +564,33 @@ class PredictionStrategy(ABC):
         if strategy_cls is None:
             raise KeyError(f"Unknown PredictionStrategy type: {strategy_type}")
 
-        payload_input_features = strategy_dict.get("input_features")
-        payload_predicted_features = strategy_dict.get("predicted_features")
+        strategy_dict_input_features = strategy_dict.get("input_features")
+        strategy_dict_predicted_features = strategy_dict.get("predicted_features")
 
         if input_features is not None:
-            assert payload_input_features is None, \
+            assert strategy_dict_input_features is None, \
                 "When 'input_features' parameter is provided, strategy_dict must not contain 'input_features'"
         if predicted_features is not None:
-            assert payload_predicted_features is None, \
+            assert strategy_dict_predicted_features is None, \
                 "When 'predicted_features' parameter is provided, strategy_dict must not contain 'predicted_features'"
 
         if input_features is None:
-            assert isinstance(payload_input_features, dict), \
-                "'input_features' must be provided either as argument or serialized dict in strategy_dict"
-            resolved_input_features = strategy_cls.features_from_dict(payload_input_features)
+            assert (strategy_dict_input_features is None) or isinstance(strategy_dict_input_features, dict), \
+                "'input_features' in strategy_dict must be a dict when provided"
+            if isinstance(strategy_dict_input_features, dict):
+                resolved_input_features = strategy_cls.features_from_dict(strategy_dict_input_features)
+            else:
+                resolved_input_features = None
         else:
             resolved_input_features = strategy_cls.create_feature_processor_map(input_features)
 
         if predicted_features is None:
-            assert isinstance(payload_predicted_features, dict), \
-                "'predicted_features' must be provided either as argument or serialized dict in strategy_dict"
-            resolved_predicted_features = strategy_cls.features_from_dict(payload_predicted_features)
+            assert (strategy_dict_predicted_features is None) or isinstance(strategy_dict_predicted_features, dict), \
+                "'predicted_features' in strategy_dict must be a dict when provided"
+            if isinstance(strategy_dict_predicted_features, dict):
+                resolved_predicted_features = strategy_cls.features_from_dict(strategy_dict_predicted_features)
+            else:
+                resolved_predicted_features = None
         else:
             resolved_predicted_features = strategy_cls.create_feature_processor_map(predicted_features)
 
@@ -600,8 +606,8 @@ class PredictionStrategy(ABC):
     @classmethod
     def _from_params_dict(cls,
                           params: Dict[str, Any],
-                          input_features: FeatureSpec,
-                          predicted_features: FeatureSpec) -> PredictionStrategy:
+                          input_features: Optional[FeatureSpec],
+                          predicted_features: Optional[FeatureSpec]) -> PredictionStrategy:
         """Construct a strategy instance from serialized params and feature maps.
 
         Parameters
@@ -609,20 +615,24 @@ class PredictionStrategy(ABC):
         params : Dict[str, Any]
             Strategy-specific parameter dictionary. Keys and values are defined by
             each concrete strategy implementation.
-        input_features : FeatureSpec
+        input_features : Optional[FeatureSpec]
             Normalized input feature mapping to use when constructing the
             strategy. In this method, values are expected to already be
-            ``Dict[str, FeatureProcessor]``.
-        predicted_features : FeatureSpec
+            ``Dict[str, FeatureProcessor]`` when provided.
+        predicted_features : Optional[FeatureSpec]
             Normalized predicted feature mapping to use when constructing the
             strategy. In this method, values are expected to already be
-            ``Dict[str, FeatureProcessor]``.
+            ``Dict[str, FeatureProcessor]`` when provided.
 
         Returns
         -------
         PredictionStrategy
             A configured, untrained strategy instance of ``cls``.
         """
+        assert input_features is not None, \
+            f"{cls.__name__} requires input_features in strategy_dict or from_dict arguments"
+        assert predicted_features is not None, \
+            f"{cls.__name__} requires predicted_features in strategy_dict or from_dict arguments"
         instance = cls(input_features=input_features,
                        predicted_features=predicted_features,
                        **params)
