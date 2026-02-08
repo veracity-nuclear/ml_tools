@@ -135,7 +135,7 @@ class OptunaStrategy(SearchStrategy):
 
         best_params = self._get_sample(FixedTrial(study.best_params), search_space.dimensions)
         best_model = PredictionStrategy.from_dict(
-            payload={"strategy_type": search_space.prediction_strategy_type, "params": best_params},
+            strategy_dict={"strategy_type": search_space.prediction_strategy_type, "params": best_params},
             input_features=search_space.input_features,
             predicted_features=search_space.predicted_features,
         )
@@ -179,7 +179,7 @@ class OptunaStrategy(SearchStrategy):
                 fold_validation_set = SeriesCollection([series_collection[i] for i in val_idx])
 
                 fold_model = PredictionStrategy.from_dict(
-                    payload={"strategy_type": search_space.prediction_strategy_type, "params": params},
+                    strategy_dict={"strategy_type": search_space.prediction_strategy_type, "params": params},
                     input_features=search_space.input_features,
                     predicted_features=search_space.predicted_features,
                 )

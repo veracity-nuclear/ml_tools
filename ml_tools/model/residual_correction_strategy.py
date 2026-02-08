@@ -268,12 +268,12 @@ class ResidualCorrectionStrategy(PredictionStrategy):
                           predicted_features: FeatureSpec) -> ResidualCorrectionStrategy:
         reference_model_frozen = params.get("reference_model_frozen", False)
         residual_model = cls._build_nested_model_from_params(params=params,
-                                                             payload_key="residual_model",
+                                                             model_key="residual_model",
                                                              default_input_features=input_features,
                                                              default_predicted_features=predicted_features,
                                                              required=True)
         reference_model = cls._build_nested_model_from_params(params=params,
-                                                              payload_key="reference_model",
+                                                              model_key="reference_model",
                                                               default_input_features=input_features,
                                                               default_predicted_features=predicted_features,
                                                               required=False)
@@ -285,31 +285,28 @@ class ResidualCorrectionStrategy(PredictionStrategy):
     @classmethod
     def _build_nested_model_from_params(cls,
                                         params: Dict,
-                                        payload_key: str,
+                                        model_key: str,
                                         default_input_features: FeatureSpec,
                                         default_predicted_features: FeatureSpec,
                                         required: bool = False) -> Optional[PredictionStrategy]:
-        payload = params.get(payload_key)
-        if payload is None:
+        strategy_dict = params.get(model_key)
+        if strategy_dict is None:
             if required:
-                raise AssertionError(f"'{payload_key}' is required in params")
+                raise AssertionError(f"'{model_key}' is required in params")
             return None
-        assert isinstance(payload, dict), f"'{payload_key}' must be a dict"
+        assert isinstance(strategy_dict, dict), f"'{model_key}' must be a dict"
 
-        has_payload_input = "input_features" in payload
-        has_payload_predicted = "predicted_features" in payload
-
-        if has_payload_input:
+        if "input_features" in strategy_dict:
             input_features_arg = None
         else:
             input_features_arg = cls.create_feature_processor_map(default_input_features)
 
-        if has_payload_predicted:
+        if "predicted_features" in strategy_dict:
             predicted_features_arg = None
         else:
             predicted_features_arg = cls.create_feature_processor_map(default_predicted_features)
 
-        from_dict_kwargs = {"payload": payload}
+        from_dict_kwargs = {"strategy_dict": strategy_dict}
         if input_features_arg is not None:
             from_dict_kwargs["input_features"] = input_features_arg
         if predicted_features_arg is not None:

@@ -100,21 +100,6 @@ def test_prediction_strategy_from_dict_with_feature_overrides():
     assert rebuilt == strategy
 
 
-def test_residual_payload_round_trip():
-    strategy = ResidualCorrectionStrategy(reference_model=GBMStrategy(input_features, output_feature),
-                                          residual_model=GBMStrategy(input_features, output_feature),
-                                          reference_model_frozen=True)
-    payload = strategy.to_dict()
-
-    assert payload["strategy_type"] == "ResidualCorrectionStrategy"
-    assert payload["params"]["residual_model"]["strategy_type"] == "GBMStrategy"
-    assert payload["params"]["reference_model"]["strategy_type"] == "GBMStrategy"
-
-    rebuilt = PredictionStrategy.from_dict(payload)
-    assert isinstance(rebuilt, ResidualCorrectionStrategy)
-    assert rebuilt == strategy
-
-
 def test_postprocess_features():
     data_array = np.array([
         [[1.0, 10.0], [2.0, 20.0], [3.0, 30.0]],
@@ -196,6 +181,11 @@ def test_residual_correction_strategy():
     assert_allclose(state["cips_index"],
                     cips_calculator.predict(make_series_collection(1, 1))[0][0][output_feature],
                     atol=1E-5)
+
+    payload = cips_calculator.to_dict()
+    assert payload["strategy_type"] == "ResidualCorrectionStrategy"
+    assert payload["params"]["residual_model"]["strategy_type"] == "GBMStrategy"
+    assert payload["params"]["reference_model"]["strategy_type"] == "GBMStrategy"
 
     cips_calculator.save_model('test_residual_model')
     new_cips_calculator = ResidualCorrectionStrategy.read_from_file('test_residual_model')

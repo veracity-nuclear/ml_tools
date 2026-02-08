@@ -533,24 +533,24 @@ class PredictionStrategy(ABC):
 
     @classmethod
     def from_dict(cls,
-                  payload: Dict[str, Any],
+                  strategy_dict: Dict[str, Any],
                   input_features: Optional[FeatureSpec] = None,
                   predicted_features: Optional[FeatureSpec] = None) -> PredictionStrategy:
         """Construct a prediction strategy from a canonical serialized payload.
 
         Parameters
         ----------
-        payload : Dict[str, Any]
+        strategy_dict : Dict[str, Any]
             Strategy payload with keys:
             - ``strategy_type``: registered strategy class name
             - ``input_features``: serialized input feature/processor mapping
             - ``predicted_features``: serialized predicted feature/processor mapping
             - ``params``: strategy-specific parameter dictionary
         input_features : Optional[FeatureSpec]
-            Optional feature override. If provided, payload must not contain
+            Optional feature override. If provided, ``strategy_dict`` must not contain
             ``input_features``.
         predicted_features : Optional[FeatureSpec]
-            Optional predicted-feature override. If provided, payload must not contain
+            Optional predicted-feature override. If provided, ``strategy_dict`` must not contain
             ``predicted_features``.
 
         Returns
@@ -558,37 +558,37 @@ class PredictionStrategy(ABC):
         PredictionStrategy
             A configured, untrained strategy instance.
         """
-        strategy_type = payload.get("strategy_type")
-        assert strategy_type is not None, "'strategy_type' is required in payload"
+        strategy_type = strategy_dict.get("strategy_type")
+        assert strategy_type is not None, "'strategy_type' is required in strategy_dict"
         strategy_cls = _PREDICTION_STRATEGY_REGISTRY.get(strategy_type)
         if strategy_cls is None:
             raise KeyError(f"Unknown PredictionStrategy type: {strategy_type}")
 
-        payload_input_features = payload.get("input_features")
-        payload_predicted_features = payload.get("predicted_features")
+        payload_input_features = strategy_dict.get("input_features")
+        payload_predicted_features = strategy_dict.get("predicted_features")
 
         if input_features is not None:
             assert payload_input_features is None, \
-                "When 'input_features' parameter is provided, payload must not contain 'input_features'"
+                "When 'input_features' parameter is provided, strategy_dict must not contain 'input_features'"
         if predicted_features is not None:
             assert payload_predicted_features is None, \
-                "When 'predicted_features' parameter is provided, payload must not contain 'predicted_features'"
+                "When 'predicted_features' parameter is provided, strategy_dict must not contain 'predicted_features'"
 
         if input_features is None:
             assert isinstance(payload_input_features, dict), \
-                "'input_features' must be provided either as argument or serialized dict in payload"
+                "'input_features' must be provided either as argument or serialized dict in strategy_dict"
             resolved_input_features = strategy_cls.features_from_dict(payload_input_features)
         else:
             resolved_input_features = strategy_cls.create_feature_processor_map(input_features)
 
         if predicted_features is None:
             assert isinstance(payload_predicted_features, dict), \
-                "'predicted_features' must be provided either as argument or serialized dict in payload"
+                "'predicted_features' must be provided either as argument or serialized dict in strategy_dict"
             resolved_predicted_features = strategy_cls.features_from_dict(payload_predicted_features)
         else:
             resolved_predicted_features = strategy_cls.create_feature_processor_map(predicted_features)
 
-        params = payload.get("params", {})
+        params = strategy_dict.get("params", {})
         assert isinstance(params, dict), "'params' must be a dict"
 
         return strategy_cls._from_params_dict(  # pylint: disable=protected-access
@@ -654,17 +654,6 @@ class PredictionStrategy(ABC):
             A dictionary containing only strategy-specific configuration needed
             to reconstruct an equivalent untrained instance via
             :meth:`PredictionStrategy.from_dict`.
-        """
-
-
-    @abstractmethod
-    def to_dict(self) -> dict:
-        """ Convert the prediction strategy to a dictionary representation
-
-        Returns
-        -------
-        dict
-            A dictionary representation of the prediction strategy
         """
 
 
