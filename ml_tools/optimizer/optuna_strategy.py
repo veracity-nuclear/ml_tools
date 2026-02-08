@@ -11,7 +11,6 @@ from sklearn.model_selection import KFold
 
 from ml_tools.model.state import SeriesCollection
 from ml_tools.model.prediction_strategy import PredictionStrategy
-from ml_tools.model import build_prediction_strategy
 from ml_tools.optimizer.search_strategy import SearchStrategy
 from ml_tools.optimizer.search_space import (SearchSpace,
                                              IntDimension,
@@ -135,10 +134,11 @@ class OptunaStrategy(SearchStrategy):
         _dump_checkpoint(study)
 
         best_params = self._get_sample(FixedTrial(study.best_params), search_space.dimensions)
-        best_model  = build_prediction_strategy(strategy_type     = search_space.prediction_strategy_type,
-                                                params            = best_params,
-                                                input_features    = search_space.input_features,
-                                                predicted_features = search_space.predicted_features)
+        best_model = PredictionStrategy.from_dict(
+            payload={"strategy_type": search_space.prediction_strategy_type, "params": best_params},
+            input_features=search_space.input_features,
+            predicted_features=search_space.predicted_features,
+        )
 
         best_model.train(series_collection, num_procs=num_procs)
 
@@ -178,10 +178,11 @@ class OptunaStrategy(SearchStrategy):
                 fold_training_set   = SeriesCollection([series_collection[i] for i in train_idx])
                 fold_validation_set = SeriesCollection([series_collection[i] for i in val_idx])
 
-                fold_model = build_prediction_strategy(strategy_type      = search_space.prediction_strategy_type,
-                                                       params             = params,
-                                                       input_features     = search_space.input_features,
-                                                       predicted_features = search_space.predicted_features)
+                fold_model = PredictionStrategy.from_dict(
+                    payload={"strategy_type": search_space.prediction_strategy_type, "params": params},
+                    input_features=search_space.input_features,
+                    predicted_features=search_space.predicted_features,
+                )
 
                 print(f"Fold {fold}: training start (num_procs={train_procs})")
                 fold_model.train(fold_training_set, num_procs=train_procs)

@@ -314,10 +314,10 @@ class NNStrategy(PredictionStrategy):
         return instance
 
     @classmethod
-    def from_dict(cls,
-                  params:            Dict,
-                  input_features:    FeatureSpec,
-                  predicted_features: FeatureSpec) -> NNStrategy:
+    def _from_params_dict(cls,
+                          params:            Dict,
+                          input_features:    FeatureSpec,
+                          predicted_features: FeatureSpec) -> NNStrategy:
 
         nn_cfg = params.get('neural_network')
         if nn_cfg is None:
@@ -350,7 +350,7 @@ class NNStrategy(PredictionStrategy):
                        batch_size            = batch_size)
         return instance
 
-    def to_dict(self) -> dict:
+    def _params_to_dict(self) -> dict:
         return {'initial_learning_rate': self.initial_learning_rate,
                 'learning_decay_rate':   self.learning_decay_rate,
                 'epoch_limit':           self.epoch_limit,

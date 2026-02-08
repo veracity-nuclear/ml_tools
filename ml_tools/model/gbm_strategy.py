@@ -480,10 +480,10 @@ class GBMStrategy(PredictionStrategy):
         return instance
 
     @classmethod
-    def from_dict(cls,
-                  params:            Dict,
-                  input_features:    FeatureSpec,
-                  predicted_features: FeatureSpec) -> GBMStrategy:
+    def _from_params_dict(cls,
+                          params:            Dict,
+                          input_features:    FeatureSpec,
+                          predicted_features: FeatureSpec) -> GBMStrategy:
 
         known_keys = {
             "boosting_type", "objective", "metric", "num_leaves", "learning_rate",
@@ -497,7 +497,7 @@ class GBMStrategy(PredictionStrategy):
                        **kwargs)
         return instance
 
-    def to_dict(self) -> Dict:
+    def _params_to_dict(self) -> Dict:
         return {"boosting_type":     self.boosting_type,
                 "objective":         self.objective,
                 "metric":            self.metric,

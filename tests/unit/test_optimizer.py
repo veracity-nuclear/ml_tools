@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from ml_tools.model import build_prediction_strategy
 from ml_tools import NNStrategy, SeriesCollection, State, StateSeries
+from ml_tools.model.prediction_strategy import PredictionStrategy
 from ml_tools.model.feature_processor import NoProcessing
 from ml_tools.model.nn_strategy.dense import Dense
 from ml_tools.model.nn_strategy.lstm import LSTM
@@ -47,6 +47,12 @@ class MockOptunaTrial:
         return choices[0]
 
 
+def build_strategy(strategy_type, params, input_features, predicted_features):
+    return PredictionStrategy.from_dict(payload={"strategy_type": strategy_type, "params": params},
+                                        input_features=input_features,
+                                        predicted_features=predicted_features)
+
+
 @pytest.fixture
 def series_collection():
     series = []
@@ -82,10 +88,10 @@ def test_gbm_optimizer():
 
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
-    model    = build_prediction_strategy(strategy_type     = "GBMStrategy",
-                                         params            = params,
-                                         input_features    = {"x": NoProcessing()},
-                                         predicted_features = {"y": NoProcessing()})
+    model = build_strategy(strategy_type="GBMStrategy",
+                           params=params,
+                           input_features={"x": NoProcessing()},
+                           predicted_features={"y": NoProcessing()})
 
     expected = GBMStrategy(input_features    = {"x": NoProcessing()},
                            predicted_features = {"y": NoProcessing()},
@@ -120,10 +126,10 @@ def test_pod_optimizer():
 
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
-    model    = build_prediction_strategy(strategy_type     = "PODStrategy",
-                                         params            = params,
-                                         input_features    = {"x": NoProcessing()},
-                                         predicted_features = {"y": NoProcessing()})
+    model = build_strategy(strategy_type="PODStrategy",
+                           params=params,
+                           input_features={"x": NoProcessing()},
+                           predicted_features={"y": NoProcessing()})
 
     expected = PODStrategy(input_feature     = "x",
                            predicted_features = {"y": NoProcessing()},
@@ -150,10 +156,10 @@ def test_nn_optimizer_Dense():
 
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
-    model    = build_prediction_strategy(strategy_type     = "NNStrategy",
-                                         params            = params,
-                                         input_features    = {"x": NoProcessing()},
-                                         predicted_features = {"y": NoProcessing()})
+    model = build_strategy(strategy_type="NNStrategy",
+                           params=params,
+                           input_features={"x": NoProcessing()},
+                           predicted_features={"y": NoProcessing()})
 
     expected = NNStrategy(input_features        = {"x": NoProcessing()},
                           predicted_features = {"y": NoProcessing()},
@@ -183,10 +189,10 @@ def test_nn_optimizer_LSTM():
 
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
-    model    = build_prediction_strategy(strategy_type     = "NNStrategy",
-                                         params            = params,
-                                         input_features    = {"x": NoProcessing()},
-                                         predicted_features = {"y": NoProcessing()})
+    model = build_strategy(strategy_type="NNStrategy",
+                           params=params,
+                           input_features={"x": NoProcessing()},
+                           predicted_features={"y": NoProcessing()})
 
     expected = NNStrategy(input_features        = {"x": NoProcessing()},
                           predicted_features = {"y": NoProcessing()},
@@ -218,10 +224,10 @@ def test_nn_optimizer_Transformer():
 
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
-    model    = build_prediction_strategy(strategy_type     = "NNStrategy",
-                                         params            = params,
-                                         input_features    = {"x": NoProcessing()},
-                                         predicted_features = {"y": NoProcessing()})
+    model = build_strategy(strategy_type="NNStrategy",
+                           params=params,
+                           input_features={"x": NoProcessing()},
+                           predicted_features={"y": NoProcessing()})
 
     expected = NNStrategy(input_features        = {"x": NoProcessing()},
                           predicted_features = {"y": NoProcessing()},
@@ -260,10 +266,10 @@ def test_nn_optimizer_CNN():
 
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
-    model    = build_prediction_strategy(strategy_type     = "NNStrategy",
-                                         params            = params,
-                                         input_features    = {"x": NoProcessing()},
-                                         predicted_features = {"y": NoProcessing()})
+    model = build_strategy(strategy_type="NNStrategy",
+                           params=params,
+                           input_features={"x": NoProcessing()},
+                           predicted_features={"y": NoProcessing()})
 
     expected = NNStrategy(input_features        = {"x": NoProcessing()},
                           predicted_features = {"y": NoProcessing()},
@@ -294,10 +300,10 @@ def test_nn_optimizer_LayerSequence():
 
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
-    model    = build_prediction_strategy(strategy_type     = "NNStrategy",
-                                         params            = params,
-                                         input_features    = {"x": NoProcessing()},
-                                         predicted_features = {"y": NoProcessing()})
+    model = build_strategy(strategy_type="NNStrategy",
+                           params=params,
+                           input_features={"x": NoProcessing()},
+                           predicted_features={"y": NoProcessing()})
 
     expected = NNStrategy(input_features        = {"x": NoProcessing()},
                           predicted_features = {"y": NoProcessing()},
@@ -330,10 +336,10 @@ def test_nn_optimizer_CompoundLayer():
 
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
-    model    = build_prediction_strategy(strategy_type     = "NNStrategy",
-                                         params            = params,
-                                         input_features    = {"x": NoProcessing()},
-                                         predicted_features = {"y": NoProcessing()})
+    model = build_strategy(strategy_type="NNStrategy",
+                           params=params,
+                           input_features={"x": NoProcessing()},
+                           predicted_features={"y": NoProcessing()})
 
     expected = NNStrategy(input_features        = {"x": NoProcessing()},
                           predicted_features = {"y": NoProcessing()},
@@ -369,10 +375,10 @@ def test_nn_optimizer_GNN_SAGE():
 
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
-    model    = build_prediction_strategy(strategy_type     = "NNStrategy",
-                                         params            = params,
-                                         input_features    = {"x": NoProcessing()},
-                                         predicted_features = {"y": NoProcessing()})
+    model = build_strategy(strategy_type="NNStrategy",
+                           params=params,
+                           input_features={"x": NoProcessing()},
+                           predicted_features={"y": NoProcessing()})
 
     expected_graph = SAGE(input_shape              = (3, 3),
                           units                    = 4,
@@ -424,10 +430,10 @@ def test_nn_optimizer_GNN_GAT():
 
     strategy = OptunaStrategy()
     params   = strategy._get_sample(MockOptunaTrial(), search_space.dimensions)
-    model    = build_prediction_strategy(strategy_type     = "NNStrategy",
-                                         params            = params,
-                                         input_features    = {"x": NoProcessing()},
-                                         predicted_features = {"y": NoProcessing()})
+    model = build_strategy(strategy_type="NNStrategy",
+                           params=params,
+                           input_features={"x": NoProcessing()},
+                           predicted_features={"y": NoProcessing()})
 
     expected_graph = GAT(input_shape              = (3, 3),
                          units                    = 4,

@@ -38,6 +38,9 @@ class DummyStrategy(PredictionStrategy):
     def to_dict(self) -> dict:
         return {"multiplier": self._multiplier}
 
+    def _params_to_dict(self) -> dict:
+        return {"multiplier": self._multiplier}
+
     @classmethod
     def read_from_file(cls, file_name: str):
         raise NotImplementedError

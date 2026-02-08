@@ -356,5 +356,52 @@ class EnhancedPODStrategy(PredictionStrategy):
 
         return new_pod
 
-    def to_dict(self):
-        raise NotImplementedError("EnhancedPODStrategy does not support to_dict serialization yet.")
+    @classmethod
+    def _from_params_dict(cls,
+                          params: Dict,
+                          input_features: FeatureSpec,
+                          predicted_features: FeatureSpec) -> EnhancedPODStrategy:
+        theta_models_payload = params.get("theta_models")
+        assert isinstance(theta_models_payload, list) and len(theta_models_payload) > 0, \
+            "'theta_models' must be a non-empty list"
+
+        constraints_payload = params.get("constraints", [])
+        assert isinstance(constraints_payload, list), "'constraints' must be a list"
+        constraints = []
+        for item in constraints_payload:
+            assert isinstance(item, dict), "constraint entries must be dicts"
+            gamma = float(item["gamma"])
+            W = np.asarray(item["W"], dtype=float)
+            constraints.append((gamma, W))
+
+        instance = cls(input_features=input_features,
+                       predicted_features=predicted_features,
+                       theta_model_type=params.get("theta_model_type", "GBM"),
+                       max_svd_size=params.get("max_svd_size"),
+                       num_moments=params.get("num_moments", 1),
+                       constraints=constraints,
+                       theta_scaling=params.get("theta_scaling", "sqrt_singular_values"),
+                       theta_model_settings={})
+
+        if instance._theta_model_type in ["NN", "SKLEARN"]:
+            assert len(theta_models_payload) == 1, \
+                f"Expected exactly 1 theta model for {instance._theta_model_type}"
+        else:
+            assert len(theta_models_payload) == instance._num_moments, \
+                f"Expected {instance._num_moments} theta models for GBM"
+
+        instance._theta_model = [PredictionStrategy.from_dict(model_payload)
+                                 for model_payload in theta_models_payload]
+        return instance
+
+    def _params_to_dict(self):
+        constraints_payload = [{"gamma": float(gamma), "W": np.asarray(W).tolist()}
+                               for gamma, W in self._constraints]
+        return {
+            "theta_model_type": self._theta_model_type,
+            "theta_scaling": self._theta_scaling,
+            "max_svd_size": self._max_svd_size,
+            "num_moments": self._num_moments,
+            "constraints": constraints_payload,
+            "theta_models": [model.to_dict() for model in self._theta_model],
+        }
