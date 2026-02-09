@@ -1,9 +1,13 @@
 from __future__ import annotations
 from typing import Optional, Type, Dict
 from math import isclose
+import os
+
 import numpy as np
 from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans
+import h5py
+
 from threadpoolctl import threadpool_limits
 
 from ml_tools.model.state import SeriesCollection
@@ -102,8 +106,9 @@ class PODStrategy(PredictionStrategy):
         self._max_svd_size       = max_svd_size
 
         self._pod_mat = None
-        self._pca     = None
-        self._kmeans  = None
+        self._pca_components = None
+        self._pca_mean = None
+        self._kmeans_centers = None
 
 
     def train(self, train_data: SeriesCollection, test_data: Optional[SeriesCollection] = None, num_procs: int = 1) -> None:
@@ -124,20 +129,30 @@ class PODStrategy(PredictionStrategy):
         # Setup of the PCA project and K-means clustering of the input feature based on the training samples
         targets = np.vstack([np.array(series) for series in self._get_targets(train_data, num_procs=num_procs)])
         if self.nclusters > 1:
-            self._kmeans = KMeans(n_clusters=self.nclusters)
-            X            = self.preprocess_features(train_data, self.input_features)
-            X            = X.reshape(-1, X.shape[-1])
+            X = self.preprocess_features(train_data, self.input_features)
+            X = X.reshape(-1, X.shape[-1])
 
-            if not self.ndims is None:
-                self._pca = PCA(n_components=self.ndims)
-                X         = self._pca.fit_transform(X)
+            if self.ndims is not None:
+                pca = PCA(n_components=self.ndims)
+                X_cluster = pca.fit_transform(X)
+                self._pca_components = np.asarray(pca.components_)
+                self._pca_mean = np.asarray(pca.mean_)
+            else:
+                X_cluster = X
+                self._pca_components = None
+                self._pca_mean = None
 
-            labels = self._kmeans.fit_predict(X)
+            kmeans = KMeans(n_clusters=self.nclusters)
+            labels = kmeans.fit_predict(X_cluster)
+            self._kmeans_centers = np.asarray(kmeans.cluster_centers_)
             nlabel = np.bincount(labels)
 
         else:
             labels = np.zeros(len(targets), dtype=int)
             nlabel = np.asarray([len(targets)])
+            self._pca_components = None
+            self._pca_mean = None
+            self._kmeans_centers = None
 
         C = self.fine_to_coarse_map
         nvec = self.fine_to_coarse_map.shape[0]
@@ -161,11 +176,22 @@ class PODStrategy(PredictionStrategy):
     def _predict_one(self, state_series: np.ndarray) -> np.ndarray:
         return self._predict_all([state_series])[0]
 
+    def _project_for_clustering(self, X: np.ndarray) -> np.ndarray:
+        if self._pca_components is None:
+            return X
+        assert self._pca_mean is not None, "Missing PCA mean for projection."
+        return np.matmul(X - self._pca_mean, self._pca_components.T)
+
+    def _predict_cluster_labels(self, X_cluster: np.ndarray) -> np.ndarray:
+        assert self._kmeans_centers is not None, "Missing KMeans centers for cluster prediction."
+        # Equivalent to sklearn KMeans.predict: nearest centroid by squared Euclidean distance.
+        distances = np.sum((X_cluster[:, np.newaxis, :] - self._kmeans_centers[np.newaxis, :, :]) ** 2, axis=2)
+        return np.argmin(distances, axis=1)
 
     def _predict_all(self, series_collection: np.ndarray, num_procs: int = 1) -> np.ndarray:
+        series_collection = np.asarray(series_collection)
 
         assert self.isTrained
-        assert not self.hasBiasingModel
         assert series_collection.shape[1] == 1, \
             "All State Series must be static statepoints (i.e. len(series) == 1)"
         assert num_procs > 0, f"num_procs must be > 0, got {num_procs}"
@@ -174,8 +200,8 @@ class PODStrategy(PredictionStrategy):
             X = series_collection[:, 0, :]
 
             if self.nclusters > 1:
-                X_reduced = X if self.ndims is None else self._pca.transform(X)
-                labels    = self._kmeans.predict(X_reduced)
+                X_cluster = self._project_for_clustering(X)
+                labels = self._predict_cluster_labels(X_cluster)
             else:
                 labels = np.zeros(X.shape[0], dtype=int)
 
@@ -187,12 +213,70 @@ class PODStrategy(PredictionStrategy):
     def __eq__(self, other: object) -> bool:
         if not super().__eq__(other):
             return False
-        assert isinstance(other, PODStrategy)
+        if not isinstance(other, PODStrategy):
+            return False
         return (self.input_feature == other.input_feature and
                 self.nclusters     == other.nclusters     and
                 self.max_svd_size  == other.max_svd_size  and
                 self.ndims         == other.ndims         and
                 np.allclose(self.fine_to_coarse_map, other.fine_to_coarse_map))
+
+    def write_model_to_hdf5(self, h5_group: h5py.Group) -> None:
+        super().write_model_to_hdf5(h5_group)
+        str_dtype = h5py.string_dtype(encoding="utf-8")
+        h5_group.create_dataset('input_feature',      data = self.input_feature, dtype=str_dtype)
+        h5_group.create_dataset('fine_to_coarse_map', data = self.fine_to_coarse_map)
+        h5_group.create_dataset('nclusters',          data = self.nclusters)
+        h5_group.create_dataset('max_svd_size',       data = -1 if self.max_svd_size is None else self.max_svd_size)
+        h5_group.create_dataset('ndims',              data = -1 if self.ndims is None else self.ndims)
+
+        if self._pod_mat is not None:
+            pod_group = h5_group.create_group('pod_mat')
+            for idx, mat in enumerate(self._pod_mat):
+                if mat is not None:
+                    pod_group.create_dataset(str(idx), data=mat)
+
+        if self._pca_components is not None:
+            pca_group = h5_group.create_group('pca')
+            pca_group.create_dataset('components', data=self._pca_components)
+            pca_group.create_dataset('mean', data=self._pca_mean)
+
+        if self._kmeans_centers is not None:
+            h5_group.create_dataset('kmeans_centers', data=self._kmeans_centers)
+
+    def load_model(self, h5_group: h5py.Group) -> None:
+        super().load_model(h5_group)
+        input_feature = h5_group['input_feature'][()]
+        if isinstance(input_feature, bytes):
+            input_feature = input_feature.decode('utf-8')
+        self._input_feature      = input_feature
+        self._fine_to_coarse_map = np.asarray(h5_group['fine_to_coarse_map'][()])
+        self._nclusters          = int(h5_group['nclusters'][()])
+        max_svd_size             = int(h5_group['max_svd_size'][()])
+        self._max_svd_size       = None if max_svd_size < 0 else max_svd_size
+        ndims                    = int(h5_group['ndims'][()])
+        self._ndims              = None if ndims < 0 else ndims
+
+        if 'pod_mat' in h5_group:
+            pod_group = h5_group['pod_mat']
+            pod_mat = [None] * self._nclusters
+            for key in pod_group.keys():
+                idx = int(key)
+                pod_mat[idx] = np.asarray(pod_group[key][()])
+            self._pod_mat = pod_mat
+        else:
+            self._pod_mat = None
+
+        self._pca_components = None
+        self._pca_mean = None
+        if 'pca' in h5_group:
+            pca_node = h5_group['pca']
+            self._pca_components = np.asarray(pca_node['components'][()])
+            self._pca_mean = np.asarray(pca_node['mean'][()])
+
+        self._kmeans_centers = None
+        if 'kmeans_centers' in h5_group:
+            self._kmeans_centers = np.asarray(h5_group['kmeans_centers'][()])
 
     @classmethod
     def read_from_file(cls, file_name: str) -> Type[PODStrategy]:
@@ -203,14 +287,19 @@ class PODStrategy(PredictionStrategy):
         file_name : str
             The name of the file to load the model from
         """
-        raise NotImplementedError
+        file_name = file_name if file_name.endswith(".h5") else file_name + ".h5"
+        assert os.path.exists(file_name), f"file name = {file_name}"
+
+        instance = cls.__new__(cls)
+        PredictionStrategy.__init__(instance)
+        instance.load_model(h5py.File(file_name, "r"))
+        return instance
 
     @classmethod
     def from_dict(cls,
                   params:            Dict,
                   input_features:    FeatureSpec,
-                  predicted_features: FeatureSpec,
-                  biasing_model:     Optional[PredictionStrategy] = None) -> PODStrategy:
+                  predicted_features: FeatureSpec) -> PODStrategy:
 
         assert input_features is not None and len(input_features) == 1, \
             "PODStrategy requires exactly one input feature"
@@ -225,8 +314,6 @@ class PODStrategy(PredictionStrategy):
         instance = cls(input_feature     = input_feature,
                        predicted_features = predicted_features,
                        **kwargs)
-        if biasing_model is not None:
-            instance.biasing_model = biasing_model
         return instance
 
     def to_dict(self) -> Dict:

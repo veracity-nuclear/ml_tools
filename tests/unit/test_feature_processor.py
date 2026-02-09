@@ -4,7 +4,7 @@ import numpy as np
 import os
 import h5py
 
-from ml_tools import MinMaxNormalize, NoProcessing
+from ml_tools import FeatureProcessor, MinMaxNormalize, NoProcessing
 
 def test_minmax_normalize():
     orig_data = np.array([2., 5., 6., 8.])
@@ -58,3 +58,17 @@ def test_read_write_functions():
         assert(processor == no_processing)
 
     os.system('rm read_write_processor.h5')
+
+
+def test_feature_processor_to_from_dict_minmax():
+    processor = MinMaxNormalize(0.1, 2.5)
+    payload = processor.to_dict()
+    rebuilt = FeatureProcessor.from_dict(payload)
+    assert rebuilt == processor
+
+
+def test_feature_processor_to_from_dict_no_processing():
+    processor = NoProcessing()
+    payload = processor.to_dict()
+    rebuilt = FeatureProcessor.from_dict(payload)
+    assert rebuilt == processor

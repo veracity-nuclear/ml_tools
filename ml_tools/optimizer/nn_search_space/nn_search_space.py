@@ -1,8 +1,8 @@
 from __future__ import annotations
-from typing import List, Optional
+from typing import List
 
 
-from ml_tools.model.prediction_strategy import FeatureSpec, PredictionStrategy
+from ml_tools.model.prediction_strategy import FeatureSpec
 from ml_tools.optimizer.search_space import SearchSpace, StructDimension, IntDimension, FloatDimension, ListDimension
 from ml_tools.optimizer.nn_search_space.layer import Layer
 
@@ -19,8 +19,6 @@ class NNSearchSpace(SearchSpace):
         Input feature/processor pairs (Dict) or feature name(s) (str/List[str], automatically mapped to NoProcessing).
     predicted_features : FeatureSpec
         Output feature/processor pairs (Dict) or feature name(s) (str/List[str], automatically mapped to NoProcessing).
-    biasing_model : Optional[PredictionStrategy], optional
-        Optional prior model to bias predictions, by default None.
     """
 
     class Dimension(StructDimension):
@@ -149,12 +147,10 @@ class NNSearchSpace(SearchSpace):
     def __init__(self,
                  dimensions: StructDimension,
                  input_features: FeatureSpec,
-                 predicted_features: FeatureSpec,
-                 biasing_model: Optional[PredictionStrategy] = None) -> None:
+                 predicted_features: FeatureSpec) -> None:
         assert isinstance(dimensions, NNSearchSpace.Dimension), \
             f"dimensions must be a NNSearchSpace.Dimension, got {type(dimensions)}"
         super().__init__(prediction_strategy_type="NNStrategy",
                          dimensions=dimensions,
                          input_features=input_features,
-                         predicted_features=predicted_features,
-                         biasing_model=biasing_model)
+                         predicted_features=predicted_features)

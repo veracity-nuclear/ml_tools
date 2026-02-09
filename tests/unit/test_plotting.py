@@ -35,6 +35,9 @@ class DummyStrategy(PredictionStrategy):
         self._trained                 = True
         self._predicted_feature_sizes = {"y": 1}
 
+    def to_dict(self) -> dict:
+        return {"multiplier": self._multiplier}
+
     @classmethod
     def read_from_file(cls, file_name: str):
         raise NotImplementedError

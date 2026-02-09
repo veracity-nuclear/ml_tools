@@ -1,6 +1,6 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import Sequence
+from typing import Sequence, Dict, Any
 from math import isclose
 import numpy as np
 import h5py
@@ -63,6 +63,20 @@ class FeatureProcessor(ABC):
         -----
         The relative tolerance is 1e-9 for float comparisons
         """
+
+    @abstractmethod
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize this processor to a plain dict."""
+
+    @staticmethod
+    def from_dict(payload: Dict[str, Any]) -> FeatureProcessor:
+        """Deserialize a processor from a plain dict."""
+        processor_type = payload.get("type")
+        if processor_type == "MinMaxNormalize":
+            return MinMaxNormalize(payload["min"], payload["max"])
+        if processor_type == "NoProcessing":
+            return NoProcessing()
+        raise AssertionError(f"Unsupported processor type: {processor_type}")
 
     def to_hdf5(self, group: h5py.Group) -> None:
         """ A method for writing a FeatureProcessor to an HDF5 Group
@@ -135,6 +149,9 @@ class MinMaxNormalize(FeatureProcessor):
                 isclose(self.min, other.min, rel_tol=1e-9) and
                 isclose(self.max, other.max, rel_tol=1e-9))
 
+    def to_dict(self) -> Dict[str, Any]:
+        return {"type": "MinMaxNormalize", "min": self.min, "max": self.max}
+
     def to_hdf5(self, group: h5py.Group) -> None:
         super().to_hdf5(group)
         group.create_dataset("min", data=self.min)
@@ -162,3 +179,10 @@ class NoProcessing(FeatureProcessor):
 
     def __eq__(self, other: FeatureProcessor) -> bool:
         return isinstance(other, NoProcessing)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"type": "NoProcessing"}
+
+    @classmethod
+    def from_hdf5(cls, group: h5py.Group) -> NoProcessing:
+        return cls()

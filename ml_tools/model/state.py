@@ -12,6 +12,56 @@ from ml_tools.utils.status_bar import StatusBar
 from ml_tools.model.feature_perturbator import FeaturePerturbator
 
 
+def _featurewise_state_series_chunk(args):
+    """Worker helper to parallelize featurewise operations on state series chunks.
+
+    This function is intended for parallel execution (for example via
+    ``ProcessPoolExecutor``) in higher-level featurewise series operations.
+
+    Parameters
+    ----------
+    args : Tuple[int, List[State], List[State], np.ufunc, Optional[List[str]], bool]
+        Packed worker arguments as
+        ``(start, left_states, right_states, op, features, keep_only_modified)``.
+        `left_states` and `right_states` are zipped and processed pairwise.
+
+    Returns
+    -------
+    Tuple[int, List[State]]
+        The original `start` index and the list of resulting states for the
+        processed chunk.
+    """
+    start, left_states, right_states, op, features, keep_only_modified = args
+    out_states = [left.featurewise(op, right, features, keep_only_modified=keep_only_modified)
+                  for left, right in zip(left_states, right_states)]
+    return start, out_states
+
+
+def _featurewise_series_collection_chunk(args):
+    """Worker helper to parallelize featurewise operations in a series collection.
+
+    This function is intended for parallel execution (for example via
+    ``ProcessPoolExecutor``) in higher-level collection featurewise operations.
+
+    Parameters
+    ----------
+    args : Tuple[int, int, List[State], List[State], np.ufunc, Optional[List[str]], bool]
+        Packed worker arguments as
+        ``(series_idx, start, left_states, right_states, op, features, keep_only_modified)``.
+        `left_states` and `right_states` are zipped and processed pairwise.
+
+    Returns
+    -------
+    Tuple[int, int, List[State]]
+        The original series index, chunk `start` index, and the list of
+        resulting states for the processed chunk.
+    """
+    series_idx, start, left_states, right_states, op, features, keep_only_modified = args
+    out_states = [left.featurewise(op, right, features, keep_only_modified=keep_only_modified)
+                  for left, right in zip(left_states, right_states)]
+    return series_idx, start, out_states
+
+
 class State:
     """A class for storing and accessing generic state data
 
@@ -78,6 +128,46 @@ class State:
             s += f"  {feature_name}: {values}\n"
         return s
 
+    def featurewise(self,
+                    op: np.ufunc,
+                    other: State,
+                    features: Optional[List[str]] = None,
+                    keep_only_modified: bool = False) -> State:
+        """Apply an elementwise feature operation with another State.
+
+        Parameters
+        ----------
+        op : np.ufunc
+            NumPy ufunc to apply to each feature value.
+        other : State
+            The other State to apply the operation with.
+        features : Optional[List[str]]
+            Features to operate on. Defaults to all features in this State.
+        keep_only_modified : bool
+            If True, return only the operated feature values. If False, return
+            all original features with the selected ones replaced.
+
+        Returns
+        -------
+        State
+            A new State with either only the operated feature values (when
+            ``keep_only_modified`` is True) or all original features with the
+            selected ones replaced.
+        """
+        assert isinstance(op, np.ufunc), "op must be a NumPy ufunc"
+        assert isinstance(other, State), "other must be a State"
+        features = list(self.features.keys()) if features is None else features
+        for name in features:
+            assert name in self.features, f"'{name}' not found in this State"
+            assert name in other.features, f"'{name}' not found in other State"
+        new_features = {name: op(np.asarray(self[name]), np.asarray(other[name]))
+                        for name in features}
+        if not keep_only_modified:
+            for name in self.features:
+                if name not in features:
+                    new_features[name] = np.asarray(self[name]).copy()
+        return State(new_features)
+
     def combine_features(self, other: State) -> State:
         """Combine features from another State into this one.
 
@@ -88,10 +178,6 @@ class State:
         ----------
         other : State
             The State whose features will be added to this state
-
-        Returns
-        -------
-        State
             Returns self for method chaining
 
         Raises
@@ -488,6 +574,66 @@ class StateSeries:
         assert isinstance(other, StateSeries), f"'{other}' is not a StateSeries object"
         return StateSeries(self.states + other.states)
 
+    def featurewise(self,
+                    op:       np.ufunc,
+                    other:    StateSeries,
+                    features: Optional[List[str]] = None,
+                    num_procs: int = 1,
+                    keep_only_modified: bool = False) -> StateSeries:
+        """Apply an elementwise feature operation with another StateSeries.
+
+        Parameters
+        ----------
+        op : np.ufunc
+            NumPy ufunc to apply to each feature value.
+        other : StateSeries
+            The other StateSeries to apply the operation with.
+        features : Optional[List[str]]
+            Features to operate on. Defaults to all features in this StateSeries.
+        num_procs : int
+            The number of processes to use for parallel processing. If <= 1, runs serially.
+            When > 1, work is chunked across states in this series.
+        keep_only_modified : bool
+            If True, return only the operated feature values. If False, return
+            all original features with the selected ones replaced.
+
+        Returns
+        -------
+        StateSeries
+            A new StateSeries with either only the operated feature values (when
+            ``keep_only_modified`` is True) or all original features with the
+            selected ones replaced.
+        """
+        assert isinstance(op, np.ufunc), "op must be a NumPy ufunc"
+        assert isinstance(other, StateSeries), "other must be a StateSeries"
+        assert len(self) == len(other), "StateSeries lengths do not match"
+        assert num_procs > 0, f"num_procs must be > 0, got {num_procs}"
+        features = self.features if features is None else features
+
+        if num_procs <= 1 or len(self) == 0:
+            new_states = [left.featurewise(op, right, features, keep_only_modified=keep_only_modified)
+                          for left, right in zip(self.states, other.states)]
+            return StateSeries(new_states)
+
+        total      = len(self)
+        workers    = min(num_procs, total)
+        chunk_size = (total + workers - 1) // workers
+        tasks = []
+        for start in range(0, total, chunk_size):
+            end = min(total, start + chunk_size)
+            tasks.append((start,
+                          self.states[start:end],
+                          other.states[start:end],
+                          op,
+                          features,
+                          keep_only_modified))
+
+        results = [None] * total
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            for start, out_states in executor.map(_featurewise_state_series_chunk, tasks):
+                results[start:start + len(out_states)] = out_states
+        return StateSeries(results)
+
     @property
     def features(self) -> List[str]:
         if not self.states:
@@ -855,6 +1001,77 @@ class SeriesCollection:
         if other is None:
             return self
         return SeriesCollection(self.state_series_list + other.state_series_list)
+
+    def featurewise(self,
+                    op:       np.ufunc,
+                    other:    SeriesCollection,
+                    features: Optional[List[str]] = None,
+                    num_procs: int = 1,
+                    keep_only_modified: bool = False) -> SeriesCollection:
+        """Apply an elementwise feature operation with another SeriesCollection.
+
+        Parameters
+        ----------
+        op : np.ufunc
+            NumPy ufunc to apply to each feature value.
+        other : SeriesCollection
+            The other SeriesCollection to apply the operation with.
+        features : Optional[List[str]]
+            Features to operate on. Defaults to all features in this SeriesCollection.
+        num_procs : int
+            The number of processes to use for parallel processing. If <= 1, runs serially.
+            When > 1, work is chunked across all series in a shared process pool.
+        keep_only_modified : bool
+            If True, return only the operated feature values. If False, return
+            all original features with the selected ones replaced.
+
+        Returns
+        -------
+        SeriesCollection
+            A new SeriesCollection with either only the operated feature values (when
+            ``keep_only_modified`` is True) or all original features with the
+            selected ones replaced.
+        """
+        assert isinstance(op, np.ufunc), "op must be a NumPy ufunc"
+        assert isinstance(other, SeriesCollection), "other must be a SeriesCollection"
+        assert len(self) == len(other), "SeriesCollection lengths do not match"
+        assert num_procs > 0, f"num_procs must be > 0, got {num_procs}"
+        features = self.features if features is None else features
+
+        if num_procs <= 1:
+            new_series = [left.featurewise(op, right, features, num_procs=1,
+                                           keep_only_modified=keep_only_modified)
+                          for left, right in zip(self.state_series_list, other.state_series_list)]
+            return SeriesCollection(new_series)
+
+        lengths = [len(series) for series in self.state_series_list]
+        total_states = sum(lengths)
+        if total_states == 0:
+            return SeriesCollection([StateSeries([]) for _ in self.state_series_list])
+
+        chunk_size = max(1, total_states // num_procs)
+        tasks = []
+        for series_idx, (left_series, right_series) in enumerate(zip(self.state_series_list,
+                                                                     other.state_series_list)):
+            assert len(left_series) == len(right_series), "StateSeries lengths do not match"
+            series_len = len(left_series)
+            for start in range(0, series_len, chunk_size):
+                end = min(series_len, start + chunk_size)
+                tasks.append((series_idx,
+                              start,
+                              left_series.states[start:end],
+                              right_series.states[start:end],
+                              op,
+                              features,
+                              keep_only_modified))
+
+        results = [[None] * length for length in lengths]
+        workers = min(num_procs, len(tasks))
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            for series_idx, start, out_states in executor.map(_featurewise_series_collection_chunk, tasks):
+                results[series_idx][start:start + len(out_states)] = out_states
+
+        return SeriesCollection([StateSeries(states) for states in results])
 
     @property
     def features(self) -> List[str]:

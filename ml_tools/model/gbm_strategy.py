@@ -11,7 +11,6 @@ import pylab as plt
 from ml_tools.model.state import SeriesCollection
 from ml_tools.model.prediction_strategy import PredictionStrategy, FeatureSpec
 from ml_tools.model import register_prediction_strategy
-from ml_tools.model.feature_processor import NoProcessing
 
 
 @register_prediction_strategy()  # registers under 'GBMStrategy' by default
@@ -358,7 +357,8 @@ class GBMStrategy(PredictionStrategy):
         if not super().__eq__(other):
             return False
 
-        assert isinstance(other, GBMStrategy)
+        if not isinstance(other, GBMStrategy):
+            return False
         return (self.boosting_type     == other.boosting_type     and
                 self.objective         == other.objective         and
                 self.metric            == other.metric            and
@@ -383,10 +383,25 @@ class GBMStrategy(PredictionStrategy):
         h5_group : h5py.Group
             The opened HDF5 group or file to which the model should be written
         """
-        file_name = h5_group.file.filename
-        lgbm_name = file_name.removesuffix(".h5") + ".lgbm" if file_name.endswith(".h5") else file_name + ".lgbm"
+        lgbm_name = self._lgbm_name_for_group(h5_group)
 
         super().write_model_to_hdf5(h5_group)
+        str_dtype = h5py.string_dtype(encoding="utf-8")
+        h5_group.create_dataset('boosting_type',     data = self.boosting_type, dtype=str_dtype)
+        h5_group.create_dataset('objective',         data = self.objective, dtype=str_dtype)
+        h5_group.create_dataset('metric',            data = self.metric, dtype=str_dtype)
+        h5_group.create_dataset('num_leaves',        data = self.num_leaves)
+        h5_group.create_dataset('learning_rate',     data = self.learning_rate)
+        h5_group.create_dataset('n_estimators',      data = self.n_estimators)
+        h5_group.create_dataset('max_depth',         data = self.max_depth)
+        h5_group.create_dataset('min_child_samples', data = self.min_child_samples)
+        h5_group.create_dataset('subsample',         data = self.subsample)
+        h5_group.create_dataset('colsample_bytree',  data = self.colsample_bytree)
+        h5_group.create_dataset('reg_alpha',         data = self.reg_alpha)
+        h5_group.create_dataset('reg_lambda',        data = self.reg_lambda)
+        h5_group.create_dataset('verbose',           data = self.verbose)
+        h5_group.create_dataset('num_boost_round',   data = self.num_boost_round)
+        h5_group.create_dataset('stopping_rounds',   data = self.stopping_rounds)
         self._gbm.save_model(lgbm_name)
         with open(lgbm_name, 'rb') as file:
             file_data = file.read()
@@ -401,14 +416,46 @@ class GBMStrategy(PredictionStrategy):
         h5_group : h5py.Group
             The opened HDF5 group or file from which the model should be loaded
         """
-        file_name = h5_group.file.filename
-        lgbm_name = file_name.removesuffix(".h5") + ".lgbm" if file_name.endswith(".h5") else file_name + ".lgbm"
+        lgbm_name = self._lgbm_name_for_group(h5_group)
 
         super().load_model(h5_group)
+        boosting_type = h5_group['boosting_type'][()]
+        objective = h5_group['objective'][()]
+        metric = h5_group['metric'][()]
+        if isinstance(boosting_type, bytes):
+            boosting_type = boosting_type.decode('utf-8')
+        if isinstance(objective, bytes):
+            objective = objective.decode('utf-8')
+        if isinstance(metric, bytes):
+            metric = metric.decode('utf-8')
+        self.boosting_type     = boosting_type
+        self.objective         = objective
+        self.metric            = metric
+        self.num_leaves        = int(h5_group['num_leaves'][()])
+        self.learning_rate     = float(h5_group['learning_rate'][()])
+        self.n_estimators      = int(h5_group['n_estimators'][()])
+        self.max_depth         = int(h5_group['max_depth'][()])
+        self.min_child_samples = int(h5_group['min_child_samples'][()])
+        self.subsample         = float(h5_group['subsample'][()])
+        self.colsample_bytree  = float(h5_group['colsample_bytree'][()])
+        self.reg_alpha         = float(h5_group['reg_alpha'][()])
+        self.reg_lambda        = float(h5_group['reg_lambda'][()])
+        self.verbose           = int(h5_group['verbose'][()])
+        self.num_boost_round   = int(h5_group['num_boost_round'][()])
+        self.stopping_rounds   = int(h5_group['stopping_rounds'][()])
+
         file_data = h5_group['serialized_lgbm_file'][()]
         with open(lgbm_name, 'wb') as file:
             file.write(file_data)
         self._gbm = lgb.Booster(model_file=lgbm_name)
+
+    @staticmethod
+    def _lgbm_name_for_group(h5_group: h5py.Group) -> str:
+        file_name = h5_group.file.filename
+        base_name = file_name.removesuffix(".h5") if file_name.endswith(".h5") else file_name
+        group_name = h5_group.name.strip("/").replace("/", "_")
+        suffix = f"_{group_name}" if group_name else ""
+        return f"{base_name}{suffix}.lgbm"
 
     @classmethod
     def read_from_file(cls: GBMStrategy, file_name: str) -> Type[GBMStrategy]:
@@ -427,17 +474,16 @@ class GBMStrategy(PredictionStrategy):
         file_name = file_name if file_name.endswith(".h5") else file_name + ".h5"
         assert os.path.exists(file_name), f"file name = {file_name}"
 
-        new_gbm = cls({}, {"__placeholder__": NoProcessing()})
-        new_gbm.load_model(h5py.File(file_name, "r"))
-
-        return new_gbm
+        instance = cls.__new__(cls)
+        PredictionStrategy.__init__(instance)
+        instance.load_model(h5py.File(file_name, "r"))
+        return instance
 
     @classmethod
     def from_dict(cls,
                   params:            Dict,
                   input_features:    FeatureSpec,
-                  predicted_features: FeatureSpec,
-                  biasing_model:     Optional[PredictionStrategy] = None) -> GBMStrategy:
+                  predicted_features: FeatureSpec) -> GBMStrategy:
 
         known_keys = {
             "boosting_type", "objective", "metric", "num_leaves", "learning_rate",
@@ -449,8 +495,6 @@ class GBMStrategy(PredictionStrategy):
         instance = cls(input_features    = input_features,
                        predicted_features = predicted_features,
                        **kwargs)
-        if biasing_model is not None:
-            instance.biasing_model = biasing_model
         return instance
 
     def to_dict(self) -> Dict:

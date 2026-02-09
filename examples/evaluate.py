@@ -11,6 +11,7 @@ tf.get_logger().setLevel("ERROR")
 
 from ml_tools import MinMaxNormalize, SeriesCollection, PredictionStrategy, GBMStrategy, \
                      NormalPerturbator, RelativeNormalPerturbator
+from ml_tools.model.residual_correction_strategy import ResidualCorrectionStrategy
 from ml_tools.utils.plotting import plot_ref_vs_pred, plot_hist, plot_sensitivities, print_metrics, plot_corr_matrix, \
                                     plot_ice_pdp, plot_shap
 from ml_tools.examples.optimizer import build_dnn_optimizer, build_cnn_optimizer
@@ -74,12 +75,15 @@ def main() -> None:
     train_collection, valid_collection = series_collection.train_test_split(test_size=0.2)
     train(models, train_collection)
 
-    models['GBM - GBM_Informed']               = deepcopy(models['GBM'])
-    models['DNN - GBM_Informed']               = deepcopy(models['DNN'])
-    models['CNN - GBM_Informed']               = deepcopy(models['CNN'])
-    models['GBM - GBM_Informed'].biasing_model = models['GBM']
-    models['DNN - GBM_Informed'].biasing_model = models['GBM']
-    models['CNN - GBM_Informed'].biasing_model = models['GBM']
+    models['GBM - GBM_Informed'] = ResidualCorrectionStrategy(reference_model=models['GBM'],
+                                                              residual_model=deepcopy(models['GBM']),
+                                                              reference_model_frozen=True)
+    models['DNN - GBM_Informed'] = ResidualCorrectionStrategy(reference_model=models['GBM'],
+                                                              residual_model=deepcopy(models['DNN']),
+                                                              reference_model_frozen=True)
+    models['CNN - GBM_Informed'] = ResidualCorrectionStrategy(reference_model=models['GBM'],
+                                                              residual_model=deepcopy(models['CNN']),
+                                                              reference_model_frozen=True)
 
     train({name: model for name, model in models.items() if 'GBM_Informed' in name}, train_collection)
 
