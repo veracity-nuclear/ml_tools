@@ -202,8 +202,8 @@ class EnhancedPODStrategy(PredictionStrategy):
         # compute pod matrix
         self._compute_pod(train_data)
 
-        # add theta_xi to collections for training
-        self._add_theta(train_data, test_data, scaling_vector=self._scaling_vector(), num_procs=num_procs)
+        # add theta_xi to collections for training - TODO: disable training theta in parallel because it collides with lightgbm somehow
+        self._add_theta(train_data, test_data, scaling_vector=self._scaling_vector())
 
         # train models
         for model in self._theta_model:
