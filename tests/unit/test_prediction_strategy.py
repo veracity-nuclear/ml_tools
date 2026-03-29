@@ -7,7 +7,6 @@ from numpy.testing import assert_allclose
 import numpy as np
 from sklearn.linear_model import LinearRegression, Ridge
 from sklearn.ensemble import RandomForestRegressor
-from ml_tools.model import build_prediction_strategy
 
 from ml_tools.model.nn_strategy import Dense, LSTM, Transformer, SpatialConv, SpatialMaxPool, PassThrough, LayerSequence, CompoundLayer, GraphConv
 from ml_tools.model.nn_strategy.graph import SAGE, GAT
@@ -76,6 +75,31 @@ def test_features_to_from_dict_round_trip():
         assert round_tripped[name] == processor
 
 
+def test_prediction_strategy_payload_round_trip():
+    strategy = GBMStrategy(input_features, output_feature)
+    payload = strategy.to_dict()
+
+    assert payload["strategy_type"] == "GBMStrategy"
+    assert "input_features" in payload
+    assert "predicted_features" in payload
+    assert "params" in payload
+
+    rebuilt = PredictionStrategy.from_dict(payload)
+    assert isinstance(rebuilt, GBMStrategy)
+    assert rebuilt == strategy
+
+
+def test_prediction_strategy_from_dict_with_feature_overrides():
+    strategy = GBMStrategy(input_features, output_feature)
+    payload = {"strategy_type": "GBMStrategy", "params": strategy._params_to_dict()}  # pylint: disable=protected-access
+
+    rebuilt = PredictionStrategy.from_dict(payload,
+                                           input_features=input_features,
+                                           predicted_features=output_feature)
+    assert isinstance(rebuilt, GBMStrategy)
+    assert rebuilt == strategy
+
+
 def test_postprocess_features():
     data_array = np.array([
         [[1.0, 10.0], [2.0, 20.0], [3.0, 30.0]],
@@ -121,10 +145,7 @@ def test_gbm_strategy():
                     new_cips_calculator.predict(make_series_collection(1, 1))[0][0][output_feature],
                     atol=1E-5)
 
-    new_cips_calculator = build_prediction_strategy(strategy_type     = 'GBMStrategy',
-                                                    params            = cips_calculator.to_dict(),
-                                                    input_features    = input_features,
-                                                    predicted_features = output_feature)
+    new_cips_calculator = PredictionStrategy.from_dict(cips_calculator.to_dict())
     assert new_cips_calculator == cips_calculator
 
     os.remove('test_gbm_model.h5')
@@ -140,10 +161,7 @@ def test_pod_strategy():
                        detector_predictor.predict(make_series_collection(1, 1))[0][0]["fine_detector"],
                        atol=1E-2)
 
-    new_detector_predictor = build_prediction_strategy(strategy_type     = 'PODStrategy',
-                                                       params            = detector_predictor.to_dict(),
-                                                       input_features    = {'measured_rh_detector': NoProcessing()},
-                                                       predicted_features ='fine_detector')
+    new_detector_predictor = PredictionStrategy.from_dict(detector_predictor.to_dict())
     assert new_detector_predictor == detector_predictor
     assert new_detector_predictor.input_feature == detector_predictor.input_feature
     assert new_detector_predictor.nclusters     == detector_predictor.nclusters
@@ -164,6 +182,11 @@ def test_residual_correction_strategy():
                     cips_calculator.predict(make_series_collection(1, 1))[0][0][output_feature],
                     atol=1E-5)
 
+    payload = cips_calculator.to_dict()
+    assert payload["strategy_type"] == "ResidualCorrectionStrategy"
+    assert payload["params"]["residual_model"]["strategy_type"] == "GBMStrategy"
+    assert payload["params"]["reference_model"]["strategy_type"] == "GBMStrategy"
+
     cips_calculator.save_model('test_residual_model')
     new_cips_calculator = ResidualCorrectionStrategy.read_from_file('test_residual_model')
     new_cips_calculator.reference_model = cips_calculator.reference_model
@@ -172,10 +195,7 @@ def test_residual_correction_strategy():
                     new_cips_calculator.predict(make_series_collection(1, 1))[0][0][output_feature],
                     atol=1E-5)
 
-    new_cips_calculator = build_prediction_strategy(strategy_type     = 'ResidualCorrectionStrategy',
-                                                    params            = cips_calculator.to_dict(),
-                                                    input_features    = input_features,
-                                                    predicted_features = output_feature)
+    new_cips_calculator = PredictionStrategy.from_dict(cips_calculator.to_dict())
     new_cips_calculator.reference_model = cips_calculator.reference_model
     assert cips_calculator == new_cips_calculator
 
@@ -201,10 +221,7 @@ def test_nn_strategy_Dense():
                     new_cips_calculator.predict(make_series_collection(1, 1))[0][0][output_feature],
                     atol=1E-2)
 
-    new_cips_calculator = build_prediction_strategy(strategy_type     = 'NNStrategy',
-                                                    params            = cips_calculator.to_dict(),
-                                                    input_features    = input_features,
-                                                    predicted_features = output_feature)
+    new_cips_calculator = PredictionStrategy.from_dict(cips_calculator.to_dict())
     assert cips_calculator == new_cips_calculator
 
 
@@ -224,10 +241,7 @@ def test_nn_strategy_LSTM():
                     new_cips_calculator.predict(make_series_collection(100, 1))[0][-1][output_feature],
                     atol=1E-2)
 
-    new_cips_calculator = build_prediction_strategy(strategy_type     = 'NNStrategy',
-                                                    params            = cips_calculator.to_dict(),
-                                                    input_features    = input_features,
-                                                    predicted_features = output_feature)
+    new_cips_calculator = PredictionStrategy.from_dict(cips_calculator.to_dict())
     assert cips_calculator == new_cips_calculator
 
 
@@ -247,10 +261,7 @@ def test_nn_strategy_Transformer():
                     new_cips_calculator.predict(make_series_collection(100, 1))[0][-1][output_feature],
                     atol=1E-2)
 
-    new_cips_calculator = build_prediction_strategy(strategy_type     = 'NNStrategy',
-                                                    params            = cips_calculator.to_dict(),
-                                                    input_features    = input_features,
-                                                    predicted_features = output_feature)
+    new_cips_calculator = PredictionStrategy.from_dict(cips_calculator.to_dict())
     assert cips_calculator == new_cips_calculator
 
 
@@ -271,10 +282,7 @@ def test_nn_strategy_CNN():
                     new_cips_calculator.predict(make_series_collection(1, 1))[0][0][output_feature],
                     atol=1E-2)
 
-    new_cips_calculator = build_prediction_strategy(strategy_type     = 'NNStrategy',
-                                                    params            = cips_calculator.to_dict(),
-                                                    input_features    = input_features,
-                                                    predicted_features = output_feature)
+    new_cips_calculator = PredictionStrategy.from_dict(cips_calculator.to_dict())
     assert cips_calculator == new_cips_calculator
 
 
@@ -294,10 +302,7 @@ def test_nn_strategy_LayerSequence():
                     new_cips_calculator.predict(make_series_collection(1, 1))[0][0][output_feature],
                     atol=1E-2)
 
-    new_cips_calculator = build_prediction_strategy(strategy_type     = 'NNStrategy',
-                                                    params            = cips_calculator.to_dict(),
-                                                    input_features    = input_features,
-                                                    predicted_features = output_feature)
+    new_cips_calculator = PredictionStrategy.from_dict(cips_calculator.to_dict())
     assert cips_calculator == new_cips_calculator
     assert cips_calculator == new_cips_calculator
 
@@ -318,10 +323,7 @@ def test_nn_strategy_CompoundLayer():
                     new_cips_calculator.predict(make_series_collection(1, 1))[0][0][output_feature],
                     atol=1E-2)
 
-    new_cips_calculator = build_prediction_strategy(strategy_type     = 'NNStrategy',
-                                                    params            = cips_calculator.to_dict(),
-                                                    input_features    = input_features,
-                                                    predicted_features = output_feature)
+    new_cips_calculator = PredictionStrategy.from_dict(cips_calculator.to_dict())
     assert cips_calculator == new_cips_calculator
 
 def test_nn_strategy_GNN_SAGE():
@@ -342,10 +344,7 @@ def test_nn_strategy_GNN_SAGE():
                     new_cips_calculator.predict(make_series_collection(1, 1))[0][0][output_feature],
                     atol=1E-2)
 
-    new_cips_calculator = build_prediction_strategy(strategy_type     = 'NNStrategy',
-                                                    params            = cips_calculator.to_dict(),
-                                                    input_features    = input_features,
-                                                    predicted_features = output_feature)
+    new_cips_calculator = PredictionStrategy.from_dict(cips_calculator.to_dict())
     assert cips_calculator == new_cips_calculator
 
 
@@ -367,10 +366,7 @@ def test_nn_strategy_GNN_GAT():
                     new_cips_calculator.predict(make_series_collection(1, 1))[0][0][output_feature],
                     atol=1E-2)
 
-    new_cips_calculator = build_prediction_strategy(strategy_type     = 'NNStrategy',
-                                                    params            = cips_calculator.to_dict(),
-                                                    input_features    = input_features,
-                                                    predicted_features = output_feature)
+    new_cips_calculator = PredictionStrategy.from_dict(cips_calculator.to_dict())
     assert cips_calculator == new_cips_calculator
 
     for file in glob.glob('test_nn_model.*'):
@@ -401,13 +397,18 @@ def test_enhanced_pod_strategy_gbm():
                     new_cips_calculator.predict([[state]])[0][0][output_feature],
                     atol=1E-1)
 
+    new_cips_calculator = PredictionStrategy.from_dict(cips_calculator.to_dict())
+    assert isinstance(new_cips_calculator, EnhancedPODStrategy)
+    assert new_cips_calculator.num_moments == cips_calculator.num_moments
+    assert new_cips_calculator.theta_model_type == cips_calculator.theta_model_type
+    assert not new_cips_calculator.isTrained
+
     os.remove('test_enhanced_pod_model.h5')
     for file in glob.glob('test_enhanced_pod_model*.lgbm'):
         os.remove(file)
 
 
 def test_enhanced_pod_strategy_nn():
-    # Test EnhancedPOD with NN theta model
     enhanced_input_features = {'average_exposure': MinMaxNormalize(0., 45.)}
     cips_calculator = EnhancedPODStrategy(enhanced_input_features, output_feature,
                                          theta_model_type='NN', num_moments=1)
@@ -429,6 +430,12 @@ def test_enhanced_pod_strategy_nn():
     assert_allclose(state["cips_index"],
                     new_cips_calculator.predict([[state]])[0][0][output_feature],
                     atol=1E-1)
+
+    new_cips_calculator = PredictionStrategy.from_dict(cips_calculator.to_dict())
+    assert isinstance(new_cips_calculator, EnhancedPODStrategy)
+    assert new_cips_calculator.num_moments == cips_calculator.num_moments
+    assert new_cips_calculator.theta_model_type == cips_calculator.theta_model_type
+    assert not new_cips_calculator.isTrained
 
     for file in glob.glob('test_enhanced_pod_nn_model.*'):
         os.remove(file)
@@ -459,6 +466,12 @@ def test_enhanced_pod_strategy_sklearn():
     assert_allclose(state["cips_index"],
                     new_cips_calculator.predict([[state]])[0][0][output_feature],
                     atol=1E-1)
+
+    new_cips_calculator = PredictionStrategy.from_dict(cips_calculator.to_dict())
+    assert isinstance(new_cips_calculator, EnhancedPODStrategy)
+    assert new_cips_calculator.num_moments == cips_calculator.num_moments
+    assert new_cips_calculator.theta_model_type == cips_calculator.theta_model_type
+    assert not new_cips_calculator.isTrained
 
     for file in glob.glob('test_enhanced_pod_sklearn_model.*'):
         os.remove(file)
@@ -542,17 +555,24 @@ def test_enhanced_pod_strategy_multiple_features():
     assert len(new_cips_calculator.predicted_feature_names) == 2
 
     # Verify loaded model can predict with correct shapes
-    new_predictions = new_cips_calculator.predict([[state]])[0][0]
-    assert new_predictions["cips_index"].shape == state["cips_index"].shape
-    assert new_predictions["measured_rh_detector"].shape == state["measured_rh_detector"].shape
+    loaded_predictions = new_cips_calculator.predict([[state]])[0][0]
+    assert loaded_predictions["cips_index"].shape == state["cips_index"].shape
+    assert loaded_predictions["measured_rh_detector"].shape == state["measured_rh_detector"].shape
 
     # Verify loaded model produces same predictions as original model
     assert_allclose(predictions["cips_index"],
-                    new_predictions["cips_index"],
+                    loaded_predictions["cips_index"],
                     atol=1E-6)
     assert_allclose(predictions["measured_rh_detector"],
-                    new_predictions["measured_rh_detector"],
+                    loaded_predictions["measured_rh_detector"],
                     atol=1E-6)
+
+    new_cips_calculator = PredictionStrategy.from_dict(cips_calculator.to_dict())
+    assert isinstance(new_cips_calculator, EnhancedPODStrategy)
+    assert new_cips_calculator.num_moments == cips_calculator.num_moments
+    assert new_cips_calculator.theta_model_type == cips_calculator.theta_model_type
+    assert len(new_cips_calculator.predicted_feature_names) == 2
+    assert not new_cips_calculator.isTrained
 
     os.remove('test_enhanced_pod_multi_model.h5')
     for file in glob.glob('test_enhanced_pod_multi_model*.lgbm'):

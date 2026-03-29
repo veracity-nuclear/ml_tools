@@ -1,4 +1,5 @@
 from __future__ import annotations
+from typing import Optional
 
 from ml_tools.model.prediction_strategy import FeatureSpec
 from ml_tools.optimizer.search_space import (
@@ -17,10 +18,10 @@ class GBMSearchSpace(SearchSpace):
     ----------
     dimensions : GBMSearchSpace.Dimension
         The root hyperparameter search space to explore.
-    input_features : FeatureSpec
-        Input feature/processor pairs (Dict) or feature name(s) (str/List[str], automatically mapped to NoProcessing).
-    predicted_features : FeatureSpec
-        Output feature/processor pairs (Dict) or feature name(s) (str/List[str], automatically mapped to NoProcessing).
+    input_features : Optional[FeatureSpec]
+        Default input features. Must be provided for GBM search spaces.
+    predicted_features : Optional[FeatureSpec]
+        Default predicted features. Must be provided for GBM search spaces.
     Notes
     -----
     - For parameter semantics and valid ranges, see
@@ -260,11 +261,17 @@ class GBMSearchSpace(SearchSpace):
 
     def __init__(self,
                  dimensions: StructDimension,
-                 input_features: FeatureSpec,
-                 predicted_features: FeatureSpec) -> None:
+                 input_features: Optional[FeatureSpec],
+                 predicted_features: Optional[FeatureSpec]) -> None:
         assert isinstance(dimensions, GBMSearchSpace.Dimension), (
             f"dimensions must be a GBMSearchSpace.Dimension, got {type(dimensions)}"
         )
+        if input_features is None:
+            assert "input_features" in dimensions.fields, \
+                "GBMSearchSpace requires 'input_features' either as defaults or in dimensions"
+        if predicted_features is None:
+            assert "predicted_features" in dimensions.fields, \
+                "GBMSearchSpace requires 'predicted_features' either as defaults or in dimensions"
         super().__init__(prediction_strategy_type="GBMStrategy",
                          dimensions=dimensions,
                          input_features=input_features,

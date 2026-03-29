@@ -296,10 +296,10 @@ class PODStrategy(PredictionStrategy):
         return instance
 
     @classmethod
-    def from_dict(cls,
-                  params:            Dict,
-                  input_features:    FeatureSpec,
-                  predicted_features: FeatureSpec) -> PODStrategy:
+    def _from_params_dict(cls,
+                          params:            Dict,
+                          input_features:    FeatureSpec,
+                          predicted_features: FeatureSpec) -> PODStrategy:
 
         assert input_features is not None and len(input_features) == 1, \
             "PODStrategy requires exactly one input feature"
@@ -316,7 +316,7 @@ class PODStrategy(PredictionStrategy):
                        **kwargs)
         return instance
 
-    def to_dict(self) -> Dict:
+    def _params_to_dict(self) -> Dict:
         return {"input_feature":      self.input_feature,
                 "fine_to_coarse_map": (self.fine_to_coarse_map.tolist()),
                 "nclusters":          self.nclusters,

@@ -5,6 +5,7 @@ from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 import h5py
 
+from ml_tools.model import build_feature_processor, _PREDICTION_STRATEGY_REGISTRY
 from ml_tools.model.state import State, StateSeries, SeriesCollection
 from ml_tools.model.feature_processor import (
     FeatureProcessor,
@@ -382,9 +383,6 @@ class PredictionStrategy(ABC):
         h5_group : h5py.Group
             An opened HDF5 group or file handle
         """
-        # Import here to avoid circular dependency
-        from ml_tools.model import build_feature_processor  # pylint: disable=import-outside-toplevel
-
         pred_group = h5_group['predicted_features']
         pred_order = list(pred_group.keys())
         predicted_features = {}
@@ -535,40 +533,137 @@ class PredictionStrategy(ABC):
 
     @classmethod
     def from_dict(cls,
-                  params:            Dict,
-                  input_features:    FeatureSpec,
-                  predicted_features: FeatureSpec) -> PredictionStrategy:
-        """Construct a concrete PredictionStrategy from a parameter dict.
+                  strategy_dict: Dict[str, Any],
+                  input_features: Optional[FeatureSpec] = None,
+                  predicted_features: Optional[FeatureSpec] = None) -> PredictionStrategy:
+        """Construct a prediction strategy from a canonical serialized payload.
 
         Parameters
         ----------
-        params : Dict
-            Model parameters and/or architecture description. The expected
-            schema is strategy‑specific. For example, NNStrategy expects either
-            a 'neural_network' key or a top‑level 'layers' key.
-        input_features : FeatureSpec
-            Input feature/processor pairs (Dict) or feature name(s) (str/List[str], automatically mapped to NoProcessing).
-        predicted_features : FeatureSpec
-            Output feature/processor pairs (Dict) or feature name(s) (str/List[str], automatically mapped to NoProcessing).
+        strategy_dict : Dict[str, Any]
+            Strategy payload with keys:
+            - ``strategy_type``: registered strategy class name
+            - ``input_features``: serialized input feature/processor mapping (optional)
+            - ``predicted_features``: serialized predicted feature/processor mapping (optional)
+            - ``params``: strategy-specific parameter dictionary
+        input_features : Optional[FeatureSpec]
+            Optional feature override. If provided, ``strategy_dict`` must not contain
+            ``input_features``.
+        predicted_features : Optional[FeatureSpec]
+            Optional predicted-feature override. If provided, ``strategy_dict`` must not contain
+            ``predicted_features``.
+
         Returns
         -------
         PredictionStrategy
             A configured, untrained strategy instance.
         """
+        strategy_type = strategy_dict.get("strategy_type")
+        assert strategy_type is not None, "'strategy_type' is required in strategy_dict"
+        strategy_cls = _PREDICTION_STRATEGY_REGISTRY.get(strategy_type)
+        if strategy_cls is None:
+            raise KeyError(f"Unknown PredictionStrategy type: {strategy_type}")
 
-        instance = cls(input_features     = input_features,
-                       predicted_features = predicted_features,
-                       **params)
-        return instance
+        strategy_dict_input_features = strategy_dict.get("input_features")
+        strategy_dict_predicted_features = strategy_dict.get("predicted_features")
 
-    @abstractmethod
-    def to_dict(self) -> dict:
-        """ Convert the prediction strategy to a dictionary representation
+        if input_features is not None:
+            assert strategy_dict_input_features is None, \
+                "When 'input_features' parameter is provided, strategy_dict must not contain 'input_features'"
+        if predicted_features is not None:
+            assert strategy_dict_predicted_features is None, \
+                "When 'predicted_features' parameter is provided, strategy_dict must not contain 'predicted_features'"
+
+        if input_features is None:
+            assert (strategy_dict_input_features is None) or isinstance(strategy_dict_input_features, dict), \
+                "'input_features' in strategy_dict must be a dict when provided"
+            if isinstance(strategy_dict_input_features, dict):
+                resolved_input_features = strategy_cls.features_from_dict(strategy_dict_input_features)
+            else:
+                resolved_input_features = None
+        else:
+            resolved_input_features = strategy_cls.create_feature_processor_map(input_features)
+
+        if predicted_features is None:
+            assert (strategy_dict_predicted_features is None) or isinstance(strategy_dict_predicted_features, dict), \
+                "'predicted_features' in strategy_dict must be a dict when provided"
+            if isinstance(strategy_dict_predicted_features, dict):
+                resolved_predicted_features = strategy_cls.features_from_dict(strategy_dict_predicted_features)
+            else:
+                resolved_predicted_features = None
+        else:
+            resolved_predicted_features = strategy_cls.create_feature_processor_map(predicted_features)
+
+        params = strategy_dict.get("params", {})
+        assert isinstance(params, dict), "'params' must be a dict"
+
+        return strategy_cls._from_params_dict(  # pylint: disable=protected-access
+            params=params,
+            input_features=resolved_input_features,
+            predicted_features=resolved_predicted_features,
+        )
+
+    @classmethod
+    def _from_params_dict(cls,
+                          params: Dict[str, Any],
+                          input_features: Optional[FeatureSpec],
+                          predicted_features: Optional[FeatureSpec]) -> PredictionStrategy:
+        """Construct a strategy instance from serialized params and feature maps.
+
+        Parameters
+        ----------
+        params : Dict[str, Any]
+            Strategy-specific parameter dictionary. Keys and values are defined by
+            each concrete strategy implementation.
+        input_features : Optional[FeatureSpec]
+            Normalized input feature mapping to use when constructing the
+            strategy. In this method, values are expected to already be
+            ``Dict[str, FeatureProcessor]`` when provided.
+        predicted_features : Optional[FeatureSpec]
+            Normalized predicted feature mapping to use when constructing the
+            strategy. In this method, values are expected to already be
+            ``Dict[str, FeatureProcessor]`` when provided.
 
         Returns
         -------
-        dict
-            A dictionary representation of the prediction strategy
+        PredictionStrategy
+            A configured, untrained strategy instance of ``cls``.
+        """
+        assert input_features is not None, \
+            f"{cls.__name__} requires input_features in strategy_dict or from_dict arguments"
+        assert predicted_features is not None, \
+            f"{cls.__name__} requires predicted_features in strategy_dict or from_dict arguments"
+        instance = cls(input_features=input_features,
+                       predicted_features=predicted_features,
+                       **params)
+        return instance
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize this strategy to the canonical payload format.
+
+        Returns
+        -------
+        Dict[str, Any]
+            Strategy payload with ``strategy_type``, serialized ``input_features``,
+            serialized ``predicted_features``, and strategy-specific ``params``.
+        """
+        return {
+            "strategy_type": type(self).__name__,
+            "input_features": self.features_to_dict(self.input_features),
+            "predicted_features": self.features_to_dict(self.predicted_features),
+            "params": self._params_to_dict(),
+        }
+
+    @abstractmethod
+    def _params_to_dict(self) -> Dict[str, Any]:
+        """Serialize strategy-specific construction parameters.
+
+        Returns
+        -------
+        Dict[str, Any]
+            A dictionary containing only strategy-specific configuration needed
+            to reconstruct an equivalent untrained instance via
+            :meth:`PredictionStrategy.from_dict`.
         """
 
 

@@ -294,6 +294,29 @@ class SklearnStrategy(PredictionStrategy):
             instance.load_model(h5_file)
         return instance
 
+    @classmethod
+    def _from_params_dict(cls,
+                          params: Dict[str, Any],
+                          input_features: FeatureSpec,
+                          predicted_features: FeatureSpec) -> SklearnStrategy:
+        estimator_module = params.get("estimator_module")
+        estimator_name = params.get("estimator_name")
+        assert isinstance(estimator_module, str) and estimator_module, \
+            "'estimator_module' must be a non-empty string"
+        assert isinstance(estimator_name, str) and estimator_name, \
+            "'estimator_name' must be a non-empty string"
+
+        estimator_args = params.get("estimator_args", {})
+        assert isinstance(estimator_args, dict), "'estimator_args' must be a dict"
+
+        module = importlib.import_module(estimator_module)
+        estimator_class = getattr(module, estimator_name)
+
+        return cls(input_features=input_features,
+                   predicted_features=predicted_features,
+                   estimator=estimator_class,
+                   estimator_args=estimator_args)
+
     def __eq__(self, other: object) -> bool:
         """Check equality with another SklearnStrategy.
 
@@ -319,9 +342,8 @@ class SklearnStrategy(PredictionStrategy):
 
         return self._estimator_args == other._estimator_args
 
-    def to_dict(self) -> Dict:
-        """Return a serializable representation of the strategy parameters.
-
-        SklearnStrategy does not currently support to_dict-based construction.
-        """
-        raise NotImplementedError("SklearnStrategy does not support to_dict")
+    def _params_to_dict(self) -> Dict:
+        assert self._estimator_class is not None, "estimator class must be set before serialization"
+        return {"estimator_module": self._estimator_class.__module__,
+                "estimator_name": self._estimator_class.__name__,
+                "estimator_args": self._estimator_args}

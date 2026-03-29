@@ -18,10 +18,12 @@ class SearchSpace(ABC):
         The type of prediction strategy to be used.
     dimensions : Struct
         The root hyperparameter search space to explore
-    input_features : FeatureSpec
-        Input feature/processor pairs (Dict) or feature name(s) (str/List[str], automatically mapped to NoProcessing).
-    predicted_features : FeatureSpec
-        Output feature/processor pairs (Dict) or feature name(s) (str/List[str], automatically mapped to NoProcessing).
+    input_features : Optional[Dict[str, FeatureProcessor]]
+        Default input feature/processor pairs. If ``None``, input features must
+        be provided by sampled strategy dictionaries in ``dimensions``.
+    predicted_features : Optional[Dict[str, FeatureProcessor]]
+        Default output feature/processor pairs. If ``None``, predicted features
+        must be provided by sampled strategy dictionaries in ``dimensions``.
 
     Parameters
     ----------
@@ -29,10 +31,12 @@ class SearchSpace(ABC):
         Registered PredictionStrategy type name (e.g., "NNStrategy").
     dimensions : StructDimension
         Root struct of the parameter domains (not sampled values).
-    input_features : FeatureSpec
-        Input feature/processor pairs (Dict) or feature name(s) (str/List[str], automatically mapped to NoProcessing).
-    predicted_features : FeatureSpec
-        Output feature/processor pairs (Dict) or feature name(s) (str/List[str], automatically mapped to NoProcessing).
+    input_features : Optional[FeatureSpec]
+        Default input feature/processor pairs. If ``None``, input features must
+        be provided by sampled strategy dictionaries in ``dimensions``.
+    predicted_features : Optional[FeatureSpec]
+        Default output feature/processor pairs. If ``None``, predicted features
+        must be provided by sampled strategy dictionaries in ``dimensions``.
     """
 
     class Dimension(ABC):
@@ -48,28 +52,36 @@ class SearchSpace(ABC):
         return self._dimensions
 
     @property
-    def input_features(self) -> Dict[str, FeatureProcessor]:
+    def input_features(self) -> Optional[Dict[str, FeatureProcessor]]:
         return self._input_features
 
     @property
-    def predicted_features(self) -> Dict[str, FeatureProcessor]:
+    def predicted_features(self) -> Optional[Dict[str, FeatureProcessor]]:
         return self._predicted_features
 
     def __init__(self,
                  prediction_strategy_type: str,
                  dimensions:               StructDimension,
-                 input_features:           FeatureSpec,
-                 predicted_features:       FeatureSpec) -> None:
+                 input_features:           Optional[FeatureSpec],
+                 predicted_features:       Optional[FeatureSpec]) -> None:
         assert prediction_strategy_type in _PREDICTION_STRATEGY_REGISTRY, \
             f"Unknown prediction strategy: {prediction_strategy_type}"
         self._prediction_strategy_type = prediction_strategy_type
         self._dimensions               = dimensions
-        input_features = PredictionStrategy.create_feature_processor_map(input_features)
-        predicted_features = PredictionStrategy.create_feature_processor_map(predicted_features)
-        assert len(input_features) > 0, "input_features must be a non-empty dict"
-        assert len(predicted_features) > 0, "predicted_features must be a non-empty dict"
-        self._input_features     = input_features
-        self._predicted_features = predicted_features
+
+        if input_features is None:
+            self._input_features = None
+        else:
+            normalized_input = PredictionStrategy.create_feature_processor_map(input_features)
+            assert len(normalized_input) > 0, "input_features must be a non-empty dict"
+            self._input_features = normalized_input
+
+        if predicted_features is None:
+            self._predicted_features = None
+        else:
+            normalized_predicted = PredictionStrategy.create_feature_processor_map(predicted_features)
+            assert len(normalized_predicted) > 0, "predicted_features must be a non-empty dict"
+            self._predicted_features = normalized_predicted
 
 class IntDimension(SearchSpace.Dimension):
     """ Integer hyperparameter dimension.

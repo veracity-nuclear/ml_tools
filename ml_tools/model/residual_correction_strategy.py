@@ -9,7 +9,7 @@ import h5py
 from ml_tools.model.state import SeriesCollection
 from ml_tools.model.prediction_strategy import PredictionStrategy, FeatureSpec
 from ml_tools.model.feature_processor import FeatureProcessor
-from ml_tools.model import register_prediction_strategy, _PREDICTION_STRATEGY_REGISTRY, build_prediction_strategy
+from ml_tools.model import register_prediction_strategy, _PREDICTION_STRATEGY_REGISTRY
 
 @register_prediction_strategy()
 class ResidualCorrectionStrategy(PredictionStrategy):
@@ -23,10 +23,7 @@ class ResidualCorrectionStrategy(PredictionStrategy):
     Parameters
     ----------
     residual_model : Optional[PredictionStrategy]
-        The prediction strategy used to predict residual corrections. This model
-        dictates the input and predicted features of this strategy. If not provided,
-        use ``residual_strategy_type`` + ``residual_params`` + ``input_features`` +
-        ``predicted_features`` to build it.
+        The prediction strategy used to predict residual corrections.
     reference_model : Optional[PredictionStrategy]
         Optional reference prediction strategy to use for initial predictions.
         This can be set after initialization via the reference_model setter.
@@ -265,47 +262,70 @@ class ResidualCorrectionStrategy(PredictionStrategy):
         return instance
 
     @classmethod
-    def from_dict(cls,
-                  params:             Dict,
-                  input_features:     FeatureSpec,
-                  predicted_features: FeatureSpec) -> ResidualCorrectionStrategy:
-
-        residual_strategy_type = params.get("residual_strategy_type")
-        residual_params        = params.get("residual_strategy_params", {})
+    def _from_params_dict(cls,
+                          params:             Dict,
+                          input_features:     Optional[FeatureSpec],
+                          predicted_features: Optional[FeatureSpec]) -> ResidualCorrectionStrategy:
         reference_model_frozen = params.get("reference_model_frozen", False)
-        assert residual_strategy_type is not None, "residual_strategy_type is required in params"
-
-        residual_model = build_prediction_strategy(strategy_type      = residual_strategy_type,
-                                                   params             = residual_params,
-                                                   input_features     = input_features,
-                                                   predicted_features = predicted_features)
-
-        reference_model = None
-        reference_strategy_type = params.get("reference_strategy_type", None)
-        if reference_strategy_type is not None:
-            ref_input_features     = params.get("reference_input_features")
-            ref_predicted_features = params.get("reference_predicted_features")
-            reference_model = build_prediction_strategy(
-                strategy_type      = reference_strategy_type,
-                params             = params.get("reference_strategy_params", {}),
-                input_features     = cls.features_from_dict(ref_input_features),
-                predicted_features = cls.features_from_dict(ref_predicted_features),
-            )
+        residual_model = cls._build_nested_model_from_params(params=params,
+                                                             model_key="residual_model",
+                                                             default_input_features=input_features,
+                                                             default_predicted_features=predicted_features,
+                                                             required=True)
+        reference_model = cls._build_nested_model_from_params(params=params,
+                                                              model_key="reference_model",
+                                                              default_input_features=input_features,
+                                                              default_predicted_features=predicted_features,
+                                                              required=False)
 
         return cls(residual_model, reference_model, reference_model_frozen)
 
 
-    def to_dict(self) -> dict:
+
+    @classmethod
+    def _build_nested_model_from_params(cls,
+                                        params: Dict,
+                                        model_key: str,
+                                        default_input_features: Optional[FeatureSpec],
+                                        default_predicted_features: Optional[FeatureSpec],
+                                        required: bool = False) -> Optional[PredictionStrategy]:
+        strategy_dict = params.get(model_key)
+        if strategy_dict is None:
+            if required:
+                raise AssertionError(f"'{model_key}' is required in params")
+            return None
+        assert isinstance(strategy_dict, dict), f"'{model_key}' must be a dict"
+
+        if "input_features" in strategy_dict:
+            input_features_arg = None
+        else:
+            assert default_input_features is not None, \
+                f"'{model_key}.input_features' is missing and no default input_features were provided"
+            input_features_arg = cls.create_feature_processor_map(default_input_features)
+
+        if "predicted_features" in strategy_dict:
+            predicted_features_arg = None
+        else:
+            assert default_predicted_features is not None, \
+                f"'{model_key}.predicted_features' is missing and no default predicted_features were provided"
+            predicted_features_arg = cls.create_feature_processor_map(default_predicted_features)
+
+        from_dict_kwargs = {"strategy_dict": strategy_dict}
+        if input_features_arg is not None:
+            from_dict_kwargs["input_features"] = input_features_arg
+        if predicted_features_arg is not None:
+            from_dict_kwargs["predicted_features"] = predicted_features_arg
+
+        return PredictionStrategy.from_dict(**from_dict_kwargs)
+
+
+    def _params_to_dict(self) -> dict:
         assert self.residual_model is not None, "residual_model must be set before saving to dict"
 
-        params = {"residual_strategy_type": type(self.residual_model).__name__,
-                  "residual_strategy_params": self.residual_model.to_dict(),
+        params = {"residual_model": self.residual_model.to_dict(),
                   "reference_model_frozen": self.reference_model_frozen}
 
         if self.reference_model is not None:
-            params["reference_strategy_type"] = type(self.reference_model).__name__
-            params["reference_strategy_params"] = self.reference_model.to_dict()
-            params["reference_input_features"] = self.features_to_dict(self.reference_model.input_features)
-            params["reference_predicted_features"] = self.features_to_dict(self.reference_model.predicted_features)
+            params["reference_model"] = self.reference_model.to_dict()
 
         return params

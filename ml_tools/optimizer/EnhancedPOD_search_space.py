@@ -1,5 +1,6 @@
 from __future__ import annotations
 from typing import Optional
+from ml_tools.model.prediction_strategy import FeatureSpec
 from ml_tools.optimizer.search_space import (
     SearchSpace,
     StructDimension,
@@ -15,10 +16,10 @@ class EnhancedPODSearchSpace(SearchSpace):
     ----------
     dimensions : EnhancedPODSearchSpace.Dimension
         The root hyperparameter search space to explore.
-    input_features : Dict[str, FeatureProcessor]
-        Input feature processors keyed by feature name.
-    predicted_feature : str
-        Name of the target feature to predict.
+    input_features : Optional[FeatureSpec]
+        Default input features. Must be provided for EnhancedPOD search spaces.
+    predicted_features : Optional[FeatureSpec]
+        Default predicted features. Must be provided for EnhancedPOD search spaces.
     """
 
     class Dimension(StructDimension):
@@ -103,11 +104,17 @@ class EnhancedPODSearchSpace(SearchSpace):
 
     def __init__(self,
                  dimensions: StructDimension,
-                 input_features=None,
-                 predicted_features=None) -> None:
+                 input_features: Optional[FeatureSpec] = None,
+                 predicted_features: Optional[FeatureSpec] = None) -> None:
         assert isinstance(dimensions, EnhancedPODSearchSpace.Dimension), (
             f"dimensions must be a EnhancedPODSearchSpace.Dimension, got {type(dimensions)}"
         )
+        if input_features is None:
+            assert "input_features" in dimensions.fields, \
+                "EnhancedPODSearchSpace requires 'input_features' either as defaults or in dimensions"
+        if predicted_features is None:
+            assert "predicted_features" in dimensions.fields, \
+                "EnhancedPODSearchSpace requires 'predicted_features' either as defaults or in dimensions"
         super().__init__(prediction_strategy_type="EnhancedPODStrategy",
                          dimensions=dimensions,
                          input_features=input_features,
