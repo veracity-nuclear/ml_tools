@@ -577,6 +577,8 @@ def plot_shap(models:            Dict[str, PredictionStrategy],
                                   features      = selected_feature_values,
                                   show          = False)
 
+                # False positive with some SHAP/pylint combinations.
+                # pylint: disable=unreachable
                 plt.savefig(fig_name_prefix+"_"+feature_set+"_"+model_label+'.png', dpi=600, bbox_inches='tight')
                 plt.close()
 
