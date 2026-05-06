@@ -263,7 +263,7 @@ class State:
         return cls(features)
 
     @staticmethod
-    def from_hdf5(file_name: str, state: str, features: List[str]) -> State:
+    def from_hdf5(file_name: str, state: str, features: List[str], replace_slash: bool = False) -> State:
         """A factory method for extracting state feature data from an HDF5 file
 
         Parameters
@@ -274,6 +274,10 @@ class State:
             The group in the HDF5 file which holds the feature data of the state
         features : List[str]
             The list of features expected to be read in for each state
+        replace_slash : bool
+            If True, replace all '/' characters with '_' in feature names.
+            If False (default), only the base name is used. Duplicate keys are
+            handled by replacing the '/' with '_' in the feature name.
 
         Returns
         -------
@@ -300,12 +304,17 @@ class State:
                     raise AssertionError(
                         f"'{feature}' not found under '{state}' in {file_name}"
                     ) from exc
-                feature = os.path.basename(feature)
-                state_data[feature] = data
-                if np.isscalar(state_data[feature]):
-                    state_data[feature] = np.array([state_data[feature]])
+
+                feature_key = feature.replace("/", "_") if replace_slash else os.path.basename(feature)
+
+                # Handle duplicate keys by replacing / with _
+                if feature_key in state_data:
+                    feature_key = feature.replace("/", "_")
+
+                if np.isscalar(data):
+                    state_data[feature_key] = np.array([data])
                 else:
-                    state_data[feature] = state_data[feature].flatten()
+                    state_data[feature_key] = data.flatten()
 
         return State(state_data)
 
@@ -317,6 +326,7 @@ class State:
         silent: bool = False,
         num_procs: int = 1,
         random_sample_size: int = None,
+        replace_slash: bool = False,
     ) -> List[State]:
         """A factory method for building a collection of States from an HDF5 file
 
@@ -337,6 +347,8 @@ class State:
         random_sample_size : int
             Number of random state samples to draw from the list of specified states.
             If this argument is not provided, all states of the list will be considered.
+        replace_slash : bool
+            Whether to replace '/' characters with '_' in loaded feature names.
 
         Returns
         -------
@@ -369,7 +381,9 @@ class State:
 
         if num_procs == 1:
             for i, state in enumerate(states):
-                state_data.append(State.from_hdf5(file_name, state, features))
+                state_data.append(
+                    State.from_hdf5(file_name, state, features, replace_slash=replace_slash)
+                )
                 if not silent:
                     statusbar.update(i)
 
@@ -384,7 +398,14 @@ class State:
 
             with ProcessPoolExecutor(max_workers=num_procs) as executor:
                 jobs = {
-                    executor.submit(State.read_states_from_hdf5, file_name, features, chunk, silent=True): chunk
+                    executor.submit(
+                        State.read_states_from_hdf5,
+                        file_name,
+                        features,
+                        chunk,
+                        silent=True,
+                        replace_slash=replace_slash,
+                    ): chunk
                     for chunk in chunks
                 }
 
@@ -819,6 +840,7 @@ class StateSeries:
         state_series: List[str],
         silent: bool = False,
         num_procs: int = 1,
+        replace_slash: bool = False,
     ) -> StateSeries:
         """
         Build a StateSeries from an HDF5 file using a list of state groups.
@@ -836,6 +858,8 @@ class StateSeries:
             Whether to suppress progress output
         num_procs : int
             Number of parallel processors to use
+        replace_slash : bool
+            Whether to replace '/' characters with '_' in loaded feature names.
 
         Returns
         -------
@@ -848,6 +872,7 @@ class StateSeries:
             states=state_series,
             silent=silent,
             num_procs=num_procs,
+            replace_slash=replace_slash,
         )
         return cls(states)
 
@@ -1211,6 +1236,7 @@ class SeriesCollection:
         series_collection: Optional[List[List[str]]] = None,
         silent: bool = False,
         num_procs: int = 1,
+        replace_slash: bool = False,
     ) -> SeriesCollection:
         """
         Build a SeriesCollection from an HDF5 file using a list of lists of state names.
@@ -1274,6 +1300,7 @@ class SeriesCollection:
             states=flattened_states,
             silent=silent,
             num_procs=num_procs,
+            replace_slash=replace_slash,
         )
 
         # Partition the states back into StateSeries based on original structure

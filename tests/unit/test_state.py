@@ -9,6 +9,54 @@ from ml_tools import State, StateSeries, SeriesCollection
 from ml_tools.utils.h5_utils import get_groups_with_prefix
 from ml_tools import State, RelativeNormalPerturbator
 
+
+def test_read_states_from_hdf5_replace_slash(tmp_path):
+    file_name = tmp_path / "nested_state.h5"
+    with h5py.File(file_name, "w") as h5_file:
+        state_group = h5_file.create_group("set_000001")
+        outputs_group = state_group.create_group("outputs")
+        outputs_group.create_dataset("cips_index", data=np.array([1.0, 2.0]))
+        outputs_group.create_dataset("fine_detector", data=np.array([3.0, 4.0]))
+
+    states = State.read_states_from_hdf5(
+        file_name=str(file_name),
+        features=["outputs/cips_index", "outputs/fine_detector"],
+        states=["set_000001"],
+        replace_slash=True,
+    )
+
+    assert len(states) == 1
+    assert list(states[0].features.keys()) == ["outputs_cips_index", "outputs_fine_detector"]
+    assert_allclose(states[0]["outputs_cips_index"], [1.0, 2.0])
+    assert_allclose(states[0]["outputs_fine_detector"], [3.0, 4.0])
+
+
+def test_read_states_from_hdf5_false_with_duplicate_basenames(tmp_path):
+    file_name = tmp_path / "nested_state_duplicates.h5"
+    with h5py.File(file_name, "w") as h5_file:
+        state_group = h5_file.create_group("set_000001")
+        outputs_group = state_group.create_group("outputs")
+        results_group = state_group.create_group("results")
+        # Both groups have a dataset named "index" - same basename
+        outputs_group.create_dataset("index", data=np.array([1.0, 2.0]))
+        results_group.create_dataset("index", data=np.array([3.0, 4.0]))
+
+    states = State.read_states_from_hdf5(
+        file_name=str(file_name),
+        features=["outputs/index", "results/index"],
+        states=["set_000001"],
+        replace_slash=False,
+    )
+
+    assert len(states) == 1
+    # First feature gets basename "index", second should fallback to "results_index"
+    # due to duplicate key resolution in from_hdf5
+    assert "index" in states[0].features
+    assert "results_index" in states[0].features
+    assert_allclose(states[0]["index"], [1.0, 2.0])
+    assert_allclose(states[0]["results_index"], [3.0, 4.0])
+
+
 def test_state():
 
     data_file    = os.path.dirname(__file__)+"/test_data.h5"
@@ -205,6 +253,41 @@ def test_series_collection_featurewise_parallel():
     assert_allclose(combined[0][1]["a"], [22.0])
     assert_allclose(combined[1][0]["a"], [33.0])
     assert_allclose(combined[1][1]["a"], [44.0])
+
+def test_bulk_hdf5_readers_replace_slash(tmp_path):
+    file_name = tmp_path / "nested_series_collection.h5"
+    with h5py.File(file_name, "w") as h5_file:
+        series_group = h5_file.create_group("series_000")
+        for state_idx, value in enumerate((1.0, 2.0)):
+            state_group = series_group.create_group(f"state_{state_idx:06d}")
+            outputs_group = state_group.create_group("outputs")
+            outputs_group.create_dataset("cips_index", data=np.array([value]))
+
+    state_series_paths = [
+        "series_000/state_000000",
+        "series_000/state_000001",
+    ]
+
+    loaded_series = StateSeries.from_hdf5(
+        file_name=str(file_name),
+        features=["outputs/cips_index"],
+        state_series=state_series_paths,
+        replace_slash=True,
+    )
+    assert loaded_series.features == ["outputs_cips_index"]
+    assert_allclose(loaded_series[0]["outputs_cips_index"], [1.0])
+    assert_allclose(loaded_series[1]["outputs_cips_index"], [2.0])
+
+    loaded_collection = SeriesCollection.from_hdf5(
+        file_name=str(file_name),
+        features=["outputs/cips_index"],
+        series_collection=[state_series_paths],
+        replace_slash=True,
+    )
+    assert loaded_collection.features == ["outputs_cips_index"]
+    assert_allclose(loaded_collection[0][0]["outputs_cips_index"], [1.0])
+    assert_allclose(loaded_collection[0][1]["outputs_cips_index"], [2.0])
+
 
 def test_state_vector_features():
     series = StateSeries([
