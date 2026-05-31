@@ -112,20 +112,22 @@ class OptunaStrategy(SearchStrategy):
                 print(f"num_fold_workers={num_fold_workers} > 1, forcing num_procs=1 to avoid nested parallelism")
                 effective_num_procs = 1
 
-        study     = optuna.create_study(direction='minimize',
-                                        storage=storage_uri,
-                                        study_name="optuna_study",
-                                        load_if_exists=load_if_exists)
+
         objective = self._setup_objective(search_space,
                                           series_collection,
                                           number_of_folds,
                                           effective_fold_workers,
                                           effective_num_procs)
 
+        study = optuna.create_study(direction='minimize',
+                                    storage=storage_uri,
+                                    study_name="optuna_study",
+                                    load_if_exists=load_if_exists)
+
         study.optimize(objective,
-                   n_trials=num_trials,
-                   callbacks=[log_progress],
-                   n_jobs=num_jobs)
+                       n_trials=num_trials,
+                       callbacks=[log_progress],
+                       n_jobs=num_jobs)
 
         with open(output_file, 'a') as output:
             output.write("\nBEST PARAMETERS\n----------------\n")
@@ -139,8 +141,6 @@ class OptunaStrategy(SearchStrategy):
             input_features=search_space.input_features,
             predicted_features=search_space.predicted_features,
         )
-
-        best_model.train(series_collection, num_procs=num_procs)
 
         return best_model
 

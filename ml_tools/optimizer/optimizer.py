@@ -58,7 +58,8 @@ class Optimizer():
                  study_storage:     Optional[str] = None,
                  num_procs:         int = 1,
                  num_fold_workers:  int = 1,
-                 num_jobs:          int = 1) -> PredictionStrategy:
+                 num_jobs:          int = 1,
+                 train_best_model:  bool = True) -> PredictionStrategy:
         """ Method for performing model hyperparameter optimization
 
         Parameters
@@ -85,22 +86,31 @@ class Optimizer():
             Max workers for evaluating CV folds in parallel; 1 keeps sequential.
         num_jobs : int
             Number of parallel workers per process when the backend supports it (Optuna's num_jobs).
+        train_best_model : bool
+            Whether to train the best model on the full original series collection
+            before returning it. Default is True.
 
         Returns
         -------
         PredictionStrategy
-            The best model found during optimization
+            The best model found during optimization. The model is trained only
+            when ``train_best_model`` is True.
         """
 
-        return self.search_strategy.search(search_space      = self.search_space,
-                                           series_collection = series_collection,
-                                           num_trials        = num_trials,
-                                           number_of_folds   = number_of_folds,
-                                           output_file       = output_file,
-                                           checkpoint_dir    = checkpoint_dir,
-                                           resume            = resume,
-                                           save_every_n_trials = save_every_n_trials,
-                                           study_storage     = study_storage,
-                                           num_procs         = num_procs,
-                                           num_fold_workers   = num_fold_workers,
-                                           num_jobs          = num_jobs)
+        best_model = self.search_strategy.search(search_space      = self.search_space,
+                                                 series_collection = series_collection,
+                                                 num_trials        = num_trials,
+                                                 number_of_folds   = number_of_folds,
+                                                 output_file       = output_file,
+                                                 checkpoint_dir    = checkpoint_dir,
+                                                 resume            = resume,
+                                                 save_every_n_trials = save_every_n_trials,
+                                                 study_storage     = study_storage,
+                                                 num_procs         = num_procs,
+                                                 num_fold_workers   = num_fold_workers,
+                                                 num_jobs          = num_jobs)
+
+        if train_best_model:
+            best_model.train(series_collection, num_procs=num_procs)
+
+        return best_model
