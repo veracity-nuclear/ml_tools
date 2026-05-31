@@ -526,30 +526,24 @@ class State:
                     i += 1
 
         else:
-
-            def chunkify(states: StateSeries, chunk_size: int):
-                for i in range(0, len(states), chunk_size):
-                    yield states[i : i + chunk_size]
-
-            chunk_size = max(1, len(states) // num_procs)
-            chunks = list(chunkify(states, chunk_size))
-
+            state_data = [None] * len(states)
             with ProcessPoolExecutor(max_workers=num_procs) as executor:
-                jobs = {executor.submit(State.perturb_state(perturbators, state)): chunk for chunk in chunks}
+                jobs = {executor.submit(State.perturb_state, perturbators, state): idx
+                        for idx, state in enumerate(states)}
 
                 completed = 0
                 for job in as_completed(jobs):
+                    idx = jobs[job]
                     result = job.result()
-                    state_data.extend(result)
+                    state_data[idx] = result
                     if not silent:
-                        for _ in result:
-                            statusbar.update(completed)
-                            completed += 1
+                        statusbar.update(completed)
+                        completed += 1
 
         if not silent:
             statusbar.finalize()
 
-        return state_data
+        return StateSeries(state_data)
 
 
 class StateSeries:
@@ -1692,7 +1686,7 @@ class SeriesCollection:
             state_series_dict[series_idx].append(state)
 
         max_series_idx = max(state_series_dict.keys())
-        return cls([state_series_dict.get(i) for i in range(max_series_idx + 1)])
+        return cls([StateSeries(state_series_dict.get(i, [])) for i in range(max_series_idx + 1)])
 
     def to_dataframe(
         self,

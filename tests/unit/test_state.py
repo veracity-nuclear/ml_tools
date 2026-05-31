@@ -94,7 +94,13 @@ def test_state():
     }).set_index(["series_index", "state_index"])
     pdt.assert_frame_equal(actual_df, expected_df, check_dtype=False)
 
-    state = SeriesCollection.from_dataframe(SeriesCollection([StateSeries([state])]).to_dataframe(features), features=features)[0][0]
+    loaded_collection = SeriesCollection.from_dataframe(
+        SeriesCollection([StateSeries([state])]).to_dataframe(features),
+        features=features,
+    )
+    assert isinstance(loaded_collection[0], StateSeries)
+
+    state = loaded_collection[0][0]
     actual_average_enrichment      = state["average_enrichment"]
     actual_boron_concentration     = state["boron_concentration"]
     actual_measured_fixed_detector = state["measured_fixed_detector"]
@@ -106,6 +112,7 @@ def test_state():
                     "boron_concentration":     RelativeNormalPerturbator(0.2)}
 
     perturbed_states = State.perturb_states(perturbators, states)
+    assert isinstance(perturbed_states, StateSeries)
 
     perturbed_boron_concentration     = perturbed_states[0]["boron_concentration"]
     perturbed_measured_fixed_detector = perturbed_states[0]["measured_fixed_detector"]
