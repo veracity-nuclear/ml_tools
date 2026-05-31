@@ -1,6 +1,6 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import Sequence, Dict, Any
+from typing import Dict, Any
 from math import isclose
 import numpy as np
 import h5py
@@ -12,13 +12,15 @@ class FeatureProcessor(ABC):
     """
 
     @abstractmethod
-    def preprocess(self, orig_data: Sequence) -> np.ndarray:
-        """ a method for pre-processing feature data
+    def preprocess(self, orig_data: np.ndarray) -> np.ndarray:
+        """Pre-process feature data.
 
         Parameters
         ----------
-        orig_data : Sequence
-            The data in its original form (list, tuple, array, nested sequences, etc.)
+        orig_data : np.ndarray
+            Feature data in its original physical form. Implementations should
+            accept array-like input and return an array with the same leading
+            dimensions.
 
         Returns
         -------
@@ -28,15 +30,17 @@ class FeatureProcessor(ABC):
 
 
     @abstractmethod
-    def postprocess(self, processed_data: np.ndarray) -> Sequence:
-        """ a method for post-processing feature data
+    def postprocess(self, processed_data: np.ndarray) -> np.ndarray:
+        """Post-process feature data.
 
         Post-processing here means the inverse operation of pre-processing
 
         Parameters
         ----------
         processed_data : np.ndarray
-            The data in its processed form that must be post-processed
+            Feature data in its processed form. Implementations should accept
+            array-like input and return an array with the same leading
+            dimensions.
 
         Returns
         -------
@@ -137,7 +141,7 @@ class MinMaxNormalize(FeatureProcessor):
         self._min = min_value
         self._max = max_value
 
-    def preprocess(self, orig_data: Sequence) -> np.ndarray:
+    def preprocess(self, orig_data: np.ndarray) -> np.ndarray:
         data = np.asarray(orig_data)
         return (data - self.min)/(self.max - self.min)
 
@@ -171,7 +175,7 @@ class NoProcessing(FeatureProcessor):
     def __init__(self):
         pass
 
-    def preprocess(self, orig_data: Sequence) -> np.ndarray:
+    def preprocess(self, orig_data: np.ndarray) -> np.ndarray:
         return np.array(orig_data, copy=True)
 
     def postprocess(self, processed_data: np.ndarray) -> np.ndarray:

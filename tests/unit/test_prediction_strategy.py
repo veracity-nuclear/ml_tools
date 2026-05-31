@@ -378,14 +378,14 @@ def test_enhanced_pod_strategy_gbm():
     enhanced_input_features = {'average_exposure': MinMaxNormalize(0., 45.)}
     cips_calculator = EnhancedPODStrategy(enhanced_input_features, output_feature,
                                          theta_model_type='GBM', num_moments=1)
-    cips_calculator.train([[state]]*40, [[state]]*10, num_procs=1)
+    cips_calculator.train(make_series_collection(1, 40), make_series_collection(1, 10), num_procs=1)
 
     assert cips_calculator.isTrained
     assert cips_calculator.num_moments == 1
     assert cips_calculator.theta_model_type == 'GBM'
 
     assert_allclose(state["cips_index"],
-                    cips_calculator.predict([[state]])[0][0][output_feature],
+                    cips_calculator.predict(make_series_collection(1, 1))[0][0][output_feature],
                     atol=1E-1)
 
     cips_calculator.save_model('test_enhanced_pod_model.h5')
@@ -394,7 +394,7 @@ def test_enhanced_pod_strategy_gbm():
     assert new_cips_calculator.num_moments == cips_calculator.num_moments
     assert new_cips_calculator.theta_model_type == cips_calculator.theta_model_type
     assert_allclose(state["cips_index"],
-                    new_cips_calculator.predict([[state]])[0][0][output_feature],
+                    new_cips_calculator.predict(make_series_collection(1, 1))[0][0][output_feature],
                     atol=1E-1)
 
     new_cips_calculator = PredictionStrategy.from_dict(cips_calculator.to_dict())
@@ -412,14 +412,14 @@ def test_enhanced_pod_strategy_nn():
     enhanced_input_features = {'average_exposure': MinMaxNormalize(0., 45.)}
     cips_calculator = EnhancedPODStrategy(enhanced_input_features, output_feature,
                                          theta_model_type='NN', num_moments=1)
-    cips_calculator.train([[state]]*80, [[state]]*20, num_procs=1)
+    cips_calculator.train(make_series_collection(1, 80), make_series_collection(1, 20), num_procs=1)
 
     assert cips_calculator.isTrained
     assert cips_calculator.num_moments == 1
     assert cips_calculator.theta_model_type == 'NN'
 
     assert_allclose(state["cips_index"],
-                    cips_calculator.predict([[state]])[0][0][output_feature],
+                    cips_calculator.predict(make_series_collection(1, 1))[0][0][output_feature],
                     atol=1E-1)
 
     cips_calculator.save_model('test_enhanced_pod_nn_model.h5')
@@ -428,7 +428,7 @@ def test_enhanced_pod_strategy_nn():
     assert new_cips_calculator.num_moments == cips_calculator.num_moments
     assert new_cips_calculator.theta_model_type == cips_calculator.theta_model_type
     assert_allclose(state["cips_index"],
-                    new_cips_calculator.predict([[state]])[0][0][output_feature],
+                    new_cips_calculator.predict(make_series_collection(1, 1))[0][0][output_feature],
                     atol=1E-1)
 
     new_cips_calculator = PredictionStrategy.from_dict(cips_calculator.to_dict())
@@ -448,14 +448,14 @@ def test_enhanced_pod_strategy_sklearn():
     cips_calculator = EnhancedPODStrategy(enhanced_input_features, output_feature,
                                          theta_model_type='sklearn', num_moments=1,
                                          theta_model_settings={'estimator': LinearRegression})
-    cips_calculator.train([[state]]*40, [[state]]*10, num_procs=1)
+    cips_calculator.train(make_series_collection(1, 40), make_series_collection(1, 10), num_procs=1)
 
     assert cips_calculator.isTrained
     assert cips_calculator.num_moments == 1
     assert cips_calculator.theta_model_type == 'SKLEARN'
 
     assert_allclose(state["cips_index"],
-                    cips_calculator.predict([[state]])[0][0][output_feature],
+                    cips_calculator.predict(make_series_collection(1, 1))[0][0][output_feature],
                     atol=1E-1)
 
     cips_calculator.save_model('test_enhanced_pod_sklearn_model.h5')
@@ -464,7 +464,7 @@ def test_enhanced_pod_strategy_sklearn():
     assert new_cips_calculator.num_moments == cips_calculator.num_moments
     assert new_cips_calculator.theta_model_type == cips_calculator.theta_model_type
     assert_allclose(state["cips_index"],
-                    new_cips_calculator.predict([[state]])[0][0][output_feature],
+                    new_cips_calculator.predict(make_series_collection(1, 1))[0][0][output_feature],
                     atol=1E-1)
 
     new_cips_calculator = PredictionStrategy.from_dict(cips_calculator.to_dict())
@@ -522,7 +522,7 @@ def test_enhanced_pod_strategy_multiple_features():
     # Test with GBM theta model
     cips_calculator = EnhancedPODStrategy(enhanced_input_features, multiple_output_features,
                                          theta_model_type='GBM', num_moments=2)
-    cips_calculator.train([[state]]*40, [[state]]*10, num_procs=1)
+    cips_calculator.train(make_series_collection(1, 40), make_series_collection(1, 10), num_procs=1)
 
     assert cips_calculator.isTrained
     assert cips_calculator.num_moments == 2
@@ -530,7 +530,7 @@ def test_enhanced_pod_strategy_multiple_features():
     assert len(cips_calculator.predicted_feature_names) == 2
 
     # Predict and check both features
-    predictions = cips_calculator.predict([[state]])[0][0]
+    predictions = cips_calculator.predict(make_series_collection(1, 1))[0][0]
     assert 'cips_index' in predictions.features
     assert 'measured_rh_detector' in predictions.features
 
@@ -555,7 +555,7 @@ def test_enhanced_pod_strategy_multiple_features():
     assert len(new_cips_calculator.predicted_feature_names) == 2
 
     # Verify loaded model can predict with correct shapes
-    loaded_predictions = new_cips_calculator.predict([[state]])[0][0]
+    loaded_predictions = new_cips_calculator.predict(make_series_collection(1, 1))[0][0]
     assert loaded_predictions["cips_index"].shape == state["cips_index"].shape
     assert loaded_predictions["measured_rh_detector"].shape == state["measured_rh_detector"].shape
 

@@ -188,28 +188,24 @@ class OptunaStrategy(SearchStrategy):
                 fold_model.train(fold_training_set, num_procs=train_procs)
                 print(f"Fold {fold}: training complete")
 
-                feature_order = list(fold_model.predicted_features)
-                measured_rows = []
-                for series in fold_validation_set:
-                    parts = []
-                    for name in feature_order:
-                        v = np.asarray(series[0][name], dtype=float)
-                        v = np.atleast_1d(v).reshape(-1)
-                        parts.append(v)
-                    measured_rows.append(np.concatenate(parts, axis=0))
-                measured = np.vstack(measured_rows)
+                def flatten_feature_values(series_collection, feature_order):
+                    rows = []
+                    for series in series_collection:
+                        for state in series:
+                            parts = []
+                            for name in feature_order:
+                                value = np.asarray(state[name], dtype=float)
+                                value = np.atleast_1d(value).reshape(-1)
+                                parts.append(value)
+                            rows.append(np.concatenate(parts, axis=0))
+                    return np.vstack(rows)
 
-                predicted_rows = []
+                feature_order = list(fold_model.predicted_features)
+                measured = flatten_feature_values(fold_validation_set, feature_order)
+
                 print(f"Fold {fold}: predicting start")
-                for series in fold_model.predict(fold_validation_set):
-                    parts = []
-                    for name in feature_order:
-                        v = np.asarray(series[0][name], dtype=float)
-                        v = np.atleast_1d(v).reshape(-1)
-                        parts.append(v)
-                    predicted_rows.append(np.concatenate(parts, axis=0))
+                predicted = flatten_feature_values(fold_model.predict(fold_validation_set), feature_order)
                 print(f"Fold {fold}: predicting complete")
-                predicted = np.vstack(predicted_rows)
 
                 diff = measured - predicted
                 fold_rms = np.sqrt(np.mean(np.square(diff, dtype=float)))

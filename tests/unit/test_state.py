@@ -211,6 +211,18 @@ def test_state_featurewise():
     assert set(subset.features.keys()) == {"a"}
     assert_allclose(subset["a"], [-9.0, -18.0])
 
+def test_state_process_features():
+    state = State({"a": np.array([1.0, 2.0]), "b": np.array([3.0]), "c": np.array([4.0])})
+
+    processed = state.process_features({
+        "a": lambda data: data * 2.0,
+        "b": lambda data: data + 10.0,
+    })
+
+    assert list(processed.features.keys()) == ["a", "b"]
+    assert_allclose(processed["a"], [2.0, 4.0])
+    assert_allclose(processed["b"], [13.0])
+
 def test_state_series_featurewise_serial_and_parallel():
     left = StateSeries([
         State({"a": np.array([1.0]), "b": np.array([2.0])}),
@@ -237,6 +249,49 @@ def test_state_series_featurewise_serial_and_parallel():
     assert_allclose(parallel[1]["a"], [-27.0])
     assert_allclose(parallel[2]["a"], [-45.0])
 
+def test_state_series_to_array_and_from_array():
+    series = StateSeries([
+        State({"a": np.array([1.0, 2.0]), "b": np.array([3.0])}),
+        State({"a": np.array([4.0, 5.0]), "b": np.array([6.0])}),
+    ])
+
+    actual = series.to_array(features=["a", "b"], series_length=3, pad_value=-1.0)
+
+    assert_allclose(actual,
+                    np.array([[1.0, 2.0, 3.0],
+                              [4.0, 5.0, 6.0],
+                              [-1.0, -1.0, -1.0]]))
+
+    restored = StateSeries.from_array(actual,
+                                      feature_order=["a", "b"],
+                                      feature_sizes={"a": 2, "b": 1},
+                                      series_length=2)
+
+    assert len(restored) == 2
+    assert restored.features == ["a", "b"]
+    assert_allclose(restored[0]["a"], [1.0, 2.0])
+    assert_allclose(restored[0]["b"], [3.0])
+    assert_allclose(restored[1]["a"], [4.0, 5.0])
+    assert_allclose(restored[1]["b"], [6.0])
+
+def test_state_series_process_features():
+    series = StateSeries([
+        State({"a": np.array([1.0, 2.0]), "b": np.array([10.0]), "c": np.array([100.0])}),
+        State({"a": np.array([3.0, 4.0]), "b": np.array([20.0]), "c": np.array([200.0])}),
+    ])
+
+    processed = series.process_features({
+        "a": lambda data: data + 1.0,
+        "b": lambda data: data / 10.0,
+    })
+
+    assert len(processed) == 2
+    assert processed.features == ["a", "b"]
+    assert_allclose(processed[0]["a"], [2.0, 3.0])
+    assert_allclose(processed[1]["a"], [4.0, 5.0])
+    assert_allclose(processed[0]["b"], [1.0])
+    assert_allclose(processed[1]["b"], [2.0])
+
 def test_series_collection_featurewise_parallel():
     left = SeriesCollection([
         StateSeries([State({"a": 1.0}), State({"a": 2.0})]),
@@ -253,6 +308,68 @@ def test_series_collection_featurewise_parallel():
     assert_allclose(combined[0][1]["a"], [22.0])
     assert_allclose(combined[1][0]["a"], [33.0])
     assert_allclose(combined[1][1]["a"], [44.0])
+
+def test_series_collection_to_array_and_from_array():
+    collection = SeriesCollection([
+        StateSeries([
+            State({"a": np.array([1.0]), "b": np.array([2.0, 3.0])}),
+            State({"a": np.array([4.0]), "b": np.array([5.0, 6.0])}),
+        ]),
+        StateSeries([
+            State({"a": np.array([7.0]), "b": np.array([8.0, 9.0])}),
+        ]),
+    ])
+
+    padded = collection.to_array(features=["a", "b"], pad_value=-1.0)
+
+    assert padded.shape == (2, 2, 3)
+    assert_allclose(padded,
+                    np.array([[[1.0, 2.0, 3.0],
+                               [4.0, 5.0, 6.0]],
+                              [[7.0, 8.0, 9.0],
+                               [-1.0, -1.0, -1.0]]]))
+
+    restored = SeriesCollection.from_array(padded,
+                                           feature_order=["a", "b"],
+                                           feature_sizes={"a": 1, "b": 2},
+                                           series_lengths=[2, 1])
+
+    assert len(restored) == 2
+    assert len(restored[0]) == 2
+    assert len(restored[1]) == 1
+    assert_allclose(restored[0][0]["a"], [1.0])
+    assert_allclose(restored[0][0]["b"], [2.0, 3.0])
+    assert_allclose(restored[0][1]["a"], [4.0])
+    assert_allclose(restored[0][1]["b"], [5.0, 6.0])
+    assert_allclose(restored[1][0]["a"], [7.0])
+    assert_allclose(restored[1][0]["b"], [8.0, 9.0])
+
+def test_series_collection_process_features():
+    collection = SeriesCollection([
+        StateSeries([
+            State({"a": np.array([1.0]), "b": np.array([2.0, 3.0]), "c": np.array([100.0])}),
+            State({"a": np.array([4.0]), "b": np.array([5.0, 6.0]), "c": np.array([200.0])}),
+        ]),
+        StateSeries([
+            State({"a": np.array([7.0]), "b": np.array([8.0, 9.0]), "c": np.array([300.0])}),
+        ]),
+    ])
+
+    processed = collection.process_features({
+        "a": lambda data: data - 1.0,
+        "b": lambda data: data * 2.0,
+    })
+
+    assert len(processed) == 2
+    assert processed.features == ["a", "b"]
+    assert len(processed[0]) == 2
+    assert len(processed[1]) == 1
+    assert_allclose(processed[0][0]["a"], [0.0])
+    assert_allclose(processed[0][0]["b"], [4.0, 6.0])
+    assert_allclose(processed[0][1]["a"], [3.0])
+    assert_allclose(processed[0][1]["b"], [10.0, 12.0])
+    assert_allclose(processed[1][0]["a"], [6.0])
+    assert_allclose(processed[1][0]["b"], [16.0, 18.0])
 
 def test_bulk_hdf5_readers_replace_slash(tmp_path):
     file_name = tmp_path / "nested_series_collection.h5"

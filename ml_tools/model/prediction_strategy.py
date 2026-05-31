@@ -6,7 +6,7 @@ import numpy as np
 import h5py
 
 from ml_tools.model import build_feature_processor, _PREDICTION_STRATEGY_REGISTRY
-from ml_tools.model.state import State, StateSeries, SeriesCollection
+from ml_tools.model.state import SeriesCollection
 from ml_tools.model.feature_processor import (
     FeatureProcessor,
     NoProcessing
@@ -181,37 +181,8 @@ class PredictionStrategy(ABC):
             with 0.0 to match the length of the longest series.
         """
         assert num_procs > 0, f"num_procs must be > 0, got {num_procs}"
-        if num_procs <= 1:
-            processed_inputs = [
-                PredictionStrategy._preprocess_single_series(series, features)
-                for series in series_collection
-            ]
-        else:
-            features = [features] * len(series_collection)  # input_features for each worker
-            with ProcessPoolExecutor(max_workers=num_procs) as executor:
-                processed_inputs = list(executor.map(PredictionStrategy._preprocess_single_series,
-                                                     series_collection,
-                                                     features))
-
-        return PredictionStrategy._pad_series(processed_inputs)
-
-    @staticmethod
-    def _preprocess_single_series(series: StateSeries, input_features: Dict[str, FeatureProcessor]) -> np.ndarray:
-        """ Helper method to support parallelizing preprocess_features
-
-        This is required to be a separate method so it can be pickled by ProcessPoolExecutor
-        """
-
-        processed_inputs = []
-        for feature, processor in input_features.items():
-            feature_data = [state.features[feature] for state in series]
-            processed_data = np.asarray(processor.preprocess(feature_data))
-            if processed_data.ndim == 1:
-                processed_data = processed_data[:, np.newaxis]
-            elif processed_data.ndim > 2:
-                processed_data = np.vstack(processed_data)
-            processed_inputs.append(processed_data)
-        return np.hstack(processed_inputs)
+        transforms = {name: processor.preprocess for name, processor in features.items()}
+        return series_collection.process_features(transforms, num_procs=num_procs).to_array(list(features))
 
 
     @staticmethod
@@ -252,74 +223,9 @@ class PredictionStrategy(ABC):
         assert data_array.shape[2] == total_size, \
             f"Predicted output dim {data_array.shape[2]} does not match expected {total_size}"
 
-        if num_procs <= 1:
-            state_series_list = [
-                PredictionStrategy._postprocess_single_series(padded,
-                                                              series_len,
-                                                              feature_order,
-                                                              feature_sizes,
-                                                              features)
-                for padded, series_len in zip(data_array, series_lengths)
-            ]
-        else:
-            with ProcessPoolExecutor(max_workers=num_procs) as executor:
-                state_series_list = list(executor.map(PredictionStrategy._postprocess_single_series,
-                                                      data_array,
-                                                      series_lengths,
-                                                      [feature_order] * len(series_lengths),
-                                                      [feature_sizes] * len(series_lengths),
-                                                      [features] * len(series_lengths)))
-
-        return SeriesCollection(state_series_list)
-
-    @staticmethod
-    def _postprocess_single_series(series_data: np.ndarray,
-                                   series_len: int,
-                                   feature_order: List[str],
-                                   feature_sizes: Dict[str, int],
-                                   feature_processors: Dict[str, FeatureProcessor]) -> StateSeries:
-        """Helper method to support parallelizing postprocess_features."""
-        series_data = series_data[:series_len]
-        processed_by_feature: Dict[str, np.ndarray] = {}
-        start = 0
-        for name in feature_order:
-            size = feature_sizes[name]
-            chunk = series_data[:, start:start + size]
-            processed_by_feature[name] = np.asarray(feature_processors[name].postprocess(chunk))
-            start += size
-
-        series_states: List[State] = []
-        for i in range(series_len):
-            series_states.append(State({name: processed_by_feature[name][i]
-                                        for name in feature_order}))
-        return StateSeries(series_states)
-
-
-    @staticmethod
-    def _pad_series(series_collection: List[np.ndarray], pad_value: float = 0.0) -> np.ndarray:
-        """ Pads state series data to have the same number of timesteps
-
-        Parameters
-        ----------
-        series_collection : List[np.ndarray]
-            The state series collection to be padded
-        pad_value : float
-            The value used for padding (Default: 0.0)
-
-        Returns
-        -------
-        np.ndarray
-            A padded array of shape (num_series, max_timesteps, num_features)
-        """
-
-        max_len = max(series.shape[0] for series in series_collection)
-        num_features = series_collection[0].shape[1]
-
-        padded = np.full((len(series_collection), max_len, num_features), pad_value, dtype=np.float32)
-        for i, series in enumerate(series_collection):
-            padded[i, :series.shape[0], :] = series
-
-        return padded
+        processed_collection = SeriesCollection.from_array(data_array, feature_order, feature_sizes, series_lengths)
+        transforms = {name: features[name].postprocess for name in feature_order}
+        return processed_collection.process_features(transforms, num_procs=num_procs)
 
     def __eq__(self, other: object) -> bool:
         """Structural equality for prediction strategies.
