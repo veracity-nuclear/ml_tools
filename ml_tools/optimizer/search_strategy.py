@@ -55,7 +55,8 @@ class SearchStrategy(ABC):
         Returns
         -------
         PredictionStrategy
-            The best model found during optimization
+            The best model configuration found during optimization. Search
+            strategies do not train the final model on the full dataset.
         """
 
         assert num_trials > 0, f"num_trials = {num_trials}"

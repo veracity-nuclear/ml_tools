@@ -28,15 +28,15 @@ jobs:
         conda config --prepend channels conda-forge
         conda config --set channel_priority strict
 
-    - name: Create conda environment and install dependencies
+    - name: Create conda environment and install base dependencies
       run: |
-        conda create -n mltools python=3.11 --yes
+        conda create -n mltools python=3.11 pip --yes
         conda install -n mltools --yes \
-          tensorflow keras numpy h5py scikit-learn scipy lightgbm matplotlib seaborn shap pylint pytest libarchive compilers mpi4py ray-default
+          tensorflow keras numpy h5py scikit-learn scipy lightgbm matplotlib seaborn shap libarchive compilers mpi4py ray-default
 
     - name: Install ml_tools
       run: |
-        conda run -n mltools python -m pip install -e .
+        conda run -n mltools python -m pip install -e .[test]
 
     - name: Test with pytest
       run: |

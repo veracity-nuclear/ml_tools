@@ -207,9 +207,10 @@ def plot_sensitivities(models:                  Dict[str, PredictionStrategy],
 
     perturbations = []
     for _ in range(number_of_perturbations):
-        perturbations.append([])
+        perturbation = []
         for series in series_collection:
-            perturbations[-1].append(State.perturb_states(perturbators, series, num_procs))
+            perturbation.append(State.perturb_states(perturbators, series, num_procs=num_procs))
+        perturbations.append(SeriesCollection(perturbation))
 
     predicted_feature = predicted_feature or next(iter(models.values())).predicted_feature_names[0]
 
