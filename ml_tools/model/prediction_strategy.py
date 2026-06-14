@@ -181,6 +181,10 @@ class PredictionStrategy(ABC):
             with 0.0 to match the length of the longest series.
         """
         assert num_procs > 0, f"num_procs must be > 0, got {num_procs}"
+
+        if all(isinstance(processor, NoProcessing) for processor in features.values()):
+            return series_collection.to_array(list(features))
+
         transforms = {name: processor.preprocess for name, processor in features.items()}
         return series_collection.process_features(transforms, num_procs=num_procs).to_array(list(features))
 
@@ -224,6 +228,9 @@ class PredictionStrategy(ABC):
             f"Predicted output dim {data_array.shape[2]} does not match expected {total_size}"
 
         processed_collection = SeriesCollection.from_array(data_array, feature_order, feature_sizes, series_lengths)
+        if all(isinstance(processor, NoProcessing) for processor in features.values()):
+            return processed_collection
+
         transforms = {name: features[name].postprocess for name in feature_order}
         return processed_collection.process_features(transforms, num_procs=num_procs)
 
