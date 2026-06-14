@@ -22,8 +22,108 @@ from ml_tools.optimizer.search_space import (SearchSpace,
                                              ListDimension)
 
 class OptunaStrategy(SearchStrategy):
-    """ A class implementing the Optuna hyperparameter optimization strategy
+    """Optuna-backed hyperparameter search strategy.
+
+    This search strategy samples model hyperparameters from a ``SearchSpace``,
+    evaluates each sampled model with K-fold cross validation, and returns an
+    untrained ``PredictionStrategy`` configured with the best sampled
+    parameters. Final training on the full dataset is handled by ``Optimizer``
+    when requested.
+
+    Parameters
+    ----------
+    study_storage : Optional[str]
+        Optuna storage URI used to persist and coordinate the study. Examples
+        include ``sqlite:///optuna_study.db`` and a PostgreSQL URI. When
+        ``None``, an in-memory study is used unless ``checkpoint_dir`` is
+        supplied to ``search``.
+    study_name : str
+        Name of the Optuna study to create or resume in ``study_storage``.
+        Multiple worker processes should use the same name and storage URI to
+        participate in the same study.
+    sqlite_timeout : int
+        SQLite connection timeout in seconds when ``study_storage`` uses a
+        SQLite URI. This helps concurrent worker processes wait for database
+        locks instead of failing immediately.
+    num_fold_workers : int
+        Maximum number of cross-validation folds to evaluate concurrently
+        inside one trial. Values greater than one use threads and disable
+        model-level ``num_procs`` during fold training to avoid nested
+        parallelism.
+    num_jobs : int
+        Number of Optuna trial workers to run inside this process via
+        ``Study.optimize(..., n_jobs=num_jobs)``. For TensorFlow/GPU workloads,
+        prefer one process per GPU with ``num_jobs=1``.
+
+    Attributes
+    ----------
+    study_storage : Optional[str]
+        Mutable Optuna storage URI.
+    study_name : str
+        Mutable Optuna study name.
+    sqlite_timeout : int
+        Mutable SQLite lock wait timeout in seconds.
+    num_fold_workers : int
+        Mutable fold-level worker count.
+    num_jobs : int
+        Mutable Optuna trial-level worker count for this process.
     """
+
+    @property
+    def study_storage(self) -> Optional[str]:
+        return self._study_storage
+
+    @study_storage.setter
+    def study_storage(self, value: Optional[str]) -> None:
+        self._study_storage = value
+
+    @property
+    def study_name(self) -> str:
+        return self._study_name
+
+    @study_name.setter
+    def study_name(self, value: str) -> None:
+        assert value, "study_name must be non-empty"
+        self._study_name = value
+
+    @property
+    def sqlite_timeout(self) -> int:
+        return self._sqlite_timeout
+
+    @sqlite_timeout.setter
+    def sqlite_timeout(self, value: int) -> None:
+        assert value > 0, f"sqlite_timeout = {value}"
+        self._sqlite_timeout = value
+
+    @property
+    def num_fold_workers(self) -> int:
+        return self._num_fold_workers
+
+    @num_fold_workers.setter
+    def num_fold_workers(self, value: int) -> None:
+        assert value > 0, f"num_fold_workers = {value}"
+        self._num_fold_workers = value
+
+    @property
+    def num_jobs(self) -> int:
+        return self._num_jobs
+
+    @num_jobs.setter
+    def num_jobs(self, value: int) -> None:
+        assert value >= 1, f"num_jobs = {value}"
+        self._num_jobs = value
+
+    def __init__(self,
+                 study_storage:    Optional[str] = None,
+                 study_name:       str = "optuna_study",
+                 sqlite_timeout:   int = 60,
+                 num_fold_workers: int = 1,
+                 num_jobs:         int = 1) -> None:
+        self.study_storage    = study_storage
+        self.study_name       = study_name
+        self.sqlite_timeout   = sqlite_timeout
+        self.num_fold_workers = num_fold_workers
+        self.num_jobs         = num_jobs
 
     def search(self,
                search_space:      SearchSpace,
@@ -34,10 +134,7 @@ class OptunaStrategy(SearchStrategy):
                checkpoint_dir:    Optional[str] = None,
                resume:            bool = False,
                save_every_n_trials: int = 0,
-               study_storage:     Optional[str] = None,
-               num_procs:         int = 1,
-               num_fold_workers:  int = 1,
-               num_jobs:          int = 1) -> PredictionStrategy:
+               num_procs:         int = 1) -> PredictionStrategy:
 
         super().search(search_space,
                        series_collection,
@@ -47,13 +144,10 @@ class OptunaStrategy(SearchStrategy):
                        checkpoint_dir,
                        resume,
                        save_every_n_trials,
-                       study_storage,
-                       num_procs,
-                       num_fold_workers,
-                       num_jobs)
+                       num_procs)
 
         checkpoint_path = None
-        storage_uri = study_storage
+        storage_uri = self.study_storage
         if checkpoint_dir:
             checkpoint_root = Path(checkpoint_dir)
             checkpoint_root.mkdir(parents=True, exist_ok=True)
@@ -95,21 +189,21 @@ class OptunaStrategy(SearchStrategy):
 
         # Avoid nested parallelism - priority: num_jobs > num_fold_workers > num_procs
         # Only one level of parallelism should be active at a time
-        effective_fold_workers = num_fold_workers
+        effective_fold_workers = self.num_fold_workers
         effective_num_procs = num_procs
 
-        if num_jobs and num_jobs > 1:
+        if self.num_jobs > 1:
             # Trial-level parallelism takes priority - disable fold and training parallelism
-            if num_fold_workers > 1:
-                print(f"num_jobs={num_jobs} > 1, forcing num_fold_workers=1 to avoid nested parallelism")
+            if self.num_fold_workers > 1:
+                print(f"num_jobs={self.num_jobs} > 1, forcing num_fold_workers=1 to avoid nested parallelism")
                 effective_fold_workers = 1
             if num_procs > 1:
-                print(f"num_jobs={num_jobs} > 1, forcing num_procs=1 to avoid nested parallelism")
+                print(f"num_jobs={self.num_jobs} > 1, forcing num_procs=1 to avoid nested parallelism")
                 effective_num_procs = 1
-        elif num_fold_workers > 1:
+        elif self.num_fold_workers > 1:
             # Fold-level parallelism takes priority - disable training parallelism
             if num_procs > 1:
-                print(f"num_fold_workers={num_fold_workers} > 1, forcing num_procs=1 to avoid nested parallelism")
+                print(f"num_fold_workers={self.num_fold_workers} > 1, forcing num_procs=1 to avoid nested parallelism")
                 effective_num_procs = 1
 
 
@@ -119,15 +213,22 @@ class OptunaStrategy(SearchStrategy):
                                           effective_fold_workers,
                                           effective_num_procs)
 
+        storage = storage_uri
+        if isinstance(storage_uri, str) and storage_uri.startswith("sqlite:///"):
+            storage = optuna.storages.RDBStorage(
+                url=storage_uri,
+                engine_kwargs={"connect_args": {"timeout": self.sqlite_timeout}},
+            )
+
         study = optuna.create_study(direction='minimize',
-                                    storage=storage_uri,
-                                    study_name="optuna_study",
+                                    storage=storage,
+                                    study_name=self.study_name,
                                     load_if_exists=load_if_exists)
 
         study.optimize(objective,
                        n_trials=num_trials,
                        callbacks=[log_progress],
-                       n_jobs=num_jobs)
+                       n_jobs=self.num_jobs)
 
         with open(output_file, 'a') as output:
             output.write("\nBEST PARAMETERS\n----------------\n")

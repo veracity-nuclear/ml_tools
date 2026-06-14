@@ -55,10 +55,7 @@ class Optimizer():
                  checkpoint_dir:    Optional[str] = None,
                  resume:            bool = False,
                  save_every_n_trials: int = 0,
-                 study_storage:     Optional[str] = None,
                  num_procs:         int = 1,
-                 num_fold_workers:  int = 1,
-                 num_jobs:          int = 1,
                  train_best_model:  bool = True) -> PredictionStrategy:
         """ Method for performing model hyperparameter optimization
 
@@ -78,14 +75,8 @@ class Optimizer():
             Whether to resume from an existing study/checkpoint when available.
         save_every_n_trials : int
             Frequency (in trials) to dump lightweight checkpoints; 0 disables.
-        study_storage : Optional[str]
-            Optuna storage URI (e.g., sqlite:///optuna.db); inferred when checkpoint_dir is set.
         num_procs : int
             The number of processes to use for parallel model training (Default is 1)
-        num_fold_workers : int
-            Max workers for evaluating CV folds in parallel; 1 keeps sequential.
-        num_jobs : int
-            Number of parallel workers per process when the backend supports it (Optuna's num_jobs).
         train_best_model : bool
             Whether to train the best model on the full original series collection
             before returning it. Default is True.
@@ -105,10 +96,7 @@ class Optimizer():
                                                  checkpoint_dir    = checkpoint_dir,
                                                  resume            = resume,
                                                  save_every_n_trials = save_every_n_trials,
-                                                 study_storage     = study_storage,
-                                                 num_procs         = num_procs,
-                                                 num_fold_workers   = num_fold_workers,
-                                                 num_jobs          = num_jobs)
+                                                 num_procs         = num_procs)
 
         if train_best_model:
             best_model.train(series_collection, num_procs=num_procs)
