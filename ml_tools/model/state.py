@@ -1,6 +1,5 @@
 from __future__ import annotations
 from typing import Callable, List, Dict, Union, Optional, Tuple
-from numpy.typing import ArrayLike
 import os
 import random
 import re
@@ -8,6 +7,7 @@ from copy import deepcopy
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import h5py
 import numpy as np
+from numpy.typing import ArrayLike
 import pandas as pd
 from ml_tools.utils.status_bar import StatusBar
 from ml_tools.model.feature_perturbator import FeaturePerturbator
