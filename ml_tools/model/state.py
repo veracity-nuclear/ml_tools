@@ -7,6 +7,7 @@ from copy import deepcopy
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import h5py
 import numpy as np
+from numpy.typing import ArrayLike
 import pandas as pd
 from ml_tools.utils.status_bar import StatusBar
 from ml_tools.model.feature_perturbator import FeaturePerturbator
@@ -75,18 +76,18 @@ class State:
 
     Parameters
     ----------
-    features : Dict[str, np.ndarray]
+    features : Dict[str, ArrayLike]
         The features which describe the state
     """
 
     @property
-    def features(self) -> Dict[str, np.ndarray]:
+    def features(self) -> Dict[str, ArrayLike]:
         return self._features
 
-    def __init__(self, features: Dict[str, np.ndarray]):
+    def __init__(self, features: Dict[str, ArrayLike]):
         self._features = features
 
-    def __getitem__(self, feature_name: str) -> np.ndarray:
+    def __getitem__(self, feature_name: str) -> ArrayLike:
         """Method for retrieving the feature data from a state
 
         Parameters
