@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import List, Dict, Union, Optional, Tuple
+from typing import Callable, List, Dict, Union, Optional, Tuple
 from numpy.typing import ArrayLike
 import os
 import random
@@ -11,6 +11,8 @@ import numpy as np
 import pandas as pd
 from ml_tools.utils.status_bar import StatusBar
 from ml_tools.model.feature_perturbator import FeaturePerturbator
+
+FeatureTransform = Callable[[np.ndarray], np.ndarray]
 
 
 def _featurewise_state_series_chunk(args):
@@ -61,6 +63,12 @@ def _featurewise_series_collection_chunk(args):
     out_states = [left.featurewise(op, right, features, keep_only_modified=keep_only_modified)
                   for left, right in zip(left_states, right_states)]
     return series_idx, start, out_states
+
+
+def _process_state_series(args):
+    """Worker helper for parallel SeriesCollection feature processing."""
+    series, transforms = args
+    return series.process_features(transforms)
 
 
 class State:
@@ -168,6 +176,27 @@ class State:
                 if name not in features:
                     new_features[name] = np.asarray(self[name]).copy()
         return State(new_features)
+
+    def process_features(self, transforms: Dict[str, FeatureTransform]) -> State:
+        """Apply feature transforms to this state.
+
+        Parameters
+        ----------
+        transforms : Dict[str, FeatureTransform]
+            Mapping from feature name to transform. Each transform accepts a
+            2D array with one row for this state and returns a transformed 2D
+            array with one row.
+
+        Returns
+        -------
+        State
+            New state containing only the transformed features specified by
+            ``transforms``.
+        """
+        assert len(transforms) > 0, "transforms must be non-empty"
+        assert all(feature in self.features for feature in transforms), \
+            f"One or more features are missing from State: {list(transforms.keys())}"
+        return StateSeries([self]).process_features(transforms)[0]
 
     def combine_features(self, other: State) -> State:
         """Combine features from another State into this one.
@@ -498,30 +527,24 @@ class State:
                     i += 1
 
         else:
-
-            def chunkify(states: StateSeries, chunk_size: int):
-                for i in range(0, len(states), chunk_size):
-                    yield states[i : i + chunk_size]
-
-            chunk_size = max(1, len(states) // num_procs)
-            chunks = list(chunkify(states, chunk_size))
-
+            state_data = [None] * len(states)
             with ProcessPoolExecutor(max_workers=num_procs) as executor:
-                jobs = {executor.submit(State.perturb_state(perturbators, state)): chunk for chunk in chunks}
+                jobs = {executor.submit(State.perturb_state, perturbators, state): idx
+                        for idx, state in enumerate(states)}
 
                 completed = 0
                 for job in as_completed(jobs):
+                    idx = jobs[job]
                     result = job.result()
-                    state_data.extend(result)
+                    state_data[idx] = result
                     if not silent:
-                        for _ in result:
-                            statusbar.update(completed)
-                            completed += 1
+                        statusbar.update(completed)
+                        completed += 1
 
         if not silent:
             statusbar.finalize()
 
-        return state_data
+        return StateSeries(state_data)
 
 
 class StateSeries:
@@ -745,6 +768,43 @@ class StateSeries:
         assert len(self.states) > 0, "StateSeries is empty"
         return self.states.pop()
 
+    def process_features(self, transforms: Dict[str, FeatureTransform]) -> StateSeries:
+        """Apply feature transforms to this state series.
+
+        Parameters
+        ----------
+        transforms : Dict[str, FeatureTransform]
+            Mapping from feature name to transform. Each transform accepts a
+            2D array with shape ``(num_states, feature_width)`` and returns a
+            transformed 2D array with the same number of rows.
+
+        Returns
+        -------
+        StateSeries
+            New state series containing only the transformed features specified
+            by ``transforms``.
+        """
+        assert len(transforms) > 0, "transforms must be non-empty"
+        if not self.states:
+            return StateSeries([])
+        assert all(feature in self.features for feature in transforms), \
+            f"One or more features are missing from StateSeries: {list(transforms.keys())}"
+
+        feature_order = list(transforms.keys())
+        feature_sizes = {}
+        processed_columns = []
+        for feature, transform in transforms.items():
+            data = self.to_array(features=[feature])
+            data = transform(data)
+            data = data[:, np.newaxis] if data.ndim == 1 else np.vstack(data)
+            feature_sizes[feature] = data.shape[1]
+            processed_columns.append(data)
+
+        processed_array = np.hstack(processed_columns)
+        return StateSeries.from_array(processed_array,
+                                      feature_order=feature_order,
+                                      feature_sizes=feature_sizes)
+
     def to_numpy(self, features: List[str] = None) -> np.ndarray:
         """Convert to a 2D NumPy array: rows are states, columns are features
 
@@ -768,6 +828,110 @@ class StateSeries:
 
         data = [[state[k] for k in features] for state in self.states]
         return np.array(data)
+
+    def to_array(self,
+                 features: Optional[List[str]] = None,
+                 series_length: Optional[int] = None,
+                 pad_value: float = 0.0) -> np.ndarray:
+        """Convert the state series to a 2D array of flattened feature values.
+
+        Parameters
+        ----------
+        features : Optional[List[str]]
+            Ordered feature names to include in the array. Defaults to all
+            features in this series.
+        series_length : Optional[int]
+            Optional output row count. When provided, it must be greater than
+            or equal to ``len(self)``; extra rows are padded with ``pad_value``.
+        pad_value : float
+            Value used for padding when ``series_length`` is greater than the
+            number of states in this series.
+
+        Returns
+        -------
+        np.ndarray
+            A 2D array with one row per state and columns formed by
+            concatenating the flattened values of ``features`` in order.
+        """
+        assert series_length is None or series_length >= len(self), \
+            f"series_length ({series_length}) must be >= len(self) ({len(self)})"
+
+        if not self.states:
+            length = 0 if series_length is None else series_length
+            return np.empty((length, 0))
+
+        features = self.features if features is None else features
+        rows = []
+        for state in self.states:
+            parts = []
+            for feature in features:
+                value = np.asarray(state[feature])
+                parts.append(np.atleast_1d(value).reshape(-1))
+            rows.append(np.concatenate(parts, axis=0))
+
+        data = np.vstack(rows)
+        if series_length is None or series_length == len(self):
+            return data
+
+        dtype = np.result_type(data.dtype, type(pad_value))
+        data = data.astype(dtype, copy=False)
+        pad_rows = np.full((series_length - len(self), data.shape[1]),
+                           pad_value,
+                           dtype=dtype)
+        return np.vstack((data, pad_rows))
+
+    @classmethod
+    def from_array(cls,
+                   data_array: np.ndarray,
+                   feature_order: List[str],
+                   feature_sizes: Dict[str, int],
+                   series_length: Optional[int] = None) -> StateSeries:
+        """Build a state series from a 2D array of flattened feature values.
+
+        Parameters
+        ----------
+        data_array : np.ndarray
+            Array with shape ``(num_states, total_feature_size)``.
+        feature_order : List[str]
+            Ordered feature names corresponding to contiguous column blocks in
+            ``data_array``.
+        feature_sizes : Dict[str, int]
+            Mapping from feature name to the number of columns occupied by that
+            feature in ``data_array``.
+        series_length : Optional[int]
+            Number of rows to read from ``data_array``. When omitted, all rows
+            are used. This is useful for trimming padded rows.
+
+        Returns
+        -------
+        StateSeries
+            The reconstructed state series.
+        """
+        data_array = np.asarray(data_array)
+        assert data_array.ndim == 2, f"data_array must be 2D, got shape {data_array.shape}"
+        assert len(feature_order) > 0, "feature_order must be non-empty"
+        assert all(feature in feature_sizes for feature in feature_order), \
+            "feature_sizes must contain every feature in feature_order"
+
+        expected_width = sum(feature_sizes[feature] for feature in feature_order)
+        assert data_array.shape[1] == expected_width, \
+            f"data_array width ({data_array.shape[1]}) does not match expected width ({expected_width})"
+
+        if series_length is None:
+            series_length = data_array.shape[0]
+        assert 0 <= series_length <= data_array.shape[0], \
+            f"series_length ({series_length}) must be between 0 and {data_array.shape[0]}"
+
+        states = []
+        for row in data_array[:series_length]:
+            start = 0
+            state_features = {}
+            for feature in feature_order:
+                end = start + feature_sizes[feature]
+                state_features[feature] = np.asarray(row[start:end]).copy()
+                start = end
+            states.append(State(state_features))
+        return cls(states)
 
     def mean(self, keys: List[str] = None) -> np.ndarray:
         """Calculate the mean of the features in the series
@@ -1229,6 +1393,117 @@ class SeriesCollection:
         test = [self.state_series_list[i] for i in indices[:test_count]]
         return SeriesCollection(train), SeriesCollection(test)
 
+    def process_features(self,
+                         transforms: Dict[str, FeatureTransform],
+                         num_procs: int = 1) -> SeriesCollection:
+        """Apply feature transforms to every state series in this collection.
+
+        Parameters
+        ----------
+        transforms : Dict[str, FeatureTransform]
+            Mapping from feature name to transform. Each transform accepts a
+            2D array for a single state series and returns a transformed 2D
+            array with the same number of rows.
+        num_procs : int
+            Number of worker processes to use across state series.
+            When greater than 1, transforms must be picklable.
+
+        Returns
+        -------
+        SeriesCollection
+            New collection containing only the transformed features specified
+            by ``transforms``.
+        """
+        assert len(transforms) > 0, "transforms must be non-empty"
+        assert num_procs > 0, f"num_procs must be > 0, got {num_procs}"
+        if not self.state_series_list:
+            return SeriesCollection([])
+
+        if num_procs <= 1:
+            return SeriesCollection([series.process_features(transforms)
+                                     for series in self.state_series_list])
+
+        tasks = [(series, transforms) for series in self.state_series_list]
+        workers = min(num_procs, len(tasks))
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            return SeriesCollection(list(executor.map(_process_state_series, tasks)))
+
+    def to_array(self,
+                 features: Optional[List[str]] = None,
+                 pad_value: float = 0.0) -> np.ndarray:
+        """Convert this collection to arrays of flattened feature values.
+
+        Parameters
+        ----------
+        features : Optional[List[str]]
+            Ordered feature names to include in the array. Defaults to all
+            features in the collection.
+        pad_value : float
+            Value used for padding shorter state series.
+
+        Returns
+        -------
+        np.ndarray
+            A padded 3D array with shape ``(num_series, max_series_length,
+            total_feature_size)``.
+        """
+        if not self.state_series_list:
+            return np.array([])
+
+        features = self.features if features is None else features
+        max_length = max(len(series) for series in self.state_series_list)
+        return np.asarray([
+            series.to_array(features=features,
+                            series_length=max_length,
+                            pad_value=pad_value)
+            for series in self.state_series_list
+        ])
+
+    @classmethod
+    def from_array(cls,
+                   data_array: np.ndarray,
+                   feature_order: List[str],
+                   feature_sizes: Dict[str, int],
+                   series_lengths: Optional[List[int]] = None) -> SeriesCollection:
+        """Build a collection from a padded 3D array of feature values.
+
+        Parameters
+        ----------
+        data_array : np.ndarray
+            Array with shape ``(num_series, max_series_length,
+            total_feature_size)``.
+        feature_order : List[str]
+            Ordered feature names corresponding to contiguous column blocks in
+            the final axis of ``data_array``.
+        feature_sizes : Dict[str, int]
+            Mapping from feature name to the number of columns occupied by that
+            feature in ``data_array``.
+        series_lengths : Optional[List[int]]
+            True length for each series. When omitted, every series uses the
+            full second dimension of ``data_array``.
+
+        Returns
+        -------
+        SeriesCollection
+            The reconstructed series collection.
+        """
+        data_array = np.asarray(data_array)
+        assert data_array.ndim == 3, f"data_array must be 3D, got shape {data_array.shape}"
+
+        if series_lengths is None:
+            series_lengths = [data_array.shape[1]] * data_array.shape[0]
+        assert len(series_lengths) == data_array.shape[0], \
+            f"len(series_lengths) ({len(series_lengths)}) must match number of series ({data_array.shape[0]})"
+
+        state_series_list = [
+            StateSeries.from_array(series_array,
+                                   feature_order=feature_order,
+                                   feature_sizes=feature_sizes,
+                                   series_length=series_length)
+            for series_array, series_length in zip(data_array, series_lengths)
+        ]
+        return cls(state_series_list)
+
     @classmethod
     def from_hdf5(
         cls,
@@ -1412,7 +1687,7 @@ class SeriesCollection:
             state_series_dict[series_idx].append(state)
 
         max_series_idx = max(state_series_dict.keys())
-        return cls([state_series_dict.get(i) for i in range(max_series_idx + 1)])
+        return cls([StateSeries(state_series_dict.get(i, [])) for i in range(max_series_idx + 1)])
 
     def to_dataframe(
         self,

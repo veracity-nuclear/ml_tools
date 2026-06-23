@@ -154,7 +154,7 @@ def plot_hist(models:                  Dict[str, PredictionStrategy],
         diffs.append(reference - predicted)
         maxdiff = max(maxdiff, np.max(np.abs(diffs[-1])))
 
-    colors = plt.cm.get_cmap('tab10').colors
+    colors = plt.get_cmap('tab10').colors
     bins = np.linspace(-maxdiff, maxdiff, 100, endpoint=True)
     for i, (label, diff) in enumerate(zip(models.keys(), diffs)):
         plt.hist(diff, bins, histtype='step', linewidth=1.5, label=label, color=colors[i % len(colors)])
@@ -207,9 +207,10 @@ def plot_sensitivities(models:                  Dict[str, PredictionStrategy],
 
     perturbations = []
     for _ in range(number_of_perturbations):
-        perturbations.append([])
+        perturbation = []
         for series in series_collection:
-            perturbations[-1].append(State.perturb_states(perturbators, series, num_procs))
+            perturbation.append(State.perturb_states(perturbators, series, num_procs=num_procs))
+        perturbations.append(SeriesCollection(perturbation))
 
     predicted_feature = predicted_feature or next(iter(models.values())).predicted_feature_names[0]
 
