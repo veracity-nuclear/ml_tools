@@ -1,21 +1,39 @@
 from typing import Dict, List, Optional, Any
-import time
 from copy import deepcopy
 import os
 
 import pylab as plt
-from matplotlib.lines import Line2D
 import numpy as np
 import pandas as pd
 import ray
 import seaborn as sns
 import shap
 
-from ml_tools.model.state import State, SeriesCollection
+from ml_tools.model.state import SeriesCollection
 from ml_tools.model.prediction_strategy import PredictionStrategy
 from ml_tools.model.feature_perturbator import FeaturePerturbator
+from ml_tools.utils.prediction_results import PredictionResults
 from ml_tools.utils.status_bar import StatusBar
 from ml_tools.utils.parallel import ray_context
+
+
+def _prediction_results_from_models(models:            Dict[str, PredictionStrategy],
+                                    series_collection: SeriesCollection,
+                                    predicted_feature: Optional[str],
+                                    state_index:       int,
+                                    array_index:       int) -> PredictionResults:
+    """Build PredictionResults from the legacy plotting function inputs."""
+    predicted_feature = predicted_feature or next(iter(models.values())).predicted_feature_names[0]
+    return PredictionResults([
+        PredictionResults.Spec(label             = label,
+                               model             = model,
+                               series_collection = series_collection,
+                               predicted_feature = predicted_feature,
+                               state_index       = state_index,
+                               array_index       = array_index)
+        for label, model in models.items()
+    ])
+
 
 def plot_ref_vs_pred(models:                  Dict[str, PredictionStrategy],
                      series_collection:       SeriesCollection,
@@ -51,65 +69,16 @@ def plot_ref_vs_pred(models:                  Dict[str, PredictionStrategy],
         The label to use for the predicted feature (Default: predicted feature label from models)
     """
 
-    plt.figure(figsize=(10,6))
-
-    predicted_feature = predicted_feature or next(iter(models.values())).predicted_feature_names[0]
-    reference         = np.asarray([series[state_index][predicted_feature][array_index]
-                          for series in series_collection])
-
-    # Store legend handles for model data
-    legend_handles = []
-    legend_labels = []
-
-    for label, model in models.items():
-        assert model.isTrained
-        assert predicted_feature in model.predicted_features
-        predicted = np.asarray([series[state_index][predicted_feature][array_index]
-                                for series in model.predict(series_collection)])
-        # Plot with alpha for visualization but create separate legend handle
-        line = plt.plot(reference, predicted, '.', alpha=0.1, markersize=4)[0]
-        # Create legend handle without alpha
-        legend_handle = Line2D([0], [0], marker='o', color=line.get_color(),
-                              linestyle='None', markersize=8, label=label)
-        legend_handles.append(legend_handle)
-        legend_labels.append(label)
-
-    max_val = max(*plt.xlim(), *plt.ylim())
-    plt.axis([0, max_val, 0, max_val])
-
-    plt.plot([0, max_val], [0, max_val], '--k', label='Reference')
-    grays = np.linspace(0.3, 0.7, len(error_bands))
-    for gray, band in zip(grays, sorted(error_bands)):
-        percent = band / 100.0
-        x = np.linspace(0, max_val, 100)
-        plt.plot(x, (1 + percent) * x, '--', color=(gray, gray, gray), label=f'+{band:.1f}%')
-        plt.plot(x, (1 - percent) * x, '--', color=(gray, gray, gray), label=f'-{band:.1f}%')
-
-    plt.grid(True)
-    predicted_feature_label = predicted_feature if predicted_feature_label is None else predicted_feature_label
-    plt.xlabel('Reference ' + predicted_feature_label, fontsize=14)
-    plt.ylabel('Predicted ' + predicted_feature_label, fontsize=14)
-    if title:
-        plt.title('Reference vs. Predicted ' + predicted_feature_label, fontsize=16)
-    plt.gca().set_aspect('equal', adjustable='box')
-    plt.xticks(fontsize=12)
-    plt.yticks(fontsize=12)
-
-    # Create legend with custom handles for model data and automatic handles for other elements
-    reference_line = Line2D([0], [0], color='black', linestyle='--', label='Reference')
-    all_handles = legend_handles + [reference_line]
-    all_labels = legend_labels + ['Reference']
-
-    # Add error band handles
-    for gray, band in zip(grays, sorted(error_bands)):
-        error_line = Line2D([0], [0], color=(gray, gray, gray), linestyle='--', label=f'±{band:.1f}%')
-        all_handles.append(error_line)
-        all_labels.append(f'±{band:.1f}%')
-
-    plt.legend(handles=all_handles, labels=all_labels, fontsize=12)
-    plt.savefig(fig_name+'.png', dpi=600, bbox_inches='tight')
-    plt.close()
-
+    return _prediction_results_from_models(
+        models,
+        series_collection,
+        predicted_feature,
+        state_index,
+        array_index
+    ).plot_ref_vs_pred(fig_name    = fig_name,
+                       error_bands = error_bands,
+                       title       = title,
+                       value_label = predicted_feature_label)
 
 
 
@@ -141,31 +110,14 @@ def plot_hist(models:                  Dict[str, PredictionStrategy],
         The label to use for the predicted feature (Default: predicted feature label from models)
     """
 
-    diffs             = []
-    maxdiff           = 0.
-    predicted_feature = predicted_feature or next(iter(models.values())).predicted_feature_names[0]
-    reference         = np.asarray([series[state_index][predicted_feature][array_index]
-                            for series in series_collection])
-    for label, model in models.items():
-        assert model.isTrained
-        assert predicted_feature in model.predicted_features
-        predicted = np.asarray([series[state_index][predicted_feature][array_index]
-                                for series in model.predict(series_collection)])
-        diffs.append(reference - predicted)
-        maxdiff = max(maxdiff, np.max(np.abs(diffs[-1])))
-
-    colors = plt.get_cmap('tab10').colors
-    bins = np.linspace(-maxdiff, maxdiff, 100, endpoint=True)
-    for i, (label, diff) in enumerate(zip(models.keys(), diffs)):
-        plt.hist(diff, bins, histtype='step', linewidth=1.5, label=label, color=colors[i % len(colors)])
-
-    plt.grid(True)
-    predicted_feature_label = predicted_feature if predicted_feature_label is None else predicted_feature_label
-    plt.xlabel('Reference - Predicted ' + predicted_feature_label)
-    plt.ylabel('Count')
-    plt.legend()
-    plt.savefig(fig_name+'.png')
-    plt.close()
+    return _prediction_results_from_models(
+        models,
+        series_collection,
+        predicted_feature,
+        state_index,
+        array_index
+    ).plot_hist(fig_name    = fig_name,
+                value_label = predicted_feature_label)
 
 
 def plot_sensitivities(models:                  Dict[str, PredictionStrategy],
@@ -205,36 +157,16 @@ def plot_sensitivities(models:                  Dict[str, PredictionStrategy],
         The number of parallel processors to use when perturbing states
     """
 
-    perturbations = []
-    for _ in range(number_of_perturbations):
-        perturbation = []
-        for series in series_collection:
-            perturbation.append(State.perturb_states(perturbators, series, num_procs=num_procs))
-        perturbations.append(SeriesCollection(perturbation))
-
-    predicted_feature = predicted_feature or next(iter(models.values())).predicted_feature_names[0]
-
-    for label, model in models.items():
-        assert model.isTrained
-        assert predicted_feature in model.predicted_features
-
-        predicted = np.asarray([series[state_index][predicted_feature][array_index]
-                                for series in model.predict(series_collection)])
-        results   = [[] for series in series_collection]
-        for perturbation in perturbations:
-            perturbed_predicted = model.predict(perturbation)
-            for i in range(len(series_collection)):
-                results[i].append(perturbed_predicted[i][state_index][predicted_feature][array_index])
-
-        order = np.argsort(predicted)
-        plt.figure(figsize=(12, 5))
-        plt.boxplot([results[i] for i in order])
-        plt.plot(range(1,len(order)+1), [predicted[i] for i in order],'.r')
-        ticks = plt.gca().get_xticks()
-        plt.xticks(ticks, [str(int(tick)) if int(tick) % 10 == 0 else '' for tick in ticks])
-        plt.savefig(fig_name_prefix+"_"+label+'.png', dpi=600, bbox_inches='tight')
-        plt.close()
-
+    return _prediction_results_from_models(
+        models,
+        series_collection,
+        predicted_feature,
+        state_index,
+        array_index
+    ).plot_sensitivities(perturbators            = perturbators,
+                         number_of_perturbations = number_of_perturbations,
+                         fig_name_prefix         = fig_name_prefix,
+                         num_procs               = num_procs)
 
 
 def print_metrics(models:            Dict[str, PredictionStrategy],
@@ -262,32 +194,13 @@ def print_metrics(models:            Dict[str, PredictionStrategy],
         An optional file in which to output
     """
 
-    predicted_feature = predicted_feature or next(iter(models.values())).predicted_feature_names[0]
-    reference         = np.asarray([series[state_index][predicted_feature][array_index]
-                            for series in series_collection])
-
-    padding = np.max([len(label) for label in models.keys()]) + 3
-    fmtstr  = f'{{0:{padding}s}} {{1:8.5f}} {{2:7.5f}} {{3:7.5f}} {{4:7.5f}} {{5:9.3e}}'
-    header  = ' ' * padding + '   Avg     Std     RMS     Max   Time/State'
-    print(header)
-    if output_file:
-        with open(output_file, 'a') as f:
-            f.write(f"{header}\n")
-    for label, model in models.items():
-        start = time.time()
-        predicted = np.asarray([series[state_index][predicted_feature][array_index]
-                                for series in model.predict(series_collection)])
-        dt = time.time() - start
-        diff = reference - predicted
-        rms = np.sqrt(np.dot(diff.flatten(),diff.flatten()))/float(len(diff))
-        maxdiff = np.max(np.abs(diff))
-        avg = np.mean(diff)
-        std = np.std(diff)
-        metrics = fmtstr.format(label + ' :', avg, std, rms, maxdiff, dt/len(series_collection))
-        print(metrics)
-        if output_file:
-            with open(output_file, 'a') as f:
-                f.write(f"{metrics}\n")
+    return _prediction_results_from_models(
+        models,
+        series_collection,
+        predicted_feature,
+        state_index,
+        array_index
+    ).print_metrics(output_file=output_file)
 
 
 
@@ -345,7 +258,6 @@ def plot_corr_matrix(input_features:    List[str],
     valid_cols       = sorted(set(np.where(~mask)[1]))
     row_ticks        = [i + 0.5 for i in valid_rows]
     col_ticks        = [i + 0.5 for i in valid_cols]
-    tick_positions   = np.arange(num_features)
     plt.xticks(ticks=col_ticks, labels=[input_features[i] for i in valid_cols],
                rotation=45, ha='right', fontsize=10 * label_font_scale)
     plt.yticks(ticks=row_ticks, labels=[input_features[i] for i in valid_rows],
