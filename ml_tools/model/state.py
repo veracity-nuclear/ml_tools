@@ -12,7 +12,7 @@ import pandas as pd
 from ml_tools.utils.status_bar import StatusBar
 from ml_tools.model.feature_perturbator import FeaturePerturbator
 
-FeatureTransform = Callable[[np.ndarray], np.ndarray]
+FeatureTransform = Callable[[ArrayLike], ArrayLike]
 
 
 def _featurewise_state_series_chunk(args):
@@ -69,6 +69,30 @@ def _process_state_series(args):
     """Worker helper for parallel SeriesCollection feature processing."""
     series, transforms = args
     return series.process_features(transforms)
+
+
+def _split_processed_feature(data: ArrayLike, num_states: int) -> List[ArrayLike]:
+    """Split a transformed feature batch into one value per state."""
+    if isinstance(data, np.ndarray):
+        if data.ndim == 0:
+            assert num_states == 1, (
+                f"Scalar transform output can only be assigned to one state, got {num_states}"
+            )
+            return [np.asarray(data).reshape(-1)]
+        if data.ndim == 1:
+            if num_states == 1:
+                return [np.asarray(data).copy()]
+            assert data.shape[0] == num_states, (
+                f"Transform output has {data.shape[0]} rows, expected {num_states}"
+            )
+            return [np.asarray(data[index:index + 1]).copy() for index in range(num_states)]
+        assert data.shape[0] == num_states, (
+            f"Transform output has {data.shape[0]} rows, expected {num_states}"
+        )
+        return [np.asarray(data[index]).copy() for index in range(num_states)]
+
+    assert len(data) == num_states, f"Transform output has {len(data)} rows, expected {num_states}"
+    return list(data)
 
 
 class State:
@@ -774,9 +798,9 @@ class StateSeries:
         Parameters
         ----------
         transforms : Dict[str, FeatureTransform]
-            Mapping from feature name to transform. Each transform accepts a
-            2D array with shape ``(num_states, feature_width)`` and returns a
-            transformed 2D array with the same number of rows.
+            Mapping from feature name to transform. Each transform accepts the
+            raw feature values for every state in this series and returns one
+            transformed value per state.
 
         Returns
         -------
@@ -790,20 +814,16 @@ class StateSeries:
         assert all(feature in self.features for feature in transforms), \
             f"One or more features are missing from StateSeries: {list(transforms.keys())}"
 
-        feature_order = list(transforms.keys())
-        feature_sizes = {}
-        processed_columns = []
+        processed_features = {}
         for feature, transform in transforms.items():
-            data = self.to_array(features=[feature])
-            data = transform(data)
-            data = data[:, np.newaxis] if data.ndim == 1 else np.vstack(data)
-            feature_sizes[feature] = data.shape[1]
-            processed_columns.append(data)
+            raw_values = [state[feature] for state in self.states]
+            processed_features[feature] = _split_processed_feature(transform(raw_values), len(self.states))
 
-        processed_array = np.hstack(processed_columns)
-        return StateSeries.from_array(processed_array,
-                                      feature_order=feature_order,
-                                      feature_sizes=feature_sizes)
+        return StateSeries([
+            State({feature: values[state_index]
+                   for feature, values in processed_features.items()})
+            for state_index in range(len(self.states))
+        ])
 
     def to_numpy(self, features: List[str] = None) -> np.ndarray:
         """Convert to a 2D NumPy array: rows are states, columns are features

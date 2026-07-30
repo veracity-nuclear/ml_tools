@@ -10,7 +10,7 @@ from sklearn.ensemble import RandomForestRegressor
 
 from ml_tools.model.nn_strategy import Dense, LSTM, Transformer, SpatialConv, SpatialMaxPool, PassThrough, LayerSequence, CompoundLayer, GraphConv
 from ml_tools.model.nn_strategy.graph import SAGE, GAT
-from ml_tools import State, NNStrategy, GBMStrategy, PODStrategy, EnhancedPODStrategy, MinMaxNormalize, NoProcessing, StateSeries, SeriesCollection
+from ml_tools import State, NNStrategy, GBMStrategy, PODStrategy, EnhancedPODStrategy, MinMaxNormalize, NoProcessing, StateSeries, SeriesCollection, FeatureProcessor
 from ml_tools.model.prediction_strategy import PredictionStrategy
 from ml_tools.model.residual_correction_strategy import ResidualCorrectionStrategy
 from ml_tools.model.sklearn_strategy import SklearnStrategy
@@ -53,6 +53,28 @@ def test_preprocess_features():
                        1.0, 1.0, 1.0, 1.0, 0.0,                0.0,                0.0,                0.0,                0.0,
                        0.0, 0.0, 0.0, 0.0, 0.6666666666666666, 0.6666666666666666, 0.0,                0.6666666666666666, 1.0]
     assert_allclose(actual_values, expected_values)
+
+
+def test_preprocess_features_no_processing_handles_array_like_objects():
+    class ArrayLikeFeature:
+        def __init__(self, values):
+            self.values = np.asarray(values)
+
+        def __array__(self, dtype=None, copy=None):
+            array = np.asarray(self.values, dtype=dtype)
+            return array.copy() if copy else array
+
+    collection = SeriesCollection([
+        StateSeries([
+            State({"feature": ArrayLikeFeature([1.0, 2.0])}),
+            State({"feature": ArrayLikeFeature([3.0, 4.0])}),
+        ])
+    ])
+
+    processed = PredictionStrategy.preprocess_features(collection, {"feature": NoProcessing()})
+
+    assert processed.shape == (1, 2, 2)
+    assert_allclose(processed[0], np.array([[1.0, 2.0], [3.0, 4.0]]))
 
 
 def test_create_feature_processor_map():
@@ -126,6 +148,40 @@ def test_postprocess_features():
     assert_allclose(series_collection[0][0]["b"], np.array([10.0]))
     assert_allclose(series_collection[1][2]["a"], np.array([6.0]))
     assert_allclose(series_collection[1][2]["b"], np.array([60.0]))
+
+
+def test_postprocess_features_can_return_object_values():
+    class PredictedLabel:
+        def __init__(self, value):
+            self.value = float(value)
+
+    class LabelProcessor(FeatureProcessor):
+        def preprocess(self, orig_data):
+            return np.asarray([label.value for label in orig_data]).reshape(-1, 1)
+
+        def postprocess(self, processed_data):
+            return [PredictedLabel(row[0]) for row in np.asarray(processed_data)]
+
+        def __eq__(self, other):
+            return isinstance(other, LabelProcessor)
+
+        def to_dict(self):
+            return {"type": "LabelProcessor"}
+
+    data_array = np.array([[[1.0], [2.0]]])
+
+    series_collection = PredictionStrategy.postprocess_features(
+        data_array=data_array,
+        series_lengths=[2],
+        feature_order=["label"],
+        feature_sizes={"label": 1},
+        features={"label": LabelProcessor()},
+    )
+
+    assert isinstance(series_collection[0][0]["label"], PredictedLabel)
+    assert isinstance(series_collection[0][1]["label"], PredictedLabel)
+    assert series_collection[0][0]["label"].value == 1.0
+    assert series_collection[0][1]["label"].value == 2.0
 
 
 def test_gbm_strategy():

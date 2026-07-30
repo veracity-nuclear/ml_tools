@@ -222,8 +222,8 @@ def test_state_process_features():
     state = State({"a": np.array([1.0, 2.0]), "b": np.array([3.0]), "c": np.array([4.0])})
 
     processed = state.process_features({
-        "a": lambda data: data * 2.0,
-        "b": lambda data: data + 10.0,
+        "a": lambda data: np.asarray(data) * 2.0,
+        "b": lambda data: np.asarray(data) + 10.0,
     })
 
     assert list(processed.features.keys()) == ["a", "b"]
@@ -288,8 +288,8 @@ def test_state_series_process_features():
     ])
 
     processed = series.process_features({
-        "a": lambda data: data + 1.0,
-        "b": lambda data: data / 10.0,
+        "a": lambda data: np.asarray(data) + 1.0,
+        "b": lambda data: np.asarray(data) / 10.0,
     })
 
     assert len(processed) == 2
@@ -363,8 +363,8 @@ def test_series_collection_process_features():
     ])
 
     processed = collection.process_features({
-        "a": lambda data: data - 1.0,
-        "b": lambda data: data * 2.0,
+        "a": lambda data: np.asarray(data) - 1.0,
+        "b": lambda data: np.asarray(data) * 2.0,
     })
 
     assert len(processed) == 2

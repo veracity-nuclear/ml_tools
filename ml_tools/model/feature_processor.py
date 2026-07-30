@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from typing import Dict, Any
 from math import isclose
 import numpy as np
+from numpy.typing import ArrayLike
 import h5py
 
 from ml_tools.model import register_feature_processor
@@ -12,12 +13,12 @@ class FeatureProcessor(ABC):
     """
 
     @abstractmethod
-    def preprocess(self, orig_data: np.ndarray) -> np.ndarray:
+    def preprocess(self, orig_data: ArrayLike) -> np.ndarray:
         """Pre-process feature data.
 
         Parameters
         ----------
-        orig_data : np.ndarray
+        orig_data : ArrayLike
             Feature data in its original physical form. Implementations should
             accept array-like input and return an array with the same leading
             dimensions.
@@ -30,21 +31,21 @@ class FeatureProcessor(ABC):
 
 
     @abstractmethod
-    def postprocess(self, processed_data: np.ndarray) -> np.ndarray:
+    def postprocess(self, processed_data: ArrayLike) -> ArrayLike:
         """Post-process feature data.
 
         Post-processing here means the inverse operation of pre-processing
 
         Parameters
         ----------
-        processed_data : np.ndarray
+        processed_data : ArrayLike
             Feature data in its processed form. Implementations should accept
             array-like input and return an array with the same leading
             dimensions.
 
         Returns
         -------
-        np.ndarray
+        ArrayLike
             The post-processed form of the data
         """
 
@@ -141,12 +142,13 @@ class MinMaxNormalize(FeatureProcessor):
         self._min = min_value
         self._max = max_value
 
-    def preprocess(self, orig_data: np.ndarray) -> np.ndarray:
+    def preprocess(self, orig_data: ArrayLike) -> np.ndarray:
         data = np.asarray(orig_data)
         return (data - self.min)/(self.max - self.min)
 
-    def postprocess(self, processed_data: np.ndarray) -> np.ndarray:
-        return processed_data * (self.max - self.min) + self.min
+    def postprocess(self, processed_data: ArrayLike) -> np.ndarray:
+        data = np.asarray(processed_data)
+        return data * (self.max - self.min) + self.min
 
     def __eq__(self, other: FeatureProcessor) -> bool:
         return (isinstance(other, MinMaxNormalize) and
@@ -175,10 +177,10 @@ class NoProcessing(FeatureProcessor):
     def __init__(self):
         pass
 
-    def preprocess(self, orig_data: np.ndarray) -> np.ndarray:
+    def preprocess(self, orig_data: ArrayLike) -> np.ndarray:
         return np.array(orig_data, copy=True)
 
-    def postprocess(self, processed_data: np.ndarray) -> np.ndarray:
+    def postprocess(self, processed_data: ArrayLike) -> np.ndarray:
         return np.array(processed_data, copy=True)
 
     def __eq__(self, other: FeatureProcessor) -> bool:
