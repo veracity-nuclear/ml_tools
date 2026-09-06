@@ -208,7 +208,7 @@ def test_residual_correction_strategy():
 
 def test_nn_strategy_Dense():
 
-    cips_calculator = NNStrategy(input_features, output_feature)
+    cips_calculator = NNStrategy(input_features, output_feature, epochs_per_decay=25)
     cips_calculator.train(make_series_collection(1, 1000))
     assert_allclose(state["cips_index"],
                     cips_calculator.predict(make_series_collection(1, 1))[0][0][output_feature],
@@ -217,12 +217,14 @@ def test_nn_strategy_Dense():
     cips_calculator.save_model('test_nn_model')
     new_cips_calculator = NNStrategy.read_from_file('test_nn_model')
     assert cips_calculator == new_cips_calculator
+    assert new_cips_calculator.epochs_per_decay == 25
     assert_allclose(state["cips_index"],
                     new_cips_calculator.predict(make_series_collection(1, 1))[0][0][output_feature],
                     atol=1E-2)
 
     new_cips_calculator = PredictionStrategy.from_dict(cips_calculator.to_dict())
     assert cips_calculator == new_cips_calculator
+    assert new_cips_calculator.epochs_per_decay == 25
 
 
 def test_nn_strategy_LSTM():

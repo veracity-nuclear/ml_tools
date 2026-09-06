@@ -32,7 +32,9 @@ class NNSearchSpace(SearchSpace):
         initial_learning_rate : FloatDimension
             Range/domain for the initial learning rate (inclusive bounds; may be log-scaled if `log=True`).
         learning_decay_rate : FloatDimension
-            Range/domain for multiplicative LR decay per step/epoch (e.g., 1.0 means no decay).
+            Domain for the LR multiplier applied every epochs_per_decay epochs; 1.0 means no decay.
+        epochs_per_decay : IntDimension
+            Positive epoch interval between LR reductions. Defaults to a fixed 50 epochs.
         epoch_limit : IntDimension
             Inclusive range for the maximum number of training epochs to allow.
         convergence_criteria : FloatDimension
@@ -50,6 +52,8 @@ class NNSearchSpace(SearchSpace):
             Domain for initial LR to sample from.
         learning_decay_rate : FloatDimension
             Domain for LR decay factor to sample from.
+        epochs_per_decay : IntDimension
+            Domain for the epoch interval between LR reductions.
         epoch_limit : IntDimension
             Domain for epoch limit to sample from.
         convergence_criteria : FloatDimension
@@ -86,6 +90,18 @@ class NNSearchSpace(SearchSpace):
             assert value.low > 0, f"learning_decay_rate lower bound {value.low} must be > 0"
             assert value.high <= 1.0, f"learning_decay_rate upper bound {value.high} must be <= 1.0"
             self.fields["learning_decay_rate"] = value
+
+        @property
+        def epochs_per_decay(self) -> IntDimension:
+            return self.fields["epochs_per_decay"]
+
+        @epochs_per_decay.setter
+        def epochs_per_decay(self, value: IntDimension) -> None:
+            if not isinstance(value, IntDimension):
+                raise TypeError('epochs_per_decay must be an IntDimension')
+            if value.low <= 0:
+                raise ValueError('epochs_per_decay lower bound must be positive')
+            self.fields["epochs_per_decay"] = value
 
         @property
         def epoch_limit(self) -> IntDimension:
@@ -130,12 +146,14 @@ class NNSearchSpace(SearchSpace):
                      epoch_limit:           IntDimension   = IntDimension(1000, 1000),
                      convergence_criteria:  FloatDimension = FloatDimension(1e-3, 1e-3),
                      convergence_patience:  IntDimension   = IntDimension(5, 5),
-                     batch_size_log2:       IntDimension   = IntDimension(7, 7)):
+                     batch_size_log2:       IntDimension   = IntDimension(7, 7),
+                     epochs_per_decay:      IntDimension   = IntDimension(50, 50)):
 
             self.fields                 = {}
             self.layers                 = layers
             self.initial_learning_rate  = initial_learning_rate
             self.learning_decay_rate    = learning_decay_rate
+            self.epochs_per_decay       = epochs_per_decay
             self.epoch_limit            = epoch_limit
             self.convergence_criteria   = convergence_criteria
             self.convergence_patience   = convergence_patience

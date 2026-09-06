@@ -44,7 +44,9 @@ class NNStrategy(PredictionStrategy):
     initial_learning_rate : float
         The initial learning rate of the training
     learning_decay_rate : float
-        The decay rate of the learning using Exponential Decay
+        Learning-rate multiplier applied every epochs_per_decay epochs; 1.0 disables decay.
+    epochs_per_decay : int
+        Positive number of epochs between learning-rate reductions. Default is 50.
     epoch_limit : int
         The limit on the number of training epochs conducted during training
     convergence_criteria : float
@@ -62,7 +64,9 @@ class NNStrategy(PredictionStrategy):
     initial_learning_rate : float
         The initial learning rate of the training
     learning_decay_rate : float
-        The decay rate of the learning using Exponential Decay
+        Learning-rate multiplier applied every epochs_per_decay epochs; 1.0 disables decay.
+    epochs_per_decay : int
+        Number of epochs between learning-rate reductions, independent of epoch_limit.
     epoch_limit : int
         The limit on the number of training epochs conducted during training
     convergence_criteria : float
@@ -100,6 +104,19 @@ class NNStrategy(PredictionStrategy):
     def learning_decay_rate(self, learning_decay_rate: float):
         assert 0. < learning_decay_rate <= 1., f"learning_decay_rate = {learning_decay_rate}"
         self._learning_decay_rate = learning_decay_rate
+
+    @property
+    def epochs_per_decay(self) -> int:
+        # Old architecture pickles adopt the new default when retrained.
+        return getattr(self, '_epochs_per_decay', 50)
+
+    @epochs_per_decay.setter
+    def epochs_per_decay(self, value: int) -> None:
+        if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
+            raise TypeError('epochs_per_decay must be a positive integer')
+        if value <= 0:
+            raise ValueError('epochs_per_decay must be positive')
+        self._epochs_per_decay = int(value)
 
     @property
     def epoch_limit(self) -> int:
@@ -151,7 +168,8 @@ class NNStrategy(PredictionStrategy):
                  epoch_limit           : int=1000,
                  convergence_criteria  : float=1E-14,
                  convergence_patience  : int=100,
-                 batch_size            : int=32) -> None:
+                 batch_size            : int=32,
+                 epochs_per_decay      : int=50) -> None:
 
         super().__init__()
         self.input_features         = input_features
@@ -159,6 +177,7 @@ class NNStrategy(PredictionStrategy):
         self.layers                 = [Dense(units=5, activation='relu')] if layers is None else layers
         self.initial_learning_rate  = initial_learning_rate
         self.learning_decay_rate    = learning_decay_rate
+        self.epochs_per_decay       = epochs_per_decay
         self.epoch_limit            = epoch_limit
         self.convergence_criteria   = convergence_criteria
         self.convergence_patience   = convergence_patience
@@ -180,8 +199,12 @@ class NNStrategy(PredictionStrategy):
 
         self._model = tf.keras.Model(inputs=input_tensor, outputs=output)
 
+        steps_per_epoch = len(train_data) // self.batch_size # Matches dataset.batch(..., drop_remainder=True) below.
+        if steps_per_epoch == 0:
+            raise ValueError('Training requires at least one full batch with drop_remainder=True. '
+                             'Reduce batch_size or add training data.')
         learning_rate_schedule = ExponentialDecay(initial_learning_rate = self.initial_learning_rate,
-                                                  decay_steps           = self.epoch_limit,
+                                                  decay_steps           = steps_per_epoch * self.epochs_per_decay,
                                                   decay_rate            = self.learning_decay_rate, staircase=True)
 
         self._model.compile(optimizer=Adam(learning_rate = learning_rate_schedule),
@@ -228,6 +251,7 @@ class NNStrategy(PredictionStrategy):
         return (len(self.layers) == len(other.layers)                   and
                 all(a == b for a, b in zip(self.layers, other.layers))  and
                 self.epoch_limit          == other.epoch_limit          and
+                self.epochs_per_decay     == other.epochs_per_decay     and
                 self.convergence_patience == other.convergence_patience and
                 self.batch_size           == other.batch_size           and
                 isclose(self.initial_learning_rate, other.initial_learning_rate, rel_tol=1e-9) and
@@ -254,6 +278,7 @@ class NNStrategy(PredictionStrategy):
         super().write_model_to_hdf5(h5_group)
         h5_group.create_dataset('initial_learning_rate', data=self.initial_learning_rate)
         h5_group.create_dataset('learning_decay_rate',   data=self.learning_decay_rate)
+        h5_group.create_dataset('epochs_per_decay',      data=self.epochs_per_decay)
         h5_group.create_dataset('epoch_limit',           data=self.epoch_limit)
         h5_group.create_dataset('convergence_criteria',  data=self.convergence_criteria)
         h5_group.create_dataset('convergence_patience',  data=self.convergence_patience)
@@ -274,6 +299,7 @@ class NNStrategy(PredictionStrategy):
         super().load_model(h5_group)
         self.initial_learning_rate = float( h5_group['initial_learning_rate'][()] )
         self.learning_decay_rate   = float( h5_group['learning_decay_rate'][()]   )
+        self.epochs_per_decay      = int(h5_group['epochs_per_decay'][()]) if 'epochs_per_decay' in h5_group else 50
         self.epoch_limit           = int(   h5_group['epoch_limit'][()]           )
         self.convergence_criteria  = float( h5_group['convergence_criteria'][()]  )
         self.convergence_patience  = int(   h5_group['convergence_patience'][()]  )
@@ -329,6 +355,7 @@ class NNStrategy(PredictionStrategy):
         layers                = LayerSequence.from_dict(nn_cfg).layers
         initial_learning_rate = params.get("initial_learning_rate", 0.01)
         learning_decay_rate   = params.get("learning_decay_rate", 1.0)
+        epochs_per_decay      = params.get("epochs_per_decay", 50)
         epoch_limit           = params.get("epoch_limit", 1000)
         convergence_criteria  = params.get("convergence_criteria", 1e-14)
         convergence_patience  = params.get("convergence_patience", 100)
@@ -344,6 +371,7 @@ class NNStrategy(PredictionStrategy):
                        layers                = layers,
                        initial_learning_rate = initial_learning_rate,
                        learning_decay_rate   = learning_decay_rate,
+                       epochs_per_decay      = epochs_per_decay,
                        epoch_limit           = epoch_limit,
                        convergence_criteria  = convergence_criteria,
                        convergence_patience  = convergence_patience,
@@ -353,6 +381,7 @@ class NNStrategy(PredictionStrategy):
     def _params_to_dict(self) -> dict:
         return {'initial_learning_rate': self.initial_learning_rate,
                 'learning_decay_rate':   self.learning_decay_rate,
+                'epochs_per_decay':      self.epochs_per_decay,
                 'epoch_limit':           self.epoch_limit,
                 'convergence_criteria':  self.convergence_criteria,
                 'convergence_patience':  self.convergence_patience,
