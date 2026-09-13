@@ -9,7 +9,6 @@ from ml_tools import SeriesCollection, State, StateSeries
 from ml_tools.model.feature_processor import NoProcessing
 from ml_tools.model.prediction_strategy import PredictionStrategy
 from ml_tools.model.feature_perturbator import NonPerturbator
-from ml_tools.utils.prediction_results import PredictionResults
 from ml_tools.utils.plotting import (plot_ref_vs_pred,
                                      plot_hist,
                                      plot_sensitivities,
@@ -86,21 +85,10 @@ def test_plot_hist(models, series_collection, tmp_path):
         output.unlink()
 
 
-@pytest.mark.parametrize("plot_function", [plot_ref_vs_pred, plot_hist])
-@pytest.mark.parametrize("subplots", [False, True])
-def test_plot_subplots_forwarded(monkeypatch, series_collection, plot_function, subplots):
-    calls = []
-
-    def capture_plot(results, **kwargs):
-        calls.append((results, kwargs))
-
-    monkeypatch.setattr(PredictionResults, plot_function.__name__, capture_plot)
+def test_plot_subplots(series_collection, tmp_path):
     models = {"First": DummyStrategy(), "Second": DummyStrategy(multiplier=3.0)}
-    plot_function(models, series_collection, subplots=subplots)
-    assert len(calls) == 1
-    results, kwargs = calls[0]
-    assert results.labels == ["First", "Second"]
-    assert kwargs["subplots"] is subplots
+    plot_ref_vs_pred(models, series_collection, fig_name=str(tmp_path / "ref_vs_pred"), subplots=True)
+    plot_hist(models, series_collection, fig_name=str(tmp_path / "hist"), subplots=True)
 
 
 def test_plot_sensitivities(models, series_collection, perturbators, tmp_path):

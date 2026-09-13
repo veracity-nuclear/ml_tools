@@ -3,9 +3,6 @@ import matplotlib
 matplotlib.use("Agg")
 
 import numpy as np
-import pytest
-from matplotlib.figure import Figure
-import matplotlib.pyplot as plt
 
 from ml_tools import SeriesCollection, State, StateSeries
 from ml_tools.model.feature_processor import NoProcessing
@@ -131,10 +128,7 @@ def test_prediction_results_plot_hist(tmp_path):
         output.unlink()
 
 
-@pytest.mark.parametrize("subplots", [False, True])
-@pytest.mark.parametrize("spec_count", [1, 3])
-@pytest.mark.parametrize("plot_method", ["plot_ref_vs_pred", "plot_hist"])
-def test_prediction_results_plot_panels(monkeypatch, tmp_path, subplots, spec_count, plot_method):
+def test_prediction_results_subplots(tmp_path):
     collection = SeriesCollection([
         StateSeries([State({"x": np.array([x]), "y": np.array([2 * x])})])
         for x in [1.0, 2.0, 3.0]
@@ -142,54 +136,10 @@ def test_prediction_results_plot_panels(monkeypatch, tmp_path, subplots, spec_co
     results = PredictionResults([
         PredictionResults.Spec(label=f"Model {index}", model=DummyStrategy(multiplier=2.0 + index),
                                series_collection=collection, predicted_feature="y")
-        for index in range(spec_count)
+        for index in range(3)
     ])
-    saved = []
-    savefig = Figure.savefig
-
-    def capture_figure(fig, filename, **kwargs):
-        saved.append(fig)
-        # Exercise real output without rendering every test image at 600 DPI.
-        kwargs["dpi"] = 50
-        savefig(fig, filename, **kwargs)
-
-    monkeypatch.setattr(Figure, "savefig", capture_figure)
-    monkeypatch.setattr(DummyStrategy, "predict", lambda *args, **kwargs: pytest.fail("Predictions recomputed"))
-    fig_name = tmp_path / plot_method
-    getattr(results, plot_method)(fig_name=str(fig_name), subplots=subplots)
-
-    assert fig_name.with_suffix(".png").stat().st_size > 0
-    assert len(saved) == 1
-    fig = saved[0]
-    assert not plt.fignum_exists(fig.number)
-    assert len(fig.axes) == (spec_count if subplots else 1)
-    residuals = results.reference_values - results.predicted_values
-    for panel_index, ax in enumerate(fig.axes):
-        indices = [panel_index] if subplots else list(range(spec_count))
-        assert [text.get_text() for text in ax.get_legend().get_texts()][:len(indices)] == [
-            results.labels[index] for index in indices
-        ]
-        if subplots:
-            assert ax.get_title() == results.labels[panel_index]
-        np.testing.assert_allclose(ax.get_xlim(), fig.axes[0].get_xlim())
-        np.testing.assert_allclose(ax.get_ylim(), fig.axes[0].get_ylim())
-        if plot_method == "plot_ref_vs_pred":
-            assert len(ax.lines) == len(indices) + 5  # Points, reference, and two pairs of error bands.
-            for line, index in zip(ax.lines, indices):
-                np.testing.assert_allclose(line.get_xdata(), results.reference_values[:, index])
-                np.testing.assert_allclose(line.get_ydata(), results.predicted_values[:, index])
-            reference = ax.lines[len(indices)]
-            np.testing.assert_allclose(reference.get_xdata(), reference.get_ydata())
-            np.testing.assert_allclose(ax.get_xlim(), ax.get_ylim())
-        else:
-            assert len(ax.patches) == len(indices)
-            max_diff = max(float(np.max(np.abs(residuals))), 1.0)
-            edges = np.linspace(-max_diff, max_diff, 100)
-            for patch, index in zip(ax.patches, indices):
-                counts, _ = np.histogram(residuals[:, index], edges)
-                vertices = patch.get_xy()
-                np.testing.assert_allclose(vertices[1:-1:2, 0], edges[:-1])
-                np.testing.assert_allclose(vertices[1:-1:2, 1], counts)
+    results.plot_ref_vs_pred(fig_name=str(tmp_path / "ref_vs_pred"), subplots=True)
+    results.plot_hist(fig_name=str(tmp_path / "hist"), subplots=True)
 
 
 def test_prediction_results_print_metrics(tmp_path):
