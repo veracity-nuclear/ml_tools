@@ -128,6 +128,20 @@ def test_prediction_results_plot_hist(tmp_path):
         output.unlink()
 
 
+def test_prediction_results_subplots(tmp_path):
+    collection = SeriesCollection([
+        StateSeries([State({"x": np.array([x]), "y": np.array([2 * x])})])
+        for x in [1.0, 2.0, 3.0]
+    ])
+    results = PredictionResults([
+        PredictionResults.Spec(label=f"Model {index}", model=DummyStrategy(multiplier=2.0 + index),
+                               series_collection=collection, predicted_feature="y")
+        for index in range(3)
+    ])
+    results.plot_ref_vs_pred(fig_name=str(tmp_path / "ref_vs_pred"), subplots=True)
+    results.plot_hist(fig_name=str(tmp_path / "hist"), subplots=True)
+
+
 def test_prediction_results_print_metrics(tmp_path):
     series_collection = SeriesCollection([
         StateSeries([State({"x": np.array([1.0]), "y": np.array([2.0])})]),

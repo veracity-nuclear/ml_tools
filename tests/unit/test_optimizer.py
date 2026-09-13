@@ -142,6 +142,7 @@ def test_nn_optimizer_Dense():
     search_space = NNSearchSpace(NNSearchSpace.Dimension(layers                = [dense_layer],
                                                          initial_learning_rate = FloatDimension(0.001, 0.1, log=10),
                                                          learning_decay_rate   = FloatDimension(0.1, 1.0),
+                                                         epochs_per_decay      = IntDimension(25, 100),
                                                          epoch_limit           = IntDimension(100, 10000),
                                                          convergence_criteria  = FloatDimension(1e-6, 1e-5, log=10),
                                                          convergence_patience  = IntDimension(10, 20),
@@ -160,6 +161,7 @@ def test_nn_optimizer_Dense():
                           layers                = [Dense(units=8, activation="relu")],
                           initial_learning_rate = 0.001,
                           learning_decay_rate   = 0.1,
+                          epochs_per_decay      = 25,
                           epoch_limit           = 100,
                           convergence_criteria  = 1e-6,
                           convergence_patience  = 10,
@@ -487,6 +489,7 @@ def test_optuna_strategy(series_collection, tmp_path):
                                                   layer_normalize=False)]
     assert model.initial_learning_rate == 0.01
     assert model.learning_decay_rate   == 1.0
+    assert model.epochs_per_decay      == 50
     assert model.epoch_limit           == 1
     assert model.convergence_criteria  == 1e-6
     assert model.convergence_patience  == 1

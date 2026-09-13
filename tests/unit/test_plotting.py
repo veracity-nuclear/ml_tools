@@ -85,6 +85,12 @@ def test_plot_hist(models, series_collection, tmp_path):
         output.unlink()
 
 
+def test_plot_subplots(series_collection, tmp_path):
+    models = {"First": DummyStrategy(), "Second": DummyStrategy(multiplier=3.0)}
+    plot_ref_vs_pred(models, series_collection, fig_name=str(tmp_path / "ref_vs_pred"), subplots=True)
+    plot_hist(models, series_collection, fig_name=str(tmp_path / "hist"), subplots=True)
+
+
 def test_plot_sensitivities(models, series_collection, perturbators, tmp_path):
     fig_prefix = tmp_path / "sens"
     plot_sensitivities(models,
