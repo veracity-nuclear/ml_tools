@@ -3,6 +3,7 @@ from typing import List, Optional
 
 
 from ml_tools.model.prediction_strategy import FeatureSpec
+from ml_tools.model.nn_strategy.nn_strategy import NNStrategy
 from ml_tools.optimizer.search_space import SearchSpace, StructDimension, IntDimension, FloatDimension, ListDimension
 from ml_tools.optimizer.nn_search_space.layer import Layer
 
@@ -147,7 +148,10 @@ class NNSearchSpace(SearchSpace):
                      convergence_criteria:  FloatDimension = FloatDimension(1e-3, 1e-3),
                      convergence_patience:  IntDimension   = IntDimension(5, 5),
                      batch_size_log2:       IntDimension   = IntDimension(7, 7),
-                     epochs_per_decay:      IntDimension   = IntDimension(50, 50)):
+                     epochs_per_decay:      IntDimension   = IntDimension(
+                         NNStrategy.DEFAULT_EPOCHS_PER_DECAY,
+                         NNStrategy.DEFAULT_EPOCHS_PER_DECAY,
+                     )):
 
             self.fields                 = {}
             self.layers                 = layers

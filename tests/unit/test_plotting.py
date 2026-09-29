@@ -31,7 +31,8 @@ class DummyStrategy(PredictionStrategy):
     def isTrained(self) -> bool:
         return self._trained
 
-    def train(self, train_data, test_data=None, num_procs: int = 1) -> None:
+    def train(self, train_data, validation_data=None, num_procs: int = 1, *,
+              validation_split: float = 0.2, validation_seed: int = 42) -> None:
         self._trained                 = True
         self._predicted_feature_sizes = {"y": 1}
 

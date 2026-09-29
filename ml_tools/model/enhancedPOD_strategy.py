@@ -156,15 +156,15 @@ class EnhancedPODStrategy(PredictionStrategy):
 
     def _add_theta(self,
                    train_data: SeriesCollection,
-                   test_data: Optional[SeriesCollection] = None,
+                   validation_data: Optional[SeriesCollection] = None,
                    scaling_vector: np.ndarray = None,
                    num_procs: int = 1) -> None:
         if scaling_vector is None:
             scaling_vector = self._scaling_vector()
 
         self._add_theta_to_collection(train_data, scaling_vector, num_procs)
-        if test_data is not None:
-            self._add_theta_to_collection(test_data, scaling_vector, num_procs)
+        if validation_data is not None:
+            self._add_theta_to_collection(validation_data, scaling_vector, num_procs)
 
     def _compute_pod(self, data: SeriesCollection) -> None:
         self._max_svd_size = self._max_svd_size or len(data)
@@ -196,23 +196,27 @@ class EnhancedPODStrategy(PredictionStrategy):
 
     def train(self,
               train_data: SeriesCollection,
-              test_data: Optional[SeriesCollection] = None,
-              num_procs: int = 1) -> None:
+              validation_data: Optional[SeriesCollection] = None,
+              num_procs: int = 1,
+              *,
+              validation_split: float = 0.2,
+              validation_seed: Optional[int] = 42) -> None:
+        """Train the enhanced POD and theta models using the supplied validation policy."""
 
         # compute pod matrix
         self._compute_pod(train_data)
 
         # add theta_xi to collections for training
         # TODO: disable training theta in parallel because it collides with lightgbm somehow
-        self._add_theta(train_data, test_data, scaling_vector=self._scaling_vector())
+        self._add_theta(train_data, validation_data, scaling_vector=self._scaling_vector())
 
         # train models
         for model in self._theta_model:
-            if self._theta_model_type in ["NN", "SKLEARN"]:
-                # NN and sklearn need combined data for multi-output
-                model.train(train_data + test_data, num_procs=num_procs)
-            else:
-                model.train(train_data, test_data, num_procs=num_procs)
+            model.train(train_data,
+                        validation_data,
+                        num_procs=num_procs,
+                        validation_split=validation_split,
+                        validation_seed=validation_seed)
 
     def _predict_theta(self, collection: SeriesCollection) -> np.ndarray:
         if self._theta_model_type in ["NN", "SKLEARN"]:

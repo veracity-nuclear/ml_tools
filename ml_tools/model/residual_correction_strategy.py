@@ -129,13 +129,24 @@ class ResidualCorrectionStrategy(PredictionStrategy):
         self.reference_model_frozen = reference_model_frozen
 
 
-    def train(self, train_data: SeriesCollection, test_data: Optional[SeriesCollection] = None, num_procs: int = 1) -> None:
+    def train(self,
+              train_data: SeriesCollection,
+              validation_data: Optional[SeriesCollection] = None,
+              num_procs: int = 1,
+              *,
+              validation_split: float = 0.2,
+              validation_seed: Optional[int] = 42) -> None:
+        """Train the component models using the supplied validation policy."""
 
         assert self.residual_model is not None, "residual_model must be set before training"
         assert self.reference_model is not None, "reference_model must be set before training"
 
         if not self.reference_model_frozen:
-            self.reference_model.train(train_data, test_data, num_procs)
+            self.reference_model.train(train_data,
+                                       validation_data,
+                                       num_procs=num_procs,
+                                       validation_split=validation_split,
+                                       validation_seed=validation_seed)
 
         assert self.reference_model.isTrained, "Reference model must be trained successfully before training residual model."
 
@@ -146,15 +157,19 @@ class ResidualCorrectionStrategy(PredictionStrategy):
                                                     features  = predicted_features,
                                                     num_procs = num_procs)
 
-        test_residuals = None
-        if test_data is not None:
-            test_reference = self.reference_model.predict(test_data, num_procs)
-            test_residuals = test_data.featurewise(op        = np.subtract,
-                                                   other     = test_reference,
-                                                   features  = predicted_features,
-                                                   num_procs = num_procs)
+        validation_residuals = None
+        if validation_data is not None:
+            validation_reference = self.reference_model.predict(validation_data, num_procs)
+            validation_residuals = validation_data.featurewise(op        = np.subtract,
+                                                               other     = validation_reference,
+                                                               features  = predicted_features,
+                                                               num_procs = num_procs)
 
-        self.residual_model.train(train_residuals, test_residuals, num_procs)
+        self.residual_model.train(train_residuals,
+                                  validation_residuals,
+                                  num_procs=num_procs,
+                                  validation_split=validation_split,
+                                  validation_seed=validation_seed)
 
 
     def predict(self, series_collection: SeriesCollection, num_procs: int = 1) -> SeriesCollection:

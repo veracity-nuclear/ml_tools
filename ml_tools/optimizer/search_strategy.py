@@ -12,22 +12,26 @@ class SearchStrategy(ABC):
     @abstractmethod
     def search(self,
                search_space:      SearchSpace,
-               series_collection: SeriesCollection,
+               train_data:         SeriesCollection,
                num_trials:        int,
                number_of_folds:   int,
                output_file:       str,
                checkpoint_dir:    Optional[str] = None,
                resume:            bool = False,
                save_every_n_trials: int = 0,
-               num_procs:         int = 1) -> PredictionStrategy:
+               num_procs:         int = 1,
+               *,
+               validation_data:   Optional[SeriesCollection] = None,
+               validation_split:  float = 0.2,
+               validation_seed:   Optional[int] = 42) -> PredictionStrategy:
         """ Method for performing model hyperparameter optimization
 
         Parameters
         ----------
         search_space : SearchSpace
             The hyperparameter search space to explore
-        series_collection : SeriesCollection
-            The collection of series to use for training and validation
+        train_data : SeriesCollection
+            Collection used for cross-validation training and scoring.
         num_trials : int
             The number of hyperparameter trials to perform
         number_of_folds : int
@@ -42,12 +46,19 @@ class SearchStrategy(ABC):
             Frequency (in trials) to dump lightweight checkpoints; 0 disables.
         num_procs : int
             The number of processes to use for parallel model training
+        validation_data : SeriesCollection, optional
+            Explicit validation collection supplied to models during training.
+        validation_split : float
+            Fraction of each training collection reserved for validation when
+            validation_data is omitted and the strategy requires validation.
+        validation_seed : int, optional
+            Random seed used for automatic validation splits.
 
         Returns
         -------
         PredictionStrategy
             The best model configuration found during optimization. Search
-            strategies do not train the final model on the full dataset.
+            strategies do not train the final returned model.
         """
 
         assert num_trials > 0, f"num_trials = {num_trials}"
