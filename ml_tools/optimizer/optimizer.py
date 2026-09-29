@@ -48,7 +48,7 @@ class Optimizer():
 
 
     def optimize(self,
-                 series_collection: SeriesCollection,
+                 train_data:         SeriesCollection,
                  num_trials:        int = 10,
                  number_of_folds:   int = 5,
                  output_file:       str = "optimization_results.out",
@@ -56,13 +56,17 @@ class Optimizer():
                  resume:            bool = False,
                  save_every_n_trials: int = 0,
                  num_procs:         int = 1,
-                 train_best_model:  bool = True) -> PredictionStrategy:
+                 train_best_model:  bool = True,
+                 *,
+                 validation_data:   Optional[SeriesCollection] = None,
+                 validation_split:  float = 0.2,
+                 validation_seed:   Optional[int] = 42) -> PredictionStrategy:
         """ Method for performing model hyperparameter optimization
 
         Parameters
         ----------
-        series_collection : SeriesCollection
-            The collection of series to use for training and validation
+        train_data : SeriesCollection
+            Collection used for cross-validation training and scoring.
         num_trials : int
             The number of hyperparameter trials to perform (Default is 10)
         number_of_folds : int
@@ -78,8 +82,16 @@ class Optimizer():
         num_procs : int
             The number of processes to use for parallel model training (Default is 1)
         train_best_model : bool
-            Whether to train the best model on the full original series collection
-            before returning it. Default is True.
+            Whether to train the best model using train_data and the configured
+            validation policy before returning it. Default is True.
+        validation_data : SeriesCollection, optional
+            Explicit validation collection supplied to models during training.
+            This collection is not used for outer-fold scoring.
+        validation_split : float
+            Fraction of each training collection reserved for validation when
+            validation_data is omitted and the strategy requires validation.
+        validation_seed : int, optional
+            Random seed used for automatic validation splits.
 
         Returns
         -------
@@ -89,16 +101,23 @@ class Optimizer():
         """
 
         best_model = self.search_strategy.search(search_space      = self.search_space,
-                                                 series_collection = series_collection,
+                                                 train_data         = train_data,
                                                  num_trials        = num_trials,
                                                  number_of_folds   = number_of_folds,
                                                  output_file       = output_file,
                                                  checkpoint_dir    = checkpoint_dir,
                                                  resume            = resume,
                                                  save_every_n_trials = save_every_n_trials,
-                                                 num_procs         = num_procs)
+                                                 num_procs         = num_procs,
+                                                 validation_data   = validation_data,
+                                                 validation_split  = validation_split,
+                                                 validation_seed   = validation_seed)
 
         if train_best_model:
-            best_model.train(series_collection, num_procs=num_procs)
+            best_model.train(train_data,
+                             validation_data=validation_data,
+                             num_procs=num_procs,
+                             validation_split=validation_split,
+                             validation_seed=validation_seed)
 
         return best_model

@@ -61,7 +61,7 @@ def build_cnn_optimizer(input_features: Dict[str, FeatureProcessor],
                           kernel_size = CategoricalDimension([(2, 2)]),
                           strides     = CategoricalDimension([(1, 1)]),
                           padding     = BoolDimension([False]))
-    pool = SpatialMaxPoolDim(input_shape = CategoricalDimension([(3, 3)]),
+    pool = SpatialMaxPoolDim(input_shape = CategoricalDimension([(2, 2)]),
                              pool_size   = CategoricalDimension([(2, 2)]),
                              strides     = CategoricalDimension([(1, 1)]),
                              padding     = BoolDimension([False]))

@@ -473,7 +473,7 @@ def test_optuna_strategy(series_collection, tmp_path):
     strategy    = OptunaStrategy()
     output_file = tmp_path / "optuna_results.txt"
     model       = strategy.search(search_space      = search_space,
-                                  series_collection = series_collection,
+                                  train_data         = series_collection,
                                   num_trials        = 1,
                                   number_of_folds   = 2,
                                   output_file       = str(output_file),

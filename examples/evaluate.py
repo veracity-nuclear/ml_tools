@@ -45,11 +45,11 @@ def main() -> None:
     models['GBM'] = GBMStrategy(input_features, predicted_feature)
 
     dnn_opt = build_dnn_optimizer(input_features, predicted_feature)
-    models['DNN'] = dnn_opt.optimize(series_collection = series_collection.random_sample(10000),
-                                     num_trials        = 50,
-                                     number_of_folds   = 5,
-                                     output_file       = "dnn_optimizer.out",
-                                     num_procs         = 20)
+    models['DNN'] = dnn_opt.optimize(train_data       = series_collection.random_sample(10000),
+                                     num_trials       = 50,
+                                     number_of_folds  = 5,
+                                     output_file      = "dnn_optimizer.out",
+                                     num_procs        = 20)
 
     with open("dnn.pkl", 'wb') as file:
         pickle.dump(models['DNN'], file)
@@ -60,11 +60,11 @@ def main() -> None:
 
 
     cnn_opt = build_cnn_optimizer(input_features, predicted_feature)
-    models['CNN'] = cnn_opt.optimize(series_collection = series_collection.random_sample(10000),
-                                     num_trials        = 50,
-                                     number_of_folds   = 5,
-                                     output_file       = "cnn_optimizer.out",
-                                     num_procs         = 20)
+    models['CNN'] = cnn_opt.optimize(train_data       = series_collection.random_sample(10000),
+                                     num_trials       = 50,
+                                     number_of_folds  = 5,
+                                     output_file      = "cnn_optimizer.out",
+                                     num_procs        = 20)
 
     with open("cnn.pkl", 'wb') as file:
         pickle.dump(models['CNN'], file)
@@ -107,8 +107,8 @@ def train(models: Dict[str, PredictionStrategy], train_collection: SeriesCollect
         print(f'Training {name:s}...')
         start = time.time()
         if name in ['GBM', 'GBM - GBM_Informed']:
-            train_data, test_data = train_collection.train_test_split(test_size=0.2)
-            model.train(train_data, test_data)
+            train_data, validation_data = train_collection.train_test_split(test_size=0.2)
+            model.train(train_data, validation_data)
         else:
             model.train(train_collection)
         print(f'  in {time.time()-start:.2f} seconds')

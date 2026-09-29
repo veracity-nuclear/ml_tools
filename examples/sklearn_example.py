@@ -77,7 +77,7 @@ def test_sklearn_strategy(estimator_class, estimator_args: dict, name: str):
     
     # Train
     print("Training...")
-    strategy.train(train_data, test_data)
+    strategy.train(train_data)
     print(f"Is trained: {strategy.isTrained}")
     
     # Predict

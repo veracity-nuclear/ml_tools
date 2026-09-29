@@ -76,6 +76,8 @@ class NNStrategy(PredictionStrategy):
         The training batch sizes
     """
 
+    DEFAULT_EPOCHS_PER_DECAY = 50
+
     @property
     def layers(self) -> List[Layer]:
         return self._layer_sequence.layers
@@ -105,8 +107,11 @@ class NNStrategy(PredictionStrategy):
 
     @property
     def epochs_per_decay(self) -> int:
-        # Old architecture pickles adopt the new default when retrained.
-        return getattr(self, '_epochs_per_decay', 50)
+        if not hasattr(self, '_epochs_per_decay'):
+            self._epochs_per_decay = self._resolve_legacy_epochs_per_decay(
+                self.learning_decay_rate
+            )
+        return self._epochs_per_decay
 
     @epochs_per_decay.setter
     def epochs_per_decay(self, value: int) -> None:
@@ -115,6 +120,19 @@ class NNStrategy(PredictionStrategy):
         if value <= 0:
             raise ValueError('epochs_per_decay must be positive')
         self._epochs_per_decay = int(value)
+
+    @classmethod
+    def _resolve_legacy_epochs_per_decay(cls, learning_decay_rate: float) -> int:
+        if learning_decay_rate < 1.0:
+            warnings.warn(
+                "Legacy NNStrategy configuration does not define epochs_per_decay; "
+                f"defaulting to {cls.DEFAULT_EPOCHS_PER_DECAY}. Retraining will use "
+                "the epoch-based learning-rate decay schedule and may differ from "
+                "the original optimizer-step-based schedule.",
+                RuntimeWarning,
+                stacklevel=3,
+            )
+        return cls.DEFAULT_EPOCHS_PER_DECAY
 
     @property
     def epoch_limit(self) -> int:
@@ -167,7 +185,7 @@ class NNStrategy(PredictionStrategy):
                  convergence_criteria  : float=1E-14,
                  convergence_patience  : int=100,
                  batch_size            : int=32,
-                 epochs_per_decay      : int=50) -> None:
+                 epochs_per_decay      : int=DEFAULT_EPOCHS_PER_DECAY) -> None:
 
         super().__init__()
         self.input_features         = input_features
@@ -184,33 +202,26 @@ class NNStrategy(PredictionStrategy):
         self._model = None
 
 
-    def train(self, train_data: SeriesCollection, test_data: Optional[SeriesCollection] = None, num_procs: int = 1) -> None:
-        """Train with early stopping on validation MSE and restore the best weights.
-
-        Parameters
-        ----------
-        train_data : SeriesCollection
-            Series used for weight updates. When test_data is omitted, 20% of
-            these series are reserved for validation using a fixed split seed of 42.
-        test_data : Optional[SeriesCollection]
-            Validation series used to select the stopping epoch, not a final test
-            set. Supply an explicit split when related series must stay together.
-        num_procs : int
-            Number of processes used for feature preprocessing.
-        """
-        if test_data is None:
-            if len(train_data) < 2:
-                raise ValueError('At least two series are required for the automatic validation split.')
-            train_data, test_data = train_data.train_test_split(test_size=0.2, seed=42)
-        if len(train_data) == 0 or len(test_data) == 0:
+    def train(self,
+              train_data: SeriesCollection,
+              validation_data: Optional[SeriesCollection] = None,
+              num_procs: int = 1,
+              *,
+              validation_split: float = 0.2,
+              validation_seed: Optional[int] = 42) -> None:
+        """Train the network, using validation MSE for early stopping."""
+        if validation_data is None:
+            train_data, validation_data = train_data.train_test_split(test_size=validation_split,
+                                                                      seed=validation_seed)
+        if len(train_data) == 0 or len(validation_data) == 0:
             raise ValueError('Training and validation collections must both be non-empty.')
-        if any(len(series) == 0 for collection in (train_data, test_data) for series in collection):
+        if any(len(series) == 0 for collection in (train_data, validation_data) for series in collection):
             raise ValueError('Training and validation series must contain at least one state.')
 
         X = self.preprocess_features(train_data, self.input_features, num_procs)
         y = self._get_targets(train_data, num_procs=num_procs)
-        X_valid = self.preprocess_features(test_data, self.input_features, num_procs)
-        y_valid = self._get_targets(test_data, num_procs=num_procs)
+        X_valid = self.preprocess_features(validation_data, self.input_features, num_procs)
+        y_valid = self._get_targets(validation_data, num_procs=num_procs)
 
         input_tensor = tf.keras.layers.Input(shape=(None, len(X[0][0])))
 
@@ -241,8 +252,8 @@ class NNStrategy(PredictionStrategy):
         for i, L in enumerate(lengths):
             mask[i, :L] = 1.0
 
-        valid_lengths = np.asarray([len(series) for series in test_data], dtype=np.int32)
-        valid_mask = np.zeros((len(test_data), y_valid.shape[1]), dtype=np.float32)
+        valid_lengths = np.asarray([len(series) for series in validation_data], dtype=np.int32)
+        valid_mask = np.zeros((len(validation_data), y_valid.shape[1]), dtype=np.float32)
         for i, L in enumerate(valid_lengths):
             valid_mask[i, :L] = 1.0
 
@@ -324,7 +335,9 @@ class NNStrategy(PredictionStrategy):
         super().load_model(h5_group)
         self.initial_learning_rate = float( h5_group['initial_learning_rate'][()] )
         self.learning_decay_rate   = float( h5_group['learning_decay_rate'][()]   )
-        self.epochs_per_decay      = int(h5_group['epochs_per_decay'][()]) if 'epochs_per_decay' in h5_group else 50
+        self.epochs_per_decay      = (int(h5_group['epochs_per_decay'][()])
+                                      if 'epochs_per_decay' in h5_group
+                                      else self._resolve_legacy_epochs_per_decay(self.learning_decay_rate))
         self.epoch_limit           = int(   h5_group['epoch_limit'][()]           )
         self.convergence_criteria  = float( h5_group['convergence_criteria'][()]  )
         self.convergence_patience  = int(   h5_group['convergence_patience'][()]  )
@@ -380,7 +393,9 @@ class NNStrategy(PredictionStrategy):
         layers                = LayerSequence.from_dict(nn_cfg).layers
         initial_learning_rate = params.get("initial_learning_rate", 0.01)
         learning_decay_rate   = params.get("learning_decay_rate", 1.0)
-        epochs_per_decay      = params.get("epochs_per_decay", 50)
+        epochs_per_decay      = (params["epochs_per_decay"]
+                                 if "epochs_per_decay" in params
+                                 else cls._resolve_legacy_epochs_per_decay(learning_decay_rate))
         epoch_limit           = params.get("epoch_limit", 1000)
         convergence_criteria  = params.get("convergence_criteria", 1e-14)
         convergence_patience  = params.get("convergence_patience", 100)

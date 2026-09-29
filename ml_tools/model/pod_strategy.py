@@ -111,9 +111,14 @@ class PODStrategy(PredictionStrategy):
         self._kmeans_centers = None
 
 
-    def train(self, train_data: SeriesCollection, test_data: Optional[SeriesCollection] = None, num_procs: int = 1) -> None:
-
-        assert test_data is None, "The POD Prediction Strategy does not use test data"
+    def train(self,
+              train_data: SeriesCollection,
+              validation_data: Optional[SeriesCollection] = None,
+              num_procs: int = 1,
+              *,
+              validation_split: float = 0.2,
+              validation_seed: Optional[int] = 42) -> None:
+        """Train the POD model; validation arguments are accepted but unused."""
 
         self._pod_mat  = [None]*self.nclusters
         input_feature  = self.input_feature

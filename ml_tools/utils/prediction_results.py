@@ -21,6 +21,12 @@ PerturbatorMap = Mapping[str, FeaturePerturbator]
 PerturbatorInput = Mapping[str, FeaturePerturbator | PerturbatorMap]
 
 
+def _get_plot_colors() -> Sequence:
+    """Return style colors, falling back when the active cycle has none."""
+    return (plt.rcParams["axes.prop_cycle"].by_key().get("color")
+            or plt.get_cmap("tab10").colors)
+
+
 class PredictionResults:
     """Container for extracted model prediction results.
 
@@ -175,7 +181,7 @@ class PredictionResults:
         x = np.linspace(min_val, max_val, 100)
         grays = np.linspace(0.3, 0.7, len(error_bands)) if error_bands else []
         fig, axes = self._create_plot_axes(subplots, figsize=(10, 6))
-        colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+        colors = _get_plot_colors()
 
         for panel_index, ax in enumerate(axes):
             indices = [panel_index] if subplots else range(len(self.specs))
@@ -209,7 +215,7 @@ class PredictionResults:
             if title:
                 fig.suptitle("Reference vs. Predicted " + value_label, fontsize=16)
             fig.tight_layout()
-        fig.savefig(fig_name + ".png", dpi=600, bbox_inches="tight")
+        fig.savefig(fig_name + ".png", dpi=300 if subplots else 600, bbox_inches="tight")
         plt.close(fig)
 
 
@@ -259,7 +265,7 @@ class PredictionResults:
         residuals   = self.reference_values - self.predicted_values
         max_diff    = self._get_max_abs_finite_value(residuals)
         bins        = np.linspace(-max_diff, max_diff, bins, endpoint=True)
-        colors      = plt.get_cmap("tab10").colors
+        colors      = _get_plot_colors()
 
         fig, axes = self._create_plot_axes(subplots)
         for index, label in enumerate(self.labels):

@@ -39,6 +39,27 @@ def _extend_shape(shape: ShapeType) -> Tuple[int, int, int]:
     raise ValueError(f"Invalid shape {shape}. Expected a 1D, 2D, or 3D tuple.")
 
 
+def _unflatten_channel_major(input_tensor: tf.Tensor,
+                             spatial_shape: Tuple[int, int, int]) -> tf.Tensor:
+    """Convert flattened, channel-major maps to channels-last spatial tensors."""
+    spatial_size = spatial_shape[0] * spatial_shape[1] * spatial_shape[2]
+    assert input_tensor.shape[-1] % spatial_size == 0, \
+        "Input tensor shape is not divisible by the expected input 3D shape"
+
+    number_of_channels = input_tensor.shape[-1] // spatial_size
+    target_shape = (-1, number_of_channels, *spatial_shape)
+    x = tf.keras.layers.Reshape(target_shape=target_shape)(input_tensor)
+    return tf.keras.layers.Permute((1, 3, 4, 5, 2))(x)
+
+
+def _flatten_channel_major(input_tensor: tf.Tensor) -> tf.Tensor:
+    """Flatten channels-last spatial tensors as consecutive complete maps."""
+    x = tf.keras.layers.Permute((1, 5, 2, 3, 4))(input_tensor)
+    return tf.keras.layers.TimeDistributed(
+        tf.keras.layers.Flatten(data_format='channels_last')
+    )(x)
+
+
 @Layer.register_subclass("SpatialConv")
 class SpatialConv(Layer):
     """ A Spatial Convolutional Neural Network (CNN) layer
@@ -47,6 +68,10 @@ class SpatialConv(Layer):
     complete feature maps are flattened in C order and concatenated by channel:
     all spatial values of channel 0, then channel 1, and so on. ``input_shape``
     specifies only the spatial dimensions; omitted dimensions are extended to 1.
+    Each selected feature ordinarily supplies one complete map. A single
+    channels-last ``(H, W, C)`` feature is not supported because flattening it
+    interleaves channels; supply its channels as separate features or flatten
+    them as consecutive complete maps before training.
 
     Convolution uses channels-last tensors internally. Outputs have shape
     ``(batch, time, filters * H_out * W_out * D_out)`` and again contain complete
@@ -198,14 +223,7 @@ class SpatialConv(Layer):
                    )
 
     def build(self, input_tensor: tf.Tensor) -> tf.Tensor:
-        assert input_tensor.shape[-1] % (self.input_shape[0] * self.input_shape[1] * self.input_shape[2]) == 0, \
-            "Input tensor shape is not divisible by the expected input 3D shape"
-
-        number_of_channels = input_tensor.shape[-1] // (self.input_shape[0] * self.input_shape[1] * self.input_shape[2])
-        input_shape = (-1, number_of_channels, self.input_shape[0], self.input_shape[1], self.input_shape[2])
-        x = tf.keras.layers.Reshape(target_shape=input_shape)(input_tensor)
-        # (time, channels, H, W, D) -> (time, H, W, D, channels).
-        x = tf.keras.layers.Permute((1, 3, 4, 5, 2))(x)
+        x = _unflatten_channel_major(input_tensor, self.input_shape)
 
         x = tf.keras.layers.TimeDistributed(tf.keras.layers.Conv3D(filters     = self.filters,
                                                                    kernel_size = self.kernel_size,
@@ -226,11 +244,7 @@ class SpatialConv(Layer):
             x = tf.keras.layers.TimeDistributed(tf.keras.layers.SpatialDropout3D(
                 rate=self.dropout_rate, data_format='channels_last'))(x)
 
-        # Return complete maps consecutively; flatten without another axis permutation.
-        x = tf.keras.layers.Permute((1, 5, 2, 3, 4))(x)
-        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Flatten(data_format='channels_last'))(x)
-
-        return x
+        return _flatten_channel_major(x)
 
     def save(self, group: h5py.Group) -> None:
         group.create_dataset('type',                data='SpatialConv', dtype=h5py.string_dtype())
@@ -307,6 +321,10 @@ class SpatialMaxPool(Layer):
     complete feature maps are flattened in C order and concatenated by channel:
     all spatial values of channel 0, then channel 1, and so on. ``input_shape``
     specifies only the spatial dimensions; omitted dimensions are extended to 1.
+    Each selected feature ordinarily supplies one complete map. A single
+    channels-last ``(H, W, C)`` feature is not supported because flattening it
+    interleaves channels; supply its channels as separate features or flatten
+    them as consecutive complete maps before training.
 
     Pooling uses channels-last tensors internally and preserves the channel count.
     Outputs have shape ``(batch, time, channels * H_out * W_out * D_out)`` and
@@ -425,14 +443,7 @@ class SpatialMaxPool(Layer):
                    )
 
     def build(self, input_tensor: tf.Tensor) -> tf.Tensor:
-        assert input_tensor.shape[-1] % (self.input_shape[0] * self.input_shape[1] * self.input_shape[2]) == 0, \
-            "Input tensor shape is not divisible by the expected input 3D shape"
-
-        number_of_channels = input_tensor.shape[-1] // (self.input_shape[0] * self.input_shape[1] * self.input_shape[2])
-        input_shape = (-1, number_of_channels, self.input_shape[0], self.input_shape[1], self.input_shape[2])
-        x = tf.keras.layers.Reshape(target_shape=input_shape)(input_tensor)
-        # (time, channels, H, W, D) -> (time, H, W, D, channels).
-        x = tf.keras.layers.Permute((1, 3, 4, 5, 2))(x)
+        x = _unflatten_channel_major(input_tensor, self.input_shape)
 
         x = tf.keras.layers.TimeDistributed(tf.keras.layers.MaxPooling3D(pool_size = self.pool_size,
                                                                          strides   = self.strides,
@@ -449,11 +460,7 @@ class SpatialMaxPool(Layer):
             x = tf.keras.layers.TimeDistributed(tf.keras.layers.SpatialDropout3D(
                 rate=self.dropout_rate, data_format='channels_last'))(x)
 
-        # Return complete maps consecutively; flatten without another axis permutation.
-        x = tf.keras.layers.Permute((1, 5, 2, 3, 4))(x)
-        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Flatten(data_format='channels_last'))(x)
-
-        return x
+        return _flatten_channel_major(x)
 
     def save(self, group: h5py.Group) -> None:
         group.create_dataset('type',             data='SpatialMaxPool', dtype=h5py.string_dtype())

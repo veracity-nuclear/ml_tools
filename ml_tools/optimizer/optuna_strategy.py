@@ -127,24 +127,31 @@ class OptunaStrategy(SearchStrategy):
 
     def search(self,
                search_space:      SearchSpace,
-               series_collection: SeriesCollection,
+               train_data:         SeriesCollection,
                num_trials:        int,
                number_of_folds:   int,
                output_file:       str,
                checkpoint_dir:    Optional[str] = None,
                resume:            bool = False,
                save_every_n_trials: int = 0,
-               num_procs:         int = 1) -> PredictionStrategy:
+               num_procs:         int = 1,
+               *,
+               validation_data:   Optional[SeriesCollection] = None,
+               validation_split:  float = 0.2,
+               validation_seed:   Optional[int] = 42) -> PredictionStrategy:
 
         super().search(search_space,
-                       series_collection,
+                       train_data,
                        num_trials,
                        number_of_folds,
                        output_file,
                        checkpoint_dir,
                        resume,
                        save_every_n_trials,
-                       num_procs)
+                       num_procs,
+                       validation_data=validation_data,
+                       validation_split=validation_split,
+                       validation_seed=validation_seed)
 
         checkpoint_path = None
         storage_uri = self.study_storage
@@ -183,10 +190,6 @@ class OptunaStrategy(SearchStrategy):
             if save_every_n_trials and ((trial.number + 1) % save_every_n_trials == 0):
                 _dump_checkpoint(_study)
 
-        print("Starting NN Optimization")
-        with open(output_file, 'w') as output:
-            output.write("RESULTS\n---------\n")
-
         # Avoid nested parallelism - priority: num_jobs > num_fold_workers > num_procs
         # Only one level of parallelism should be active at a time
         effective_fold_workers = self.num_fold_workers
@@ -208,10 +211,13 @@ class OptunaStrategy(SearchStrategy):
 
 
         objective = self._setup_objective(search_space,
-                                          series_collection,
+                                          train_data,
                                           number_of_folds,
                                           effective_fold_workers,
-                                          effective_num_procs)
+                                          effective_num_procs,
+                                          validation_data,
+                                          validation_split,
+                                          validation_seed)
 
         storage = storage_uri
         if isinstance(storage_uri, str) and storage_uri.startswith("sqlite:///"):
@@ -224,6 +230,22 @@ class OptunaStrategy(SearchStrategy):
                                     storage=storage,
                                     study_name=self.study_name,
                                     load_if_exists=load_if_exists)
+
+        for previous_trial in study.get_trials(
+                deepcopy=False,
+                states=(optuna.trial.TrialState.COMPLETE,)):
+            try:
+                self._get_sample(FixedTrial(previous_trial.params), search_space.dimensions)
+            except ValueError as error:
+                raise ValueError(
+                    f"Cannot resume Optuna study '{study.study_name}': completed trial "
+                    f"{previous_trial.number} is incompatible with the current search space "
+                    f"({error}). Use a new study_name or storage."
+                ) from error
+
+        print("Starting NN Optimization")
+        with open(output_file, 'w') as output:
+            output.write("RESULTS\n---------\n")
 
         study.optimize(objective,
                        n_trials=num_trials,
@@ -247,24 +269,34 @@ class OptunaStrategy(SearchStrategy):
 
     def _setup_objective(self,
                          search_space:      SearchSpace,
-                         series_collection: SeriesCollection,
+                         train_data:         SeriesCollection,
                          number_of_folds:   int,
                          num_fold_workers:  int,
-                         num_procs:         int) -> callable:
+                         num_procs:         int,
+                         validation_data:   Optional[SeriesCollection],
+                         validation_split:  float,
+                         validation_seed:   Optional[int]) -> callable:
         """ Method to setup the objective function for the Optuna optimization
 
         Parameters
         ----------
         search_space : SearchSpace
             The hyperparameter search space to explore
-        series_collection : SeriesCollection
-            The collection of series to use for training and validation
+        train_data : SeriesCollection
+            Collection partitioned into outer training and scoring folds.
         number_of_folds : int
             The number of folds to use in cross-validation
         num_fold_workers : int
             Max workers for evaluating CV folds in parallel; 1 keeps sequential.
         num_procs : int
             The number of processes to use for parallel model training
+        validation_data : SeriesCollection, optional
+            Explicit validation collection supplied to each fold model.
+        validation_split : float
+            Fraction of each outer training fold reserved for validation when
+            validation_data is omitted.
+        validation_seed : int, optional
+            Random seed used for automatic validation splits.
         """
 
         def objective(trial: optuna.trial.Trial) -> float:
@@ -273,11 +305,11 @@ class OptunaStrategy(SearchStrategy):
             train_procs = num_procs
 
             def evaluate_fold(fold_split):
-                fold, (train_idx, val_idx) = fold_split
+                fold, (train_idx, score_idx) = fold_split
                 print(f"Starting fold {fold}/{number_of_folds}...")
 
-                fold_training_set   = SeriesCollection([series_collection[i] for i in train_idx])
-                fold_validation_set = SeriesCollection([series_collection[i] for i in val_idx])
+                fold_training_set = SeriesCollection([train_data[i] for i in train_idx])
+                fold_scoring_set = SeriesCollection([train_data[i] for i in score_idx])
 
                 fold_model = PredictionStrategy.from_dict(
                     strategy_dict={"strategy_type": search_space.prediction_strategy_type, "params": params},
@@ -286,7 +318,11 @@ class OptunaStrategy(SearchStrategy):
                 )
 
                 print(f"Fold {fold}: training start (num_procs={train_procs})")
-                fold_model.train(fold_training_set, num_procs=train_procs)
+                fold_model.train(fold_training_set,
+                                 validation_data=validation_data,
+                                 num_procs=train_procs,
+                                 validation_split=validation_split,
+                                 validation_seed=validation_seed)
                 print(f"Fold {fold}: training complete")
 
                 def flatten_feature_values(series_collection, feature_order):
@@ -302,10 +338,10 @@ class OptunaStrategy(SearchStrategy):
                     return np.vstack(rows)
 
                 feature_order = list(fold_model.predicted_features)
-                measured = flatten_feature_values(fold_validation_set, feature_order)
+                measured = flatten_feature_values(fold_scoring_set, feature_order)
 
                 print(f"Fold {fold}: predicting start")
-                predicted = flatten_feature_values(fold_model.predict(fold_validation_set), feature_order)
+                predicted = flatten_feature_values(fold_model.predict(fold_scoring_set), feature_order)
                 print(f"Fold {fold}: predicting complete")
 
                 diff = measured - predicted
@@ -313,7 +349,7 @@ class OptunaStrategy(SearchStrategy):
                 print(f"Fold {fold}: rms={fold_rms}")
                 return fold_rms
 
-            splits = list(enumerate(KFold(n_splits=number_of_folds, shuffle=True).split(series_collection), start=1))
+            splits = list(enumerate(KFold(n_splits=number_of_folds, shuffle=True).split(train_data), start=1))
             if num_fold_workers > 1:
                 with ThreadPoolExecutor(max_workers=num_fold_workers) as executor:
                     rms = list(executor.map(evaluate_fold, splits))

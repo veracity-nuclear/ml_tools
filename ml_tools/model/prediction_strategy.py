@@ -2,6 +2,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import List, Dict, Optional, Type, Union, Sequence, Any
 from concurrent.futures import ProcessPoolExecutor
+import warnings
 import numpy as np
 import h5py
 
@@ -144,18 +145,40 @@ class PredictionStrategy(ABC):
 
 
     @abstractmethod
-    def train(self, train_data: SeriesCollection, test_data: Optional[SeriesCollection] = None, num_procs: int = 1) -> None:
-        """ The method that trains the prediction strategy given a set of training data and testing data
+    def train(self,
+              train_data: SeriesCollection,
+              validation_data: Optional[SeriesCollection] = None,
+              num_procs: int = 1,
+              *,
+              validation_split: float = 0.2,
+              validation_seed: Optional[int] = 42) -> None:
+        """Train the prediction strategy using an optional validation policy.
 
         Parameters
         ----------
         train_data : SeriesCollection
-            The state series to use for training
-        test_data : SeriesCollection
-            The state series to use for testing the trained model
-            (NOTE: not all prediction strategies will require providing training / testing data as part of training)
+            State series used to fit the model.
+        validation_data : SeriesCollection, optional
+            State series used for validation by strategies that require it. When
+            supplied, this collection takes precedence over validation_split and
+            is not included in model parameter updates.
         num_procs : int
-            The number of parallel processors to use when training
+            Number of parallel processors used during training.
+        validation_split : float
+            Fraction of train_data reserved for validation when validation_data
+            is omitted and the strategy requires validation. Must be strictly
+            between 0 and 1 when used. Because whole series are assigned, the
+            realized fraction may differ for small collections.
+        validation_seed : int, optional
+            Random seed used when splitting train_data for validation.
+
+        Notes
+        -----
+        Strategies that do not require validation accept and ignore
+        validation_data, validation_split, and validation_seed. Strategies that
+        require validation must use explicit validation_data when supplied and
+        otherwise derive it from train_data using validation_split and
+        validation_seed.
         """
 
 
@@ -327,6 +350,13 @@ class PredictionStrategy(ABC):
         if order_name not in h5_group:
             # Legacy files did not save order. Their original training order
             # cannot be inferred here; callers need the original configuration.
+            if len(h5_group[group_name]) > 1:
+                warnings.warn(
+                    f"Legacy model has multiple {group_name} but does not record their order; "
+                    "the loaded order may not match the original training order.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
             return list(h5_group[group_name])
         order = h5_group[order_name].asstr()[()].tolist()
         if len(order) != len(set(order)) or set(order) != set(h5_group[group_name]):
