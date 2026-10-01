@@ -24,7 +24,8 @@ class DummyStrategy(PredictionStrategy):
     def isTrained(self) -> bool:
         return self._trained
 
-    def train(self, train_data, test_data=None, num_procs: int = 1) -> None:
+    def train(self, train_data, validation_data=None, num_procs: int = 1, *,
+              validation_split: float = 0.2, validation_seed: int = 42) -> None:
         self._trained                 = True
         self._predicted_feature_sizes = {"y": 1}
 
@@ -126,6 +127,20 @@ def test_prediction_results_plot_hist(tmp_path):
     output = fig_name.with_suffix(".png")
     if output.exists():
         output.unlink()
+
+
+def test_prediction_results_subplots(tmp_path):
+    collection = SeriesCollection([
+        StateSeries([State({"x": np.array([x]), "y": np.array([2 * x])})])
+        for x in [1.0, 2.0, 3.0]
+    ])
+    results = PredictionResults([
+        PredictionResults.Spec(label=f"Model {index}", model=DummyStrategy(multiplier=2.0 + index),
+                               series_collection=collection, predicted_feature="y")
+        for index in range(3)
+    ])
+    results.plot_ref_vs_pred(fig_name=str(tmp_path / "ref_vs_pred"), subplots=True)
+    results.plot_hist(fig_name=str(tmp_path / "hist"), subplots=True)
 
 
 def test_prediction_results_print_metrics(tmp_path):

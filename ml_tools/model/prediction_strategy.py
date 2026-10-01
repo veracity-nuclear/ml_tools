@@ -2,6 +2,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import List, Dict, Optional, Type, Union, Sequence, Any
 from concurrent.futures import ProcessPoolExecutor
+import warnings
 import numpy as np
 import h5py
 
@@ -144,18 +145,40 @@ class PredictionStrategy(ABC):
 
 
     @abstractmethod
-    def train(self, train_data: SeriesCollection, test_data: Optional[SeriesCollection] = None, num_procs: int = 1) -> None:
-        """ The method that trains the prediction strategy given a set of training data and testing data
+    def train(self,
+              train_data: SeriesCollection,
+              validation_data: Optional[SeriesCollection] = None,
+              num_procs: int = 1,
+              *,
+              validation_split: float = 0.2,
+              validation_seed: Optional[int] = 42) -> None:
+        """Train the prediction strategy using an optional validation policy.
 
         Parameters
         ----------
         train_data : SeriesCollection
-            The state series to use for training
-        test_data : SeriesCollection
-            The state series to use for testing the trained model
-            (NOTE: not all prediction strategies will require providing training / testing data as part of training)
+            State series used to fit the model.
+        validation_data : SeriesCollection, optional
+            State series used for validation by strategies that require it. When
+            supplied, this collection takes precedence over validation_split and
+            is not included in model parameter updates.
         num_procs : int
-            The number of parallel processors to use when training
+            Number of parallel processors used during training.
+        validation_split : float
+            Fraction of train_data reserved for validation when validation_data
+            is omitted and the strategy requires validation. Must be strictly
+            between 0 and 1 when used. Because whole series are assigned, the
+            realized fraction may differ for small collections.
+        validation_seed : int, optional
+            Random seed used when splitting train_data for validation.
+
+        Notes
+        -----
+        Strategies that do not require validation accept and ignore
+        validation_data, validation_split, and validation_seed. Strategies that
+        require validation must use explicit validation_data when supplied and
+        otherwise derive it from train_data using validation_split and
+        validation_seed.
         """
 
 
@@ -277,14 +300,18 @@ class PredictionStrategy(ABC):
         h5_group : h5py.Group
             An opened, writeable HDF5 group or file handle
         """
-        pred_group = h5_group.create_group('predicted_features')
+        # Vector columns follow insertion order, not alphabetical feature names.
+        # Track groups for older readers and store explicit order for new readers.
+        pred_group = h5_group.create_group('predicted_features', track_order=True)
         pred_order = self.predicted_feature_names
+        h5_group.create_dataset('predicted_feature_order', data=pred_order, dtype=h5py.string_dtype())
         for name in pred_order:
             self.predicted_features[name].to_hdf5(pred_group.create_group(name))
         if self._predicted_feature_sizes is not None:
             sizes = [self._predicted_feature_sizes[name] for name in pred_order]
             h5_group.create_dataset('predicted_feature_sizes', data=sizes)
-        input_features_group = h5_group.create_group('input_features')
+        input_features_group = h5_group.create_group('input_features', track_order=True)
+        h5_group.create_dataset('input_feature_order', data=list(self.input_features), dtype=h5py.string_dtype())
         for name, feature in self.input_features.items():
             feature.to_hdf5(input_features_group.create_group(name))
 
@@ -297,7 +324,7 @@ class PredictionStrategy(ABC):
             An opened HDF5 group or file handle
         """
         pred_group = h5_group['predicted_features']
-        pred_order = list(pred_group.keys())
+        pred_order = self._read_feature_order(h5_group, 'predicted_features', 'predicted_feature_order')
         predicted_features = {}
         for name in pred_order:
             # Read the type from the HDF5 group instead of using the feature name
@@ -306,13 +333,35 @@ class PredictionStrategy(ABC):
         self.predicted_features = predicted_features
         if 'predicted_feature_sizes' in h5_group:
             sizes = [int(v) for v in h5_group['predicted_feature_sizes'][()]]
+            if len(sizes) != len(pred_order):
+                raise ValueError('predicted_feature_sizes does not match the output feature order')
             self._predicted_feature_sizes = dict(zip(pred_order, sizes))
         input_features = {}
-        for name, feature in h5_group['input_features'].items():
+        input_order = self._read_feature_order(h5_group, 'input_features', 'input_feature_order')
+        for name in input_order:
+            feature = h5_group['input_features'][name]
             # Read the type from the HDF5 group instead of using the feature name
             processor_type = feature['type'][()].decode('utf-8')
             input_features[name] = build_feature_processor(processor_type, feature)
         self.input_features = input_features
+
+    @staticmethod
+    def _read_feature_order(h5_group: h5py.Group, group_name: str, order_name: str) -> List[str]:
+        if order_name not in h5_group:
+            # Legacy files did not save order. Their original training order
+            # cannot be inferred here; callers need the original configuration.
+            if len(h5_group[group_name]) > 1:
+                warnings.warn(
+                    f"Legacy model has multiple {group_name} but does not record their order; "
+                    "the loaded order may not match the original training order.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+            return list(h5_group[group_name])
+        order = h5_group[order_name].asstr()[()].tolist()
+        if len(order) != len(set(order)) or set(order) != set(h5_group[group_name]):
+            raise ValueError(f'{order_name} does not match {group_name}')
+        return order
 
     @classmethod
     @abstractmethod

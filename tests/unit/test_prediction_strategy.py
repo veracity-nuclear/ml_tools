@@ -208,7 +208,7 @@ def test_residual_correction_strategy():
 
 def test_nn_strategy_Dense():
 
-    cips_calculator = NNStrategy(input_features, output_feature)
+    cips_calculator = NNStrategy(input_features, output_feature, epochs_per_decay=25)
     cips_calculator.train(make_series_collection(1, 1000))
     assert_allclose(state["cips_index"],
                     cips_calculator.predict(make_series_collection(1, 1))[0][0][output_feature],
@@ -217,12 +217,14 @@ def test_nn_strategy_Dense():
     cips_calculator.save_model('test_nn_model')
     new_cips_calculator = NNStrategy.read_from_file('test_nn_model')
     assert cips_calculator == new_cips_calculator
+    assert new_cips_calculator.epochs_per_decay == 25
     assert_allclose(state["cips_index"],
                     new_cips_calculator.predict(make_series_collection(1, 1))[0][0][output_feature],
                     atol=1E-2)
 
     new_cips_calculator = PredictionStrategy.from_dict(cips_calculator.to_dict())
     assert cips_calculator == new_cips_calculator
+    assert new_cips_calculator.epochs_per_decay == 25
 
 
 def test_nn_strategy_LSTM():
@@ -516,8 +518,9 @@ def test_sklearn_strategy():
 def test_enhanced_pod_strategy_multiple_features():
     # Test EnhancedPOD with multiple predicted features
     enhanced_input_features = {'average_exposure': MinMaxNormalize(0., 45.)}
-    # Use two output features to test multiple predicted features
-    multiple_output_features = {'cips_index': NoProcessing(), 'measured_rh_detector': NoProcessing()}
+    # Deliberately use non-alphabetical output order to exercise HDF5 ordering.
+    multiple_output_features = {'measured_rh_detector': NoProcessing(), 'cips_index': NoProcessing()}
+    expected_output_order = list(multiple_output_features)
 
     # Test with GBM theta model
     cips_calculator = EnhancedPODStrategy(enhanced_input_features, multiple_output_features,
@@ -527,7 +530,7 @@ def test_enhanced_pod_strategy_multiple_features():
     assert cips_calculator.isTrained
     assert cips_calculator.num_moments == 2
     assert cips_calculator.theta_model_type == 'GBM'
-    assert len(cips_calculator.predicted_feature_names) == 2
+    assert cips_calculator.predicted_feature_names == expected_output_order
 
     # Predict and check both features
     predictions = cips_calculator.predict(make_series_collection(1, 1))[0][0]
@@ -552,7 +555,7 @@ def test_enhanced_pod_strategy_multiple_features():
     new_cips_calculator = EnhancedPODStrategy.read_from_file('test_enhanced_pod_multi_model.h5')
     assert new_cips_calculator.num_moments == cips_calculator.num_moments
     assert new_cips_calculator.theta_model_type == cips_calculator.theta_model_type
-    assert len(new_cips_calculator.predicted_feature_names) == 2
+    assert new_cips_calculator.predicted_feature_names == expected_output_order
 
     # Verify loaded model can predict with correct shapes
     loaded_predictions = new_cips_calculator.predict(make_series_collection(1, 1))[0][0]

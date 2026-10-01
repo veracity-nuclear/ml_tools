@@ -3,6 +3,7 @@ from typing import Callable, List, Dict, Union, Optional, Tuple
 import os
 import random
 import re
+import warnings
 from copy import deepcopy
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import h5py
@@ -1371,6 +1372,11 @@ class SeriesCollection:
         -------
         Tuple[SeriesCollection, SeriesCollection]
             (train_collection, test_collection) pair.
+
+        Warns
+        -----
+        RuntimeWarning
+            If either resulting partition contains fewer than two series.
         """
         total = len(self)
         assert total >= 2, "Need at least two series to perform train/test split."
@@ -1382,6 +1388,14 @@ class SeriesCollection:
             test_count = int(test_size)
 
         assert 0 < test_count < total, f"test_size must yield between 1 and {total - 1} samples."
+        train_count = total - test_count
+        if min(train_count, test_count) < 2:
+            warnings.warn(
+                f'train_test_split of {total} series produced {train_count} training and '
+                f'{test_count} test series; partitions with fewer than two series may be unreliable.',
+                RuntimeWarning,
+                stacklevel=2,
+            )
 
         indices = list(range(total))
         if shuffle:

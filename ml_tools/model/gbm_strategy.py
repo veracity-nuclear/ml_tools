@@ -274,21 +274,31 @@ class GBMStrategy(PredictionStrategy):
         self._gbm               = None
 
 
-    def train(self, train_data: SeriesCollection, test_data: Optional[SeriesCollection] = None, num_procs: int = 1) -> None:
-        if test_data is None:
-            train_data, test_data = train_data.train_test_split(test_size=0.2)
+    def train(self,
+              train_data: SeriesCollection,
+              validation_data: Optional[SeriesCollection] = None,
+              num_procs: int = 1,
+              *,
+              validation_split: float = 0.2,
+              validation_seed: Optional[int] = 42) -> None:
+        """Train the booster, using validation data for early stopping."""
+        if validation_data is None:
+            train_data, validation_data = train_data.train_test_split(test_size=validation_split,
+                                                                      seed=validation_seed)
+        if len(train_data) == 0 or len(validation_data) == 0:
+            raise ValueError('Training and validation collections must both be non-empty.')
+        if any(len(series) == 0 for collection in (train_data, validation_data) for series in collection):
+            raise ValueError('Training and validation series must contain at least one state.')
 
         X_train   = self.preprocess_features(train_data, self.input_features, num_procs)
         X_train   = X_train.reshape(-1, X_train.shape[-1])
         y_train   = np.vstack([np.array(series) for series in self._get_targets(train_data, num_procs=num_procs)])
         lgb_train = lgb.Dataset(X_train, y_train)
 
-        lgb_eval  = None
-
-        X_test   = self.preprocess_features(test_data, self.input_features, num_procs)
-        X_test   = X_test.reshape(-1, X_test.shape[-1])
-        y_test   = np.vstack([np.array(series) for series in self._get_targets(test_data, num_procs=num_procs)])
-        lgb_eval = lgb.Dataset(X_test, y_test, reference=lgb_train)
+        X_valid   = self.preprocess_features(validation_data, self.input_features, num_procs)
+        X_valid   = X_valid.reshape(-1, X_valid.shape[-1])
+        y_valid   = np.vstack([np.array(series) for series in self._get_targets(validation_data, num_procs=num_procs)])
+        lgb_valid = lgb.Dataset(X_valid, y_valid, reference=lgb_train)
 
         params = {"boosting_type"    : self.boosting_type,
                   "objective"        : self.objective,
@@ -308,7 +318,7 @@ class GBMStrategy(PredictionStrategy):
         self._gbm = lgb.train(params          = params,
                               train_set       = lgb_train,
                               num_boost_round = self.num_boost_round,
-                              valid_sets      = lgb_eval,
+                              valid_sets      = lgb_valid,
                               callbacks       = [lgb.early_stopping(stopping_rounds=self.stopping_rounds)])
 
     def plot_importances(self, fig_name: Optional[str] = None) -> None:

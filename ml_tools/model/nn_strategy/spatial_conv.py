@@ -39,14 +39,49 @@ def _extend_shape(shape: ShapeType) -> Tuple[int, int, int]:
     raise ValueError(f"Invalid shape {shape}. Expected a 1D, 2D, or 3D tuple.")
 
 
+def _unflatten_channel_major(input_tensor: tf.Tensor,
+                             spatial_shape: Tuple[int, int, int]) -> tf.Tensor:
+    """Convert flattened, channel-major maps to channels-last spatial tensors."""
+    spatial_size = spatial_shape[0] * spatial_shape[1] * spatial_shape[2]
+    assert input_tensor.shape[-1] % spatial_size == 0, \
+        "Input tensor shape is not divisible by the expected input 3D shape"
+
+    number_of_channels = input_tensor.shape[-1] // spatial_size
+    target_shape = (-1, number_of_channels, *spatial_shape)
+    x = tf.keras.layers.Reshape(target_shape=target_shape)(input_tensor)
+    return tf.keras.layers.Permute((1, 3, 4, 5, 2))(x)
+
+
+def _flatten_channel_major(input_tensor: tf.Tensor) -> tf.Tensor:
+    """Flatten channels-last spatial tensors as consecutive complete maps."""
+    x = tf.keras.layers.Permute((1, 5, 2, 3, 4))(input_tensor)
+    return tf.keras.layers.TimeDistributed(
+        tf.keras.layers.Flatten(data_format='channels_last')
+    )(x)
+
+
 @Layer.register_subclass("SpatialConv")
 class SpatialConv(Layer):
     """ A Spatial Convolutional Neural Network (CNN) layer
 
+    Inputs have shape ``(batch, time, channels * H * W * D)``. At each timestep,
+    complete feature maps are flattened in C order and concatenated by channel:
+    all spatial values of channel 0, then channel 1, and so on. ``input_shape``
+    specifies only the spatial dimensions; omitted dimensions are extended to 1.
+    Each selected feature ordinarily supplies one complete map. A single
+    channels-last ``(H, W, C)`` feature is not supported because flattening it
+    interleaves channels; supply its channels as separate features or flatten
+    them as consecutive complete maps before training.
+
+    Convolution uses channels-last tensors internally. Outputs have shape
+    ``(batch, time, filters * H_out * W_out * D_out)`` and again contain complete
+    feature maps consecutively, one per filter. Subsequent spatial layers accept
+    this same layout and must use the output spatial dimensions as their input_shape.
+
     Parameters
     ----------
     input_shape : ShapeType
-        The height, width, and depth of the input data before convolution (i.e. its 3D shape)
+        Spatial dimensions of each input feature map, excluding batch, time, and channels.
     activation : Activation
         Activation function to use
     filters : int
@@ -68,7 +103,7 @@ class SpatialConv(Layer):
     Attributes
     ----------
     input_shape : Tuple[int, int, int]
-        The height, width, and depth of the input data before convolution (i.e. its 3D shape)
+        Spatial dimensions of each input feature map, excluding batch, time, and channels.
     activation : Activation
         Activation function to use
     filters : int
@@ -188,17 +223,13 @@ class SpatialConv(Layer):
                    )
 
     def build(self, input_tensor: tf.Tensor) -> tf.Tensor:
-        assert input_tensor.shape[-1] % (self.input_shape[0] * self.input_shape[1] * self.input_shape[2]) == 0, \
-            "Input tensor shape is not divisible by the expected input 3D shape"
-
-        number_of_channels = input_tensor.shape[-1] // (self.input_shape[0] * self.input_shape[1] * self.input_shape[2])
-        input_shape = (-1, self.input_shape[0], self.input_shape[1], self.input_shape[2], number_of_channels)
-        x = tf.keras.layers.Reshape(target_shape=input_shape)(input_tensor)
+        x = _unflatten_channel_major(input_tensor, self.input_shape)
 
         x = tf.keras.layers.TimeDistributed(tf.keras.layers.Conv3D(filters     = self.filters,
                                                                    kernel_size = self.kernel_size,
                                                                    strides     = self.strides,
                                                                    padding     = 'same' if self.padding else 'valid',
+                                                                   data_format = 'channels_last',
                                                                    activation  = None))(x)
 
         if self.batch_normalize:
@@ -210,11 +241,10 @@ class SpatialConv(Layer):
         x = tf.keras.layers.Activation(self.activation)(x)
 
         if self.dropout_rate > 0.:
-            x = tf.keras.layers.TimeDistributed(tf.keras.layers.SpatialDropout3D(rate=self.dropout_rate))(x)
+            x = tf.keras.layers.TimeDistributed(tf.keras.layers.SpatialDropout3D(
+                rate=self.dropout_rate, data_format='channels_last'))(x)
 
-        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Flatten())(x)
-
-        return x
+        return _flatten_channel_major(x)
 
     def save(self, group: h5py.Group) -> None:
         group.create_dataset('type',                data='SpatialConv', dtype=h5py.string_dtype())
@@ -287,16 +317,30 @@ class SpatialConv(Layer):
 class SpatialMaxPool(Layer):
     """ A Spatial Max Pool layer
 
+    Inputs have shape ``(batch, time, channels * H * W * D)``. At each timestep,
+    complete feature maps are flattened in C order and concatenated by channel:
+    all spatial values of channel 0, then channel 1, and so on. ``input_shape``
+    specifies only the spatial dimensions; omitted dimensions are extended to 1.
+    Each selected feature ordinarily supplies one complete map. A single
+    channels-last ``(H, W, C)`` feature is not supported because flattening it
+    interleaves channels; supply its channels as separate features or flatten
+    them as consecutive complete maps before training.
+
+    Pooling uses channels-last tensors internally and preserves the channel count.
+    Outputs have shape ``(batch, time, channels * H_out * W_out * D_out)`` and
+    again contain complete feature maps consecutively. Subsequent spatial layers
+    accept this same layout and must use the output spatial dimensions as their input_shape.
+
     Parameters
     ----------
     input_shape : ShapeType
-        The height, width, and depth of the input data before convolution (i.e. its 3D shape)
+        Spatial dimensions of each input feature map, excluding batch, time, and channels.
     pool_size : ShapeType
         Size of the pooling window
     strides : ShapeType
-        Strides of the convolution
+        Strides of the pooling operation
     padding : bool
-        Whether or not padding should be applied to the convolution
+        Whether or not padding should be applied to the pooling operation
     dropout_rate : float, optional
         Dropout rate for the layer. Default is 0.0 (no dropout).
     batch_normalize : bool
@@ -308,13 +352,13 @@ class SpatialMaxPool(Layer):
     Attributes
     ----------
     input_shape : Tuple[int, int, int]
-        The height and width of the input data before convolution (i.e. its 2D shape)
+        Spatial dimensions of each input feature map, excluding batch, time, and channels.
     pool_size : Tuple[int, int, int]
         Size of the pooling window
     strides : Tuple[int, int, int]
-        Strides of the convolution
+        Strides of the pooling operation
     padding : bool
-        Whether or not padding should be applied to the convolution
+        Whether or not padding should be applied to the pooling operation
     """
 
     @property
@@ -399,16 +443,12 @@ class SpatialMaxPool(Layer):
                    )
 
     def build(self, input_tensor: tf.Tensor) -> tf.Tensor:
-        assert input_tensor.shape[-1] % (self.input_shape[0] * self.input_shape[1] * self.input_shape[2]) == 0, \
-            "Input tensor shape is not divisible by the expected input 3D shape"
-
-        number_of_channels = input_tensor.shape[-1] // (self.input_shape[0] * self.input_shape[1] * self.input_shape[2])
-        input_shape = (-1, self.input_shape[0], self.input_shape[1], self.input_shape[2], number_of_channels)
-        x = tf.keras.layers.Reshape(target_shape=input_shape)(input_tensor)
+        x = _unflatten_channel_major(input_tensor, self.input_shape)
 
         x = tf.keras.layers.TimeDistributed(tf.keras.layers.MaxPooling3D(pool_size = self.pool_size,
                                                                          strides   = self.strides,
-                                                                         padding   = 'same' if self.padding else 'valid'))(x)
+                                                                         padding   = 'same' if self.padding else 'valid',
+                                                                         data_format = 'channels_last'))(x)
 
         if self.batch_normalize:
             x = tf.keras.layers.TimeDistributed(tf.keras.layers.BatchNormalization())(x)
@@ -417,11 +457,10 @@ class SpatialMaxPool(Layer):
             x = tf.keras.layers.TimeDistributed(tf.keras.layers.LayerNormalization())(x)
 
         if self.dropout_rate > 0.:
-            x = tf.keras.layers.TimeDistributed(tf.keras.layers.SpatialDropout3D(rate=self.dropout_rate))(x)
+            x = tf.keras.layers.TimeDistributed(tf.keras.layers.SpatialDropout3D(
+                rate=self.dropout_rate, data_format='channels_last'))(x)
 
-        x = tf.keras.layers.TimeDistributed(tf.keras.layers.Flatten())(x)
-
-        return x
+        return _flatten_channel_major(x)
 
     def save(self, group: h5py.Group) -> None:
         group.create_dataset('type',             data='SpatialMaxPool', dtype=h5py.string_dtype())

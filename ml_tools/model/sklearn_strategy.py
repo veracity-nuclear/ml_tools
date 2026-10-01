@@ -129,25 +129,12 @@ class SklearnStrategy(PredictionStrategy):
 
     def train(self,
               train_data: SeriesCollection,
-              test_data: Optional[SeriesCollection] = None,
-              num_procs: int = 1) -> None:
-        """Train the scikit-learn estimator.
-
-        Parameters
-        ----------
-        train_data : SeriesCollection
-            The state series collection to use for training.
-        test_data : SeriesCollection, optional
-            The state series collection to use for validation (currently unused,
-            but kept for interface compatibility).
-        num_procs : int, optional
-            Number of parallel processors to use when preprocessing data, by default 1.
-
-        Raises
-        ------
-        AssertionError
-            If no estimator has been set.
-        """
+              validation_data: Optional[SeriesCollection] = None,
+              num_procs: int = 1,
+              *,
+              validation_split: float = 0.2,
+              validation_seed: Optional[int] = 42) -> None:
+        """Train the scikit-learn estimator; validation arguments are accepted but unused."""
         assert self._estimator is not None, "No estimator provided. Set estimator before training."
 
         # Preprocess the input features

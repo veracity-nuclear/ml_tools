@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from typing import Callable, Optional, Sequence
 
 import pylab as plt
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 import numpy as np
 import pandas as pd
@@ -17,6 +19,12 @@ from ml_tools.model.state import State, SeriesCollection
 ValueTransform = Callable[[np.ndarray], np.ndarray]
 PerturbatorMap = Mapping[str, FeaturePerturbator]
 PerturbatorInput = Mapping[str, FeaturePerturbator | PerturbatorMap]
+
+
+def _get_plot_colors() -> Sequence:
+    """Return style colors, falling back when the active cycle has none."""
+    return (plt.rcParams["axes.prop_cycle"].by_key().get("color")
+            or plt.get_cmap("tab10").colors)
 
 
 class PredictionResults:
@@ -120,7 +128,8 @@ class PredictionResults:
                          title:       bool = True,
                          value_label: Optional[str] = None,
                          alpha:       float = 0.1,
-                         markersize:  float = 4.0) -> None:
+                         markersize:  float = 4.0,
+                         subplots:    bool = False) -> None:
         """Plot reference values against predicted values.
 
         This method plots each extracted spec as a scatter series using the
@@ -150,6 +159,9 @@ class PredictionResults:
             ``0.1``.
         markersize : float, optional
             Scatter marker size. Default is ``4.0``.
+        subplots : bool, optional
+            Plot each spec in its own panel within an automatic grid, sharing
+            axis limits. Default is ``False``, which overlays all specs.
 
         Returns
         -------
@@ -165,56 +177,54 @@ class PredictionResults:
         error_bands = [5.0, 10.0] if error_bands is None else list(error_bands)
         value_label = value_label or self._get_value_label()
 
-        plt.figure(figsize=(10, 6))
-        legend_handles = []
-        legend_labels = []
-
-        for index, spec in enumerate(self.specs):
-            line = plt.plot(self.reference_values[:, index], self.predicted_values[:, index], ".",
-                            alpha=alpha, markersize=markersize)[0]
-            legend_handles.append(Line2D([0], [0], marker="o", color=line.get_color(),
-                                         linestyle="None", markersize=8, label=spec.label))
-            legend_labels.append(spec.label)
-
         min_val, max_val = self._get_ref_vs_pred_limits()
-        plt.axis([min_val, max_val, min_val, max_val])
-
         x = np.linspace(min_val, max_val, 100)
-        plt.plot(x, x, "--k", label="Reference")
-
         grays = np.linspace(0.3, 0.7, len(error_bands)) if error_bands else []
-        for gray, band in zip(grays, sorted(error_bands)):
-            percent = band / 100.0
-            color = (gray, gray, gray)
-            plt.plot(x, (1 + percent) * x, "--", color=color)
-            plt.plot(x, (1 - percent) * x, "--", color=color)
+        fig, axes = self._create_plot_axes(subplots, figsize=(10, 6))
+        colors = _get_plot_colors()
 
-        plt.grid(True)
-        plt.xlabel("Reference " + value_label, fontsize=14)
-        plt.ylabel("Predicted " + value_label, fontsize=14)
-        if title:
-            plt.title("Reference vs. Predicted " + value_label, fontsize=16)
-        plt.gca().set_aspect("equal", adjustable="box")
-        plt.xticks(fontsize=12)
-        plt.yticks(fontsize=12)
+        for panel_index, ax in enumerate(axes):
+            indices = [panel_index] if subplots else range(len(self.specs))
+            handles = []
+            for index in indices:
+                spec = self.specs[index]
+                line = ax.plot(self.reference_values[:, index], self.predicted_values[:, index], ".",
+                               alpha=alpha, markersize=markersize, color=colors[index % len(colors)])[0]
+                handles.append(Line2D([0], [0], marker="o", color=line.get_color(),
+                                      linestyle="None", markersize=8, label=spec.label))
 
-        all_handles = legend_handles + [Line2D([0], [0], color="black", linestyle="--", label="Reference")]
-        all_labels = legend_labels + ["Reference"]
+            ax.axis([min_val, max_val, min_val, max_val])
+            handles.append(ax.plot(x, x, "--k", label="Reference")[0])
+            for gray, band in zip(grays, sorted(error_bands)):
+                percent = band / 100.0
+                color = (gray, gray, gray)
+                handles.append(ax.plot(x, (1 + percent) * x, "--", color=color, label=f"+/-{band:.1f}%")[0])
+                ax.plot(x, (1 - percent) * x, "--", color=color)
 
-        for gray, band in zip(grays, sorted(error_bands)):
-            all_handles.append(Line2D([0], [0], color=(gray, gray, gray), linestyle="--", label=f"+/-{band:.1f}%"))
-            all_labels.append(f"+/-{band:.1f}%")
+            ax.grid(True)
+            ax.set_xlabel("Reference " + value_label, fontsize=14)
+            ax.set_ylabel("Predicted " + value_label, fontsize=14)
+            if title:
+                ax.set_title(self.labels[panel_index] if subplots else "Reference vs. Predicted " + value_label,
+                             fontsize=16)
+            ax.set_aspect("equal", adjustable="box")
+            ax.tick_params(labelsize=12)
+            ax.legend(handles=handles, fontsize=12)
 
-        plt.legend(handles=all_handles, labels=all_labels, fontsize=12)
-        plt.savefig(fig_name + ".png", dpi=600, bbox_inches="tight")
-        plt.close()
+        if subplots:
+            if title:
+                fig.suptitle("Reference vs. Predicted " + value_label, fontsize=16)
+            fig.tight_layout()
+        fig.savefig(fig_name + ".png", dpi=300 if subplots else 600, bbox_inches="tight")
+        plt.close(fig)
 
 
     def plot_hist(self,
                   fig_name:    str = "hist",
                   bins:        int = 100,
                   value_label: Optional[str] = None,
-                  linewidth:   float = 1.5) -> None:
+                  linewidth:   float = 1.5,
+                  subplots:    bool = False) -> None:
         """Plot histograms of reference-minus-predicted residuals.
 
         This method computes residuals from the materialized
@@ -235,6 +245,10 @@ class PredictionResults:
             specs reference the same output component.
         linewidth : float, optional
             Histogram step line width. Default is ``1.5``.
+        subplots : bool, optional
+            Plot each spec in its own labeled panel within an automatic grid,
+            sharing bins and axis limits. Default is ``False``, which overlays
+            all specs.
 
         Returns
         -------
@@ -251,19 +265,46 @@ class PredictionResults:
         residuals   = self.reference_values - self.predicted_values
         max_diff    = self._get_max_abs_finite_value(residuals)
         bins        = np.linspace(-max_diff, max_diff, bins, endpoint=True)
-        colors      = plt.get_cmap("tab10").colors
+        colors      = _get_plot_colors()
 
-        plt.figure()
+        fig, axes = self._create_plot_axes(subplots)
         for index, label in enumerate(self.labels):
-            plt.hist(residuals[:, index], bins, histtype="step", linewidth=linewidth, label=label,
-                     color=colors[index % len(colors)])
+            ax = axes[index] if subplots else axes[0]
+            ax.hist(residuals[:, index], bins, histtype="step", linewidth=linewidth, label=label,
+                    color=colors[index % len(colors)])
+            if subplots:
+                ax.set_title(label)
 
-        plt.grid(True)
-        plt.xlabel("Reference - Predicted " + value_label)
-        plt.ylabel("Count")
-        plt.legend()
-        plt.savefig(fig_name + ".png")
-        plt.close()
+        for ax in axes:
+            ax.grid(True)
+            ax.set_xlabel("Reference - Predicted " + value_label)
+            ax.set_ylabel("Count")
+            ax.legend()
+        if subplots:
+            fig.tight_layout()
+        fig.savefig(fig_name + ".png")
+        plt.close(fig)
+
+
+    def _create_plot_axes(self,
+                          subplots: bool,
+                          figsize: Optional[tuple[float, float]] = None) -> tuple[Figure, list[Axes]]:
+        """Create one shared axis or a grid with one panel per spec."""
+        if not subplots:
+            fig, ax = plt.subplots(figsize=figsize)
+            return fig, [ax]
+
+        count = len(self.specs)
+        columns = int(np.ceil(np.sqrt(count)))
+        rows = int(np.ceil(count / columns))
+        fig, axes = plt.subplots(rows, columns, figsize=(6 * columns, 5 * rows),
+                                 sharex=True, sharey=True, squeeze=False)
+        panels = list(axes.flat)
+        for ax in panels[count:]:
+            fig.delaxes(ax)
+        for ax in panels[:count]:
+            ax.tick_params(labelbottom=True, labelleft=True)
+        return fig, panels[:count]
 
 
     def print_metrics(self, output_file: Optional[str] = None) -> None:

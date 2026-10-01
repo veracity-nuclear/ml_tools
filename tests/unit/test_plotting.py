@@ -31,7 +31,8 @@ class DummyStrategy(PredictionStrategy):
     def isTrained(self) -> bool:
         return self._trained
 
-    def train(self, train_data, test_data=None, num_procs: int = 1) -> None:
+    def train(self, train_data, validation_data=None, num_procs: int = 1, *,
+              validation_split: float = 0.2, validation_seed: int = 42) -> None:
         self._trained                 = True
         self._predicted_feature_sizes = {"y": 1}
 
@@ -83,6 +84,12 @@ def test_plot_hist(models, series_collection, tmp_path):
     output = fig_name.with_suffix(".png")
     if output.exists():
         output.unlink()
+
+
+def test_plot_subplots(series_collection, tmp_path):
+    models = {"First": DummyStrategy(), "Second": DummyStrategy(multiplier=3.0)}
+    plot_ref_vs_pred(models, series_collection, fig_name=str(tmp_path / "ref_vs_pred"), subplots=True)
+    plot_hist(models, series_collection, fig_name=str(tmp_path / "hist"), subplots=True)
 
 
 def test_plot_sensitivities(models, series_collection, perturbators, tmp_path):

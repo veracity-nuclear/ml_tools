@@ -43,7 +43,8 @@ def plot_ref_vs_pred(models:                  Dict[str, PredictionStrategy],
                      array_index:             int = 0,
                      error_bands:             List[float] = [5.0, 10.0],
                      title:                   bool = True,
-                     predicted_feature_label: Optional[str] = None) -> None:
+                     predicted_feature_label: Optional[str] = None,
+                     subplots:                bool = False) -> None:
     """ Function for plotting reference vs. predicted results of a collection of models
 
     Parameters
@@ -67,6 +68,8 @@ def plot_ref_vs_pred(models:                  Dict[str, PredictionStrategy],
         Flag for whether or not a title should be included on the figure
     predicted_feature_label : Optional[str]
         The label to use for the predicted feature (Default: predicted feature label from models)
+    subplots : bool
+        Plot each model in its own panel within one figure, sharing axis limits (Default: False).
     """
 
     return _prediction_results_from_models(
@@ -78,7 +81,8 @@ def plot_ref_vs_pred(models:                  Dict[str, PredictionStrategy],
     ).plot_ref_vs_pred(fig_name    = fig_name,
                        error_bands = error_bands,
                        title       = title,
-                       value_label = predicted_feature_label)
+                       value_label = predicted_feature_label,
+                       subplots    = subplots)
 
 
 
@@ -88,7 +92,8 @@ def plot_hist(models:                  Dict[str, PredictionStrategy],
               predicted_feature:       Optional[str] = None,
               state_index:             int = -1,
               array_index:             int = 0,
-              predicted_feature_label: Optional[str] = None) -> None:
+              predicted_feature_label: Optional[str] = None,
+              subplots:                bool = False) -> None:
     """ Function for plotting reference minus predicted histograms of a collection of models
 
     Parameters
@@ -108,6 +113,8 @@ def plot_hist(models:                  Dict[str, PredictionStrategy],
         A name for the figure that is generated (Default: 'hist')
     predicted_feature_label : Optional[str]
         The label to use for the predicted feature (Default: predicted feature label from models)
+    subplots : bool
+        Plot each model in its own panel within one figure, sharing bins and axis limits (Default: False).
     """
 
     return _prediction_results_from_models(
@@ -117,7 +124,8 @@ def plot_hist(models:                  Dict[str, PredictionStrategy],
         state_index,
         array_index
     ).plot_hist(fig_name    = fig_name,
-                value_label = predicted_feature_label)
+                value_label = predicted_feature_label,
+                subplots    = subplots)
 
 
 def plot_sensitivities(models:                  Dict[str, PredictionStrategy],
