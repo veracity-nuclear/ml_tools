@@ -21,6 +21,46 @@ def test_minmax_normalize():
     assert_allclose(postprocessed_data, orig_data)
 
 
+def test_minmax_normalize_array_like_scalar_batch():
+    processor = MinMaxNormalize(0.0, 10.0)
+
+    preprocessed = processor.preprocess([1.0, 5.0, 9.0])
+    assert_allclose(preprocessed, np.array([0.1, 0.5, 0.9]))
+
+    postprocessed = processor.postprocess(preprocessed)
+    assert_allclose(postprocessed, np.array([1.0, 5.0, 9.0]))
+
+
+def test_minmax_normalize_array_like_vector_batch():
+    processor = MinMaxNormalize(0.0, 10.0)
+
+    orig_data = [np.array([1.0, 2.0]), np.array([5.0, 6.0])]
+    preprocessed = processor.preprocess(orig_data)
+
+    assert preprocessed.shape == (2, 2)
+    assert_allclose(preprocessed, np.array([[0.1, 0.2], [0.5, 0.6]]))
+    assert_allclose(processor.postprocess(preprocessed), np.asarray(orig_data))
+
+
+def test_no_processing_array_like_object_batch():
+    class ArrayLikeFeature:
+        def __init__(self, values):
+            self.values = np.asarray(values)
+
+        def __array__(self, dtype=None, copy=None):
+            array = np.asarray(self.values, dtype=dtype)
+            return array.copy() if copy else array
+
+    processor = NoProcessing()
+    processed = processor.preprocess([
+        ArrayLikeFeature([1.0, 2.0]),
+        ArrayLikeFeature([3.0, 4.0]),
+    ])
+
+    assert processed.shape == (2, 2)
+    assert_allclose(processed, np.array([[1.0, 2.0], [3.0, 4.0]]))
+
+
 
 def test_no_processing():
     orig_data = np.array([2., 5., 6., 8.])
