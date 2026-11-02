@@ -9,6 +9,7 @@ from sklearn.linear_model import LinearRegression
 
 from ml_tools.model.state import SeriesCollection
 from ml_tools.model.prediction_strategy import PredictionStrategy, FeatureSpec
+from ml_tools.model.pod_based_strategy import PODBasedStrategy
 from ml_tools.model import register_prediction_strategy
 from ml_tools.model.gbm_strategy import GBMStrategy
 from ml_tools.model.nn_strategy import NNStrategy
@@ -16,7 +17,7 @@ from ml_tools.model.sklearn_strategy import SklearnStrategy
 from ml_tools.model.feature_processor import NoProcessing
 
 @register_prediction_strategy()  # registers under 'EnhancedPODStrategy' by default
-class EnhancedPODStrategy(PredictionStrategy):
+class EnhancedPODStrategy(PODBasedStrategy):
     """ A concrete class for an enhanced POD-based prediction strategy
 
     This prediction strategy is a POD-based strategy that may use a GBM or NN strategy
@@ -51,6 +52,8 @@ class EnhancedPODStrategy(PredictionStrategy):
         The maximum allowed number of training samples to use for the SVD of a cluster POD model
     num_moments : int
         The number of total moments to use in the POD analysis
+    moments : np.ndarray
+        The POD moments of shape (output_dim, num_moments)
     """
 
     @property
@@ -68,6 +71,11 @@ class EnhancedPODStrategy(PredictionStrategy):
     @property
     def isTrained(self) -> bool:
         return self._pod_matrix is not None
+
+    @property
+    def moments(self) -> np.ndarray:
+        assert self.isTrained
+        return self._pod_matrix
 
     def __init__(self,
                  input_features:        FeatureSpec,
@@ -232,13 +240,13 @@ class EnhancedPODStrategy(PredictionStrategy):
                     state.features['theta'] = np.array([state[f'theta-{r+1}'] for r in range(self.num_moments)])
         return theta_pred
 
-    def _predict_one(self, state_series: np.ndarray) -> np.ndarray:
+    def _predict_weights_one(self, state_series: np.ndarray) -> np.ndarray:
         assert self.isTrained
 
         scaling_vector = self._scaling_vector()
 
         n_timesteps = state_series.shape[0]
-        pred = []
+        weights = []
         for i in range(n_timesteps):
             X = state_series[i,:].reshape(1, -1)
             if self._theta_model_type in ["NN", "SKLEARN"]:
@@ -249,14 +257,12 @@ class EnhancedPODStrategy(PredictionStrategy):
                 theta = np.asarray([self._theta_model[r].predict_processed_inputs(X[np.newaxis, :])[0]
                                         for r in range(self.num_moments)])
             # Denormalize theta by multiplying by singular values
-            theta = theta.flatten() * scaling_vector
-            pred.append(self._pod_matrix @ theta)
+            weights.append(theta.flatten() * scaling_vector)
 
-        y = np.asarray(pred)
-        if y.ndim == 1:
-            y = y[:, np.newaxis]
+        return np.asarray(weights).reshape(n_timesteps, -1)
 
-        return y.reshape(n_timesteps, -1)
+    def _predict_one(self, state_series: np.ndarray) -> np.ndarray:
+        return self._predict_weights_one(state_series) @ self._pod_matrix.T
 
     def write_model_to_hdf5(self, h5_group):
         """ A method for saving a trained model
