@@ -170,6 +170,49 @@ def test_pod_strategy():
     assert np.allclose(new_detector_predictor.fine_to_coarse_map, detector_predictor.fine_to_coarse_map)
 
 
+def test_pod_strategy_weights():
+    detector_predictor = PODStrategy("measured_rh_detector", "fine_detector", np.asarray(fine_to_coarse_map))
+    detector_predictor.train(make_series_collection(1, 100))
+
+    collection = make_series_collection(1, 3)
+    weights    = detector_predictor.predict_weights(collection)
+    moments    = detector_predictor.moments
+    processed  = PredictionStrategy.preprocess_features(collection, detector_predictor.input_features)
+
+    assert moments.shape == (len(state["fine_detector"]), len(fine_to_coarse_map))
+    assert weights.shape == (3, 1, len(fine_to_coarse_map))
+    assert_allclose(weights @ moments.T, detector_predictor.predict_processed_inputs(processed), rtol=1E-4, atol=1E-6)
+
+    detector_predictor.save_model('test_pod_model.h5')
+    new_detector_predictor = PODStrategy.read_from_file('test_pod_model.h5')
+    assert_allclose(new_detector_predictor.moments, moments)
+    assert_allclose(new_detector_predictor.predict_weights(collection), weights)
+    os.remove('test_pod_model.h5')
+
+    clustered_predictor = PODStrategy("measured_rh_detector", "fine_detector", np.asarray(fine_to_coarse_map), nclusters=2)
+    with pytest.raises(NotImplementedError):
+        clustered_predictor.predict_weights(collection)
+    with pytest.raises(NotImplementedError):
+        clustered_predictor.moments
+
+
+@pytest.mark.parametrize("theta_model_type, num_moments", [('GBM', 2), ('sklearn', 2)])
+def test_enhanced_pod_strategy_weights(theta_model_type, num_moments):
+    enhanced_input_features = {'average_exposure': MinMaxNormalize(0., 45.)}
+    detector_predictor = EnhancedPODStrategy(enhanced_input_features, "fine_detector",
+                                             theta_model_type=theta_model_type, num_moments=num_moments)
+    detector_predictor.train(make_series_collection(1, 40), make_series_collection(1, 10), num_procs=1)
+
+    collection = make_series_collection(2, 3)
+    weights    = detector_predictor.predict_weights(collection)
+    moments    = detector_predictor.moments
+    processed  = PredictionStrategy.preprocess_features(collection, detector_predictor.input_features)
+
+    assert moments.shape == (len(state["fine_detector"]), num_moments)
+    assert weights.shape == (3, 2, num_moments)
+    assert_allclose(weights @ moments.T, detector_predictor.predict_processed_inputs(processed), rtol=1E-4, atol=1E-6)
+
+
 def test_residual_correction_strategy():
     reference_model = GBMStrategy(input_features, output_feature)
     residual_model  = GBMStrategy(input_features, output_feature)
