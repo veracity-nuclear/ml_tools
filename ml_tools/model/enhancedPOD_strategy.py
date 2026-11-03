@@ -203,6 +203,8 @@ class EnhancedPODStrategy(PODBasedStrategy):
         self._num_moments    = int(h5_group['num_moments'][()])
         self._pod_matrix     = h5_group['pod_mat'][()]
         self._singular_values = h5_group['singular_values'][()]
+        if 'max_svd_size' in h5_group:
+            self._max_svd_size = int(h5_group['max_svd_size'][()])
         # Load theta_scaling with backward compatibility
         if 'theta_scaling' in h5_group:
             theta_scaling_bytes = bytes(h5_group['theta_scaling'][()])

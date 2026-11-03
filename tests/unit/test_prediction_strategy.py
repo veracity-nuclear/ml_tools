@@ -511,6 +511,14 @@ def test_enhanced_pod_strategy_sklearn():
     assert_allclose(state["cips_index"],
                     new_cips_calculator.predict(make_series_collection(1, 1))[0][0][output_feature],
                     atol=1E-1)
+    assert new_cips_calculator.max_svd_size == cips_calculator.max_svd_size
+
+    # A loaded model can be saved again
+    new_cips_calculator.save_model('test_enhanced_pod_sklearn_model_resaved.h5')
+    resaved_cips_calculator = EnhancedPODStrategy.read_from_file('test_enhanced_pod_sklearn_model_resaved.h5')
+    assert resaved_cips_calculator.max_svd_size == cips_calculator.max_svd_size
+    assert_allclose(new_cips_calculator.predict(make_series_collection(1, 1))[0][0][output_feature],
+                    resaved_cips_calculator.predict(make_series_collection(1, 1))[0][0][output_feature])
 
     new_cips_calculator = PredictionStrategy.from_dict(cips_calculator.to_dict())
     assert isinstance(new_cips_calculator, EnhancedPODStrategy)
@@ -518,7 +526,7 @@ def test_enhanced_pod_strategy_sklearn():
     assert new_cips_calculator.theta_model_type == cips_calculator.theta_model_type
     assert not new_cips_calculator.isTrained
 
-    for file in glob.glob('test_enhanced_pod_sklearn_model.*'):
+    for file in glob.glob('test_enhanced_pod_sklearn_model*'):
         os.remove(file)
 
 
