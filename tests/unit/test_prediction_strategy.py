@@ -148,8 +148,9 @@ def test_gbm_strategy():
     new_cips_calculator = PredictionStrategy.from_dict(cips_calculator.to_dict())
     assert new_cips_calculator == cips_calculator
 
+    # The booster is serialized in memory; no .lgbm side files are written
+    assert not glob.glob('test_gbm_model*.lgbm')
     os.remove('test_gbm_model.h5')
-    os.remove('test_gbm_model.lgbm')
 
 
 def test_pod_strategy():
@@ -199,11 +200,8 @@ def test_residual_correction_strategy():
     new_cips_calculator.reference_model = cips_calculator.reference_model
     assert cips_calculator == new_cips_calculator
 
+    assert not glob.glob('test_residual_model*.lgbm')
     os.remove('test_residual_model.h5')
-    for name in ('test_residual_model_residual_model.lgbm',
-                 'test_residual_model_reference_model.lgbm'):
-        if os.path.exists(name):
-            os.remove(name)
 
 
 def test_nn_strategy_Dense():
@@ -405,9 +403,8 @@ def test_enhanced_pod_strategy_gbm():
     assert new_cips_calculator.theta_model_type == cips_calculator.theta_model_type
     assert not new_cips_calculator.isTrained
 
+    assert not glob.glob('test_enhanced_pod_model*.lgbm')
     os.remove('test_enhanced_pod_model.h5')
-    for file in glob.glob('test_enhanced_pod_model*.lgbm'):
-        os.remove(file)
 
 
 def test_enhanced_pod_strategy_nn():
@@ -577,6 +574,5 @@ def test_enhanced_pod_strategy_multiple_features():
     assert len(new_cips_calculator.predicted_feature_names) == 2
     assert not new_cips_calculator.isTrained
 
+    assert not glob.glob('test_enhanced_pod_multi_model*.lgbm')
     os.remove('test_enhanced_pod_multi_model.h5')
-    for file in glob.glob('test_enhanced_pod_multi_model*.lgbm'):
-        os.remove(file)
