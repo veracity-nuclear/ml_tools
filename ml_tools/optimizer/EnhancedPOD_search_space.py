@@ -23,28 +23,34 @@ class EnhancedPODSearchSpace(SearchSpace):
     """
 
     class Dimension(StructDimension):
-        """GBM hyperparameter domains (to be sampled; not final values).
+        """EnhancedPODStrategy hyperparameter domains (to be sampled; not final values).
 
         Parameters
         ----------
-        num_moments : CategoricalDimension, optional
-            Number of POD modments
-		gamma : FloatDimension, optional
-		    Comment here
-		gbm_settings : CategoricalDimension, optional
-	        Arguments to pass to underlying GBMStrategy
-
+        theta_model_type : CategoricalDimension, optional
+            Domain for the theta model type ('GBM', 'NN', or 'sklearn')
+        max_svd_size : CategoricalDimension, optional
+            Domain for the maximum number of training states used in the SVD
+        num_moments : IntDimension, optional
+            Domain for the number of POD moments
+        constraints : CategoricalDimension, optional
+            Domain of constraint lists, each a list of (gamma, W) pairs
+        theta_model_settings : StructDimension, optional
+            Domains for settings passed to the theta model constructor(s), e.g. a
+            ``GBMSearchSpace.Dimension`` for GBM theta models.  If None, defaults are used.
 
         Attributes
         ----------
+        theta_model_type : CategoricalDimension
+            Domain for the theta model type
         max_svd_size : CategoricalDimension
-            Comment here
-        num_moments : CategoricalDimension
-            Domain for number of POD moments
-		gamma : FloatDimension
-		    Comment here
-		gbm_settings : CategoricalDimension
-		    Arguments to pass to underlying GBMStrategy
+            Domain for the maximum number of training states used in the SVD
+        num_moments : IntDimension
+            Domain for the number of POD moments
+        constraints : CategoricalDimension
+            Domain of constraint lists
+        theta_model_settings : Optional[StructDimension]
+            Domains for settings passed to the theta model constructor(s)
         """
         @property
         def constraints(self) -> CategoricalDimension:
@@ -79,12 +85,15 @@ class EnhancedPODSearchSpace(SearchSpace):
             self.fields["theta_model_type"] = value
 
         @property
-        def theta_model_settings(self) -> StructDimension:
-            return self.fields["theta_model_settings"]
+        def theta_model_settings(self) -> Optional[StructDimension]:
+            return self.fields.get("theta_model_settings")
 
         @theta_model_settings.setter
-        def theta_model_settings(self, value: StructDimension) -> None:
-            self.fields["theta_model_settings"] = value
+        def theta_model_settings(self, value: Optional[StructDimension]) -> None:
+            if value is None:
+                self.fields.pop("theta_model_settings", None)
+            else:
+                self.fields["theta_model_settings"] = value
 
         def __init__(self,
                      theta_model_type: CategoricalDimension = CategoricalDimension(["GBM"]),

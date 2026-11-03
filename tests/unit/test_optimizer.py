@@ -35,6 +35,8 @@ from ml_tools.optimizer.nn_search_space.graph.gat import GAT as GATDim
 from ml_tools.optimizer.gbm_search_space import GBMSearchSpace
 from ml_tools.optimizer.pod_search_space import PODSearchSpace
 from ml_tools.optimizer.residual_correction_search_space import ResidualCorrectionSearchSpace
+from ml_tools.optimizer.EnhancedPOD_search_space import EnhancedPODSearchSpace
+from ml_tools.model.enhancedPOD_strategy import EnhancedPODStrategy
 
 class MockOptunaTrial:
     """ A mock optuna.trial.Trial.
@@ -539,3 +541,68 @@ def test_residual_correction_optimizer():
     assert model.reference_model.predicted_features == predicted_features
     assert model.residual_model.num_leaves == 31
     assert model.reference_model.num_leaves == 41
+
+
+def test_enhanced_pod_optimizer_defaults():
+    search_space = EnhancedPODSearchSpace(EnhancedPODSearchSpace.Dimension(),
+                                          input_features={"x": NoProcessing()},
+                                          predicted_features={"y": NoProcessing()})
+    assert search_space.dimensions.theta_model_settings is None
+
+    params = OptunaStrategy()._get_sample(MockOptunaTrial(), search_space.dimensions)
+    model  = PredictionStrategy.from_dict(strategy_dict={"strategy_type": "EnhancedPODStrategy", "params": params},
+                                          input_features=search_space.input_features,
+                                          predicted_features=search_space.predicted_features)
+
+    assert isinstance(model, EnhancedPODStrategy)
+    assert model.theta_model_type == "GBM"
+    assert model.num_moments      == 6
+    assert model.max_svd_size     is None
+    assert not model.isTrained
+
+
+def test_enhanced_pod_optimizer_settings_and_constraints():
+    W = [[1.0]]
+    dims = EnhancedPODSearchSpace.Dimension(theta_model_type     = CategoricalDimension(["GBM"]),
+                                            num_moments          = IntDimension(2, 2),
+                                            constraints          = CategoricalDimension([[(0.5, W)]]),
+                                            theta_model_settings = GBMSearchSpace.Dimension(num_leaves=IntDimension(17, 17)))
+    search_space = EnhancedPODSearchSpace(dims,
+                                          input_features={"x": NoProcessing()},
+                                          predicted_features={"y": NoProcessing()})
+
+    params = OptunaStrategy()._get_sample(MockOptunaTrial(), search_space.dimensions)
+    model  = PredictionStrategy.from_dict(strategy_dict={"strategy_type": "EnhancedPODStrategy", "params": params},
+                                          input_features=search_space.input_features,
+                                          predicted_features=search_space.predicted_features)
+
+    theta_models = model._theta_model.models  # pylint: disable=protected-access
+    assert len(theta_models) == 2
+    assert all(isinstance(m, GBMStrategy) and m.num_leaves == 17 for m in theta_models)
+    assert [(gamma, W_.tolist()) for gamma, W_ in model._constraints] == [(0.5, W)]  # pylint: disable=protected-access
+
+    # Serialized payloads still round trip through the dict constraint form
+    rebuilt = PredictionStrategy.from_dict(model.to_dict())
+    assert all(m.num_leaves == 17 for m in rebuilt._theta_model.models)  # pylint: disable=protected-access
+    assert [(gamma, W_.tolist()) for gamma, W_ in rebuilt._constraints] == [(0.5, W)]  # pylint: disable=protected-access
+
+
+def test_enhanced_pod_optuna_search(series_collection, tmp_path):
+    from sklearn.linear_model import LinearRegression
+    dims = EnhancedPODSearchSpace.Dimension(theta_model_type     = CategoricalDimension(["sklearn"]),
+                                            num_moments          = IntDimension(1, 1),
+                                            theta_model_settings = StructDimension({"estimator": CategoricalDimension([LinearRegression])}))
+    search_space = EnhancedPODSearchSpace(dims,
+                                          input_features={"x": NoProcessing()},
+                                          predicted_features={"y": NoProcessing()})
+
+    model = OptunaStrategy().search(search_space    = search_space,
+                                    train_data      = series_collection,
+                                    num_trials      = 1,
+                                    number_of_folds = 2,
+                                    output_file     = str(tmp_path / "optuna_results.txt"),
+                                    num_procs       = 1)
+
+    assert isinstance(model, EnhancedPODStrategy)
+    assert model.theta_model_type == "SKLEARN"
+    assert model.num_moments      == 1
