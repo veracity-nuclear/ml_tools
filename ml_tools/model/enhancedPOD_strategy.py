@@ -2,18 +2,20 @@ from __future__ import annotations
 
 import os
 from typing import Optional, Dict, Type, List, Tuple
-from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 import h5py
-from sklearn.linear_model import LinearRegression
 
 from ml_tools.model.state import SeriesCollection
-from ml_tools.model.prediction_strategy import PredictionStrategy, FeatureSpec
+from ml_tools.model.prediction_strategy import FeatureSpec
 from ml_tools.model.pod_based_strategy import PODBasedStrategy
+from ml_tools.model.pod_theta import (
+    THETA_SCALINGS,
+    ThetaModel,
+    compute_pod_basis,
+    project_theta,
+    theta_scaling_vector,
+)
 from ml_tools.model import register_prediction_strategy
-from ml_tools.model.gbm_strategy import GBMStrategy
-from ml_tools.model.nn_strategy import NNStrategy
-from ml_tools.model.sklearn_strategy import SklearnStrategy
 from ml_tools.model.feature_processor import NoProcessing
 
 @register_prediction_strategy()  # registers under 'EnhancedPODStrategy' by default
@@ -66,7 +68,7 @@ class EnhancedPODStrategy(PODBasedStrategy):
 
     @property
     def theta_model_type(self) -> Optional[str]:
-        return self._theta_model_type
+        return self._theta_model.model_type
 
     @property
     def isTrained(self) -> bool:
@@ -95,72 +97,17 @@ class EnhancedPODStrategy(PODBasedStrategy):
         self._constraints      = constraints if constraints is not None else []
         self._pod_matrix       = None
         self._singular_values  = None
-        self._theta_model_type = theta_model_type.upper() if theta_model_type else 'GBM'
-        if theta_scaling in ['singular_values', 'sqrt_singular_values',
-                             'max_singular_value', 'max_sqrt_singular_value',
-                             'ones']:
+        if theta_scaling in THETA_SCALINGS:
             self._theta_scaling    = theta_scaling
         else:
             raise ValueError(f"Unsupported theta scaling type: {theta_scaling}")
-        theta_model_settings   = theta_model_settings if theta_model_settings is not None else {}
-        if self._theta_model_type == "GBM":
-            self._theta_model      = [GBMStrategy(input_features, f'theta-{i+1}', **theta_model_settings)
-                                        for i in range(num_moments)]
-        elif self._theta_model_type == "NN":
-            # NN can predict all moments at once
-            self._theta_model      = [NNStrategy(input_features, 'theta', **theta_model_settings)]
-        elif self._theta_model_type == "SKLEARN":
-            estimator = theta_model_settings.pop('estimator', LinearRegression)
-            self._theta_model      = [SklearnStrategy(input_features, 'theta', estimator, **theta_model_settings)]
-        else:
-            raise ValueError(f"Unsupported theta model type: {self._theta_model_type}")
-
-    @staticmethod
-    def _compute_theta_for_state(args) -> np.ndarray:
-        """Helper function for parallel theta computation."""
-        predicted, pod_matrix, constraints, scaling_vector = args
-
-        # Solve theta
-        if len(constraints) == 0:
-            theta_star = pod_matrix.T @ predicted
-        else:
-            A = [pod_matrix]
-            b = [predicted]
-            for gamma, W in constraints:
-                A.append(gamma * W @ pod_matrix)
-                b.append(gamma * W @ predicted)
-            theta_star, *_ = np.linalg.lstsq(np.vstack(A), np.concatenate(b), rcond=None)
-
-        # Normalize by scaling vector
-        theta_star = theta_star / scaling_vector
-        return theta_star
+        self._theta_model      = ThetaModel(input_features, num_moments, theta_model_type, theta_model_settings)
 
     def _add_theta_to_collection(self, collection: SeriesCollection, scaling_vector: np.ndarray, num_procs: int = 1) -> None:
-        # Collect all states that need theta computation
-        all_states = []
-        for series in collection:
-            for state in series:
-                all_states.append(state)
-
-        # Prepare arguments for parallel processing
-        args_list = [
-            (np.concatenate([state[name] for name in self.predicted_feature_names]),
-             self._pod_matrix, self._constraints, scaling_vector)
-            for state in all_states
-        ]
-
-        # Compute theta in parallel
-        if num_procs > 1:
-            with ProcessPoolExecutor(max_workers=num_procs) as executor:
-                theta_results = list(executor.map(self._compute_theta_for_state, args_list))
-        else:
-            theta_results = [self._compute_theta_for_state(args) for args in args_list]
-
-        # Assign results back to states
-        for state, theta_star in zip(all_states, theta_results):
-            state.features['theta'] = theta_star
-            for i, theta_i in enumerate(theta_star):
-                state.features[f'theta-{i+1}'] = [theta_i]
+        targets = [np.concatenate([state[name] for name in self.predicted_feature_names])
+                   for series in collection for state in series]
+        thetas  = project_theta(targets, self._pod_matrix, self._constraints, scaling_vector, num_procs)
+        ThetaModel.set_targets(collection, thetas)
 
     def _add_theta(self,
                    train_data: SeriesCollection,
@@ -175,32 +122,12 @@ class EnhancedPODStrategy(PODBasedStrategy):
             self._add_theta_to_collection(validation_data, scaling_vector, num_procs)
 
     def _compute_pod(self, data: SeriesCollection) -> None:
-        self._max_svd_size = self._max_svd_size or len(data)
-
-        # setup matrix and perform SVD
         A = np.vstack([np.array(series) for series in self._get_targets(data)])
-        if len(data) > self.max_svd_size:
-            A = A[np.random.choice(A.shape[0], self.max_svd_size, replace=False), :]
-        u, L, _ = np.linalg.svd(A.T, full_matrices=False)
-
-        # store intermediate pod matrix
-        self._pod_matrix = u[:, :self.num_moments]
-        self._singular_values = L[:self.num_moments]
+        self._max_svd_size = self._max_svd_size or A.shape[0]
+        self._pod_matrix, self._singular_values = compute_pod_basis(A, self.num_moments, self.max_svd_size)
 
     def _scaling_vector(self) -> np.ndarray:
-        if self._theta_scaling == 'singular_values':
-            scaling_vector = self._singular_values + 1e-12
-        elif self._theta_scaling == 'sqrt_singular_values':
-            scaling_vector = np.sqrt(self._singular_values + 1e-12)
-        elif self._theta_scaling == 'max_singular_value':
-            scaling_vector = self._singular_values[0] * np.ones(self.num_moments)
-        elif self._theta_scaling == 'max_sqrt_singular_value':
-            scaling_vector = np.sqrt(self._singular_values[0]) * np.ones(self.num_moments)
-        elif self._theta_scaling == 'ones':
-            scaling_vector = np.ones(self.num_moments)
-        else:
-            raise ValueError(f"Unsupported theta scaling type: {self._theta_scaling}")
-        return scaling_vector
+        return theta_scaling_vector(self._theta_scaling, self._singular_values)
 
     def train(self,
               train_data: SeriesCollection,
@@ -219,26 +146,11 @@ class EnhancedPODStrategy(PODBasedStrategy):
         self._add_theta(train_data, validation_data, scaling_vector=self._scaling_vector())
 
         # train models
-        for model in self._theta_model:
-            model.train(train_data,
-                        validation_data,
-                        num_procs=num_procs,
-                        validation_split=validation_split,
-                        validation_seed=validation_seed)
-
-    def _predict_theta(self, collection: SeriesCollection) -> np.ndarray:
-        if self._theta_model_type in ["NN", "SKLEARN"]:
-            theta_pred = self._theta_model[0].predict(collection)
-        else:
-            theta_pred_tmp = [self._theta_model[r].predict(collection)
-                                    for r in range(self.num_moments)]
-            theta_pred = theta_pred_tmp[0]
-            for i, series in enumerate(theta_pred):
-                for j, state in enumerate(series):
-                    for r in range(1, self.num_moments):
-                        state.features[f'theta-{r+1}'] = theta_pred_tmp[r][i][j][f'theta-{r+1}']
-                    state.features['theta'] = np.array([state[f'theta-{r+1}'] for r in range(self.num_moments)])
-        return theta_pred
+        self._theta_model.train(train_data,
+                                validation_data,
+                                num_procs=num_procs,
+                                validation_split=validation_split,
+                                validation_seed=validation_seed)
 
     def _predict_weights_one(self, state_series: np.ndarray) -> np.ndarray:
         assert self.isTrained
@@ -248,16 +160,8 @@ class EnhancedPODStrategy(PODBasedStrategy):
         n_timesteps = state_series.shape[0]
         weights = []
         for i in range(n_timesteps):
-            X = state_series[i,:].reshape(1, -1)
-            if self._theta_model_type in ["NN", "SKLEARN"]:
-                # NN and sklearn predict all moments at once
-                theta = self._theta_model[0].predict_processed_inputs(X[np.newaxis, :])[0].flatten()
-            else:
-                # GBM has separate models for each moment
-                theta = np.asarray([self._theta_model[r].predict_processed_inputs(X[np.newaxis, :])[0]
-                                        for r in range(self.num_moments)])
             # Denormalize theta by multiplying by singular values
-            weights.append(theta.flatten() * scaling_vector)
+            weights.append(self._theta_model.predict(state_series[i,:]) * scaling_vector)
 
         return np.asarray(weights).reshape(n_timesteps, -1)
 
@@ -272,28 +176,19 @@ class EnhancedPODStrategy(PODBasedStrategy):
         h5_group : h5py.Group
             The opened HDF5 group or file to which the model should be written
         """
-        file_name = h5_group.file.filename
-
         super().write_model_to_hdf5(h5_group)
         h5_group.create_dataset('num_moments', data=self.num_moments)
         h5_group.create_dataset('pod_mat', data=self._pod_matrix)
         h5_group.create_dataset('singular_values', data=self._singular_values)
         h5_group.create_dataset('num_constraints', data=len(self._constraints))
         h5_group.create_dataset('max_svd_size', data=self._max_svd_size)
-        h5_group.create_dataset('theta_model_type', data=self._theta_model_type)
         h5_group.create_dataset('theta_scaling', data=self._theta_scaling)
 
         for i, (gamma, W) in enumerate(self._constraints):
             h5_group.create_dataset(f'constraint_{i+1}_gamma', data=gamma)
             h5_group.create_dataset(f'constraint_{i+1}_W', data=W)
 
-        if self._theta_model_type in ["NN", "SKLEARN"]:
-            theta_group = h5_group.require_group('theta')
-            self._theta_model[0].write_model_to_hdf5(theta_group)
-        else:
-            for i in range(self.num_moments):
-                theta_group = h5_group.require_group(f'theta-{i+1}')
-                self._theta_model[i].write_model_to_hdf5(theta_group)
+        self._theta_model.write_to_hdf5(h5_group)
 
     def load_model(self, h5_group: h5py.Group) -> None:
         """ A method for loading a trained model
@@ -303,39 +198,23 @@ class EnhancedPODStrategy(PODBasedStrategy):
         h5_group : h5py.Group
             An open HDF5 group or file object from which to load the model
         """
-        file_name = h5_group.file.filename
         super().load_model(h5_group)
 
         self._num_moments    = int(h5_group['num_moments'][()])
         self._pod_matrix     = h5_group['pod_mat'][()]
         self._singular_values = h5_group['singular_values'][()]
-        theta_model_type_bytes = bytes(h5_group['theta_model_type'][()])
-        self._theta_model_type = theta_model_type_bytes.decode('utf-8')
         # Load theta_scaling with backward compatibility
         if 'theta_scaling' in h5_group:
             theta_scaling_bytes = bytes(h5_group['theta_scaling'][()])
             self._theta_scaling = theta_scaling_bytes.decode('utf-8')
         else:
             self._theta_scaling = 'ones'  # default for old models
-        if self._theta_model_type == "GBM":
-            self._theta_model    = [GBMStrategy(self.input_features, f'theta-{i+1}') for i in range(self.num_moments)]
-        elif self._theta_model_type == "NN":
-            self._theta_model    = [NNStrategy(self.input_features, 'theta')]
-        elif self._theta_model_type == "SKLEARN":
-            # Use LinearRegression as placeholder - will be replaced by load_model
-            self._theta_model    = [SklearnStrategy(self.input_features, 'theta', estimator=LinearRegression)]
-        else:
-            raise ValueError(f"Unsupported theta model type: {self._theta_model_type}")
 
         num_constraints = int(h5_group['num_constraints'][()])
         self._constraints = [(h5_group[f'constraint_{i+1}_gamma'][()],
                                   h5_group[f'constraint_{i+1}_W'][()]) for i in range(num_constraints)]
 
-        if self._theta_model_type in ["NN","SKLEARN"]:
-            self._theta_model[0].load_model(h5_group['theta'])
-        elif self._theta_model_type == "GBM":
-            for i in range(self.num_moments):
-                self._theta_model[i].load_model(h5_group[f'theta-{i+1}'])
+        self._theta_model = ThetaModel.read_from_hdf5(h5_group, self.input_features, self.num_moments)
 
     @classmethod
     def read_from_file(cls: EnhancedPODStrategy, file_name: str) -> Type[EnhancedPODStrategy]:
@@ -372,10 +251,6 @@ class EnhancedPODStrategy(PODBasedStrategy):
                           params: Dict,
                           input_features: FeatureSpec,
                           predicted_features: FeatureSpec) -> EnhancedPODStrategy:
-        theta_models_payload = params.get("theta_models")
-        assert isinstance(theta_models_payload, list) and len(theta_models_payload) > 0, \
-            "'theta_models' must be a non-empty list"
-
         constraints_payload = params.get("constraints", [])
         assert isinstance(constraints_payload, list), "'constraints' must be a list"
         constraints = []
@@ -394,25 +269,20 @@ class EnhancedPODStrategy(PODBasedStrategy):
                        theta_scaling=params.get("theta_scaling", "sqrt_singular_values"),
                        theta_model_settings={})
 
-        if instance._theta_model_type in ["NN", "SKLEARN"]:
-            assert len(theta_models_payload) == 1, \
-                f"Expected exactly 1 theta model for {instance._theta_model_type}"
-        else:
-            assert len(theta_models_payload) == instance._num_moments, \
-                f"Expected {instance._num_moments} theta models for GBM"
-
-        instance._theta_model = [PredictionStrategy.from_dict(model_payload)
-                                 for model_payload in theta_models_payload]
+        instance._theta_model = ThetaModel.from_dict(params.get("theta_models"),
+                                                     input_features,
+                                                     instance.num_moments,
+                                                     instance.theta_model_type)
         return instance
 
     def _params_to_dict(self):
         constraints_payload = [{"gamma": float(gamma), "W": np.asarray(W).tolist()}
                                for gamma, W in self._constraints]
         return {
-            "theta_model_type": self._theta_model_type,
+            "theta_model_type": self.theta_model_type,
             "theta_scaling": self._theta_scaling,
             "max_svd_size": self._max_svd_size,
             "num_moments": self._num_moments,
             "constraints": constraints_payload,
-            "theta_models": [model.to_dict() for model in self._theta_model],
+            "theta_models": self._theta_model.to_dict(),
         }
