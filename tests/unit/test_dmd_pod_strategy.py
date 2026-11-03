@@ -1,4 +1,4 @@
-import glob
+import h5py
 import os
 import warnings
 import pytest
@@ -237,3 +237,67 @@ def test_to_from_dict(initial_theta_model_type):
     assert rebuilt == model
     assert not rebuilt.isTrained
     assert rebuilt.initial_theta_model_type == model.initial_theta_model_type
+
+
+def test_trajectory_checkpoint_resume(tmp_path):
+    model = build(predicted_features={'y': MinMaxNormalize(-3., 3.)}, num_moments=R + 1)
+    model.train(make_collection([10] * 20))
+    series = make_collection([10], seed=2)[0]
+
+    uninterrupted = model.create_trajectory(series[0])
+    expected = [uninterrupted.predict_next(state)['y'] for state in series[1:]]
+
+    trajectory = model.create_trajectory(series[0])
+    for state in series[1:5]:
+        trajectory.predict_next(state)
+    trajectory.save(str(tmp_path / 'trajectory'))           # '.h5' is appended
+    assert os.path.exists(tmp_path / 'trajectory.h5')
+
+    # Resume against the model reloaded from file; feature processors survive the round trip
+    model.save_model(str(tmp_path / 'model.h5'))
+    reloaded = DMDPODStrategy.read_from_file(str(tmp_path / 'model.h5'))
+    assert reloaded.fingerprint == model.fingerprint
+
+    resumed = reloaded.load_trajectory(str(tmp_path / 'trajectory.h5'))
+    assert resumed.strategy is reloaded
+    assert resumed.step == 4
+    assert_allclose(resumed.weights, trajectory.weights, rtol=0, atol=0)
+    resumed_predictions = [resumed.predict_next(state)['y'] for state in series[5:]]
+    assert_allclose(resumed_predictions, expected[4:], rtol=1E-12)
+
+
+def test_trajectory_checkpoint_rejects_other_models(tmp_path):
+    model = build()
+    model.train(make_collection([10] * 20))
+    trajectory = model.create_trajectory(make_collection([1], seed=2)[0][0])
+    trajectory.save(str(tmp_path / 'trajectory.h5'))
+
+    # Retraining on the same data reproduces the same dynamics, and so the same fingerprint
+    same = build()
+    same.train(make_collection([10] * 20))
+    assert same.fingerprint == model.fingerprint
+    assert same.load_trajectory(str(tmp_path / 'trajectory.h5')).step == 0
+
+    other = build()
+    other.train(make_collection([10] * 20, seed=5))
+    assert other.fingerprint != model.fingerprint
+    with pytest.raises(ValueError, match="different model"):
+        other.load_trajectory(str(tmp_path / 'trajectory.h5'))
+
+
+def test_trajectories_share_file(tmp_path):
+    model = build()
+    model.train(make_collection([10] * 20))
+    trajectories = {f'assembly_{i}': model.create_trajectory(series[0])
+                    for i, series in enumerate(make_collection([1] * 3, seed=2))}
+
+    with h5py.File(tmp_path / 'core.h5', 'w') as h5_file:
+        for name, trajectory in trajectories.items():
+            trajectory.write_to_hdf5(h5_file.create_group(name))
+        h5_file.create_group('not_a_trajectory')
+
+    with h5py.File(tmp_path / 'core.h5', 'r') as h5_file:
+        for name, trajectory in trajectories.items():
+            assert_allclose(model.read_trajectory_from_hdf5(h5_file[name]).weights, trajectory.weights)
+        with pytest.raises(ValueError, match="does not hold"):
+            model.read_trajectory_from_hdf5(h5_file['not_a_trajectory'])

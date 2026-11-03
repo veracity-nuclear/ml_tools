@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import json
+import hashlib
 import warnings
 from typing import Optional, Dict, Type, List, Any
 import numpy as np
@@ -20,6 +22,7 @@ from ml_tools.model import register_prediction_strategy
 from ml_tools.model.feature_processor import NoProcessing
 
 INITIALIZATIONS = ('project', 'infer')
+TRAJECTORY_TYPE = 'DMDPODStrategy.Trajectory'
 
 
 @register_prediction_strategy()  # registers under 'DMDPODStrategy' by default
@@ -91,7 +94,9 @@ class DMDPODStrategy(PODBasedStrategy):
         """ The evolving state of a single DMD-on-POD prediction
 
         Trajectories are created by :meth:`DMDPODStrategy.create_trajectory`.  The trajectory
-        references, but does not own, the strategy that created it.
+        references, but does not own, the strategy that created it.  A trajectory can be
+        checkpointed with :meth:`save` and resumed with :meth:`DMDPODStrategy.load_trajectory`;
+        checkpoints contain only the trajectory's own state, not the model.
 
         Parameters
         ----------
@@ -172,6 +177,34 @@ class DMDPODStrategy(PODBasedStrategy):
             """ An independent copy of this trajectory, e.g. for branching what-if predictions """
             return type(self)(self._strategy, self._weights, self._step)
 
+        def save(self, file_name: str) -> None:
+            """ Checkpoint this trajectory to a file
+
+            Parameters
+            ----------
+            file_name : str
+                The name of the file to write the trajectory to
+            """
+            file_name = file_name if file_name.endswith(".h5") else file_name + ".h5"
+            with h5py.File(file_name, 'w') as h5_file:
+                self.write_to_hdf5(h5_file)
+
+        def write_to_hdf5(self, h5_group: h5py.Group) -> None:
+            """ Write this trajectory's state to an HDF5 group
+
+            Only the trajectory's own state and the fingerprint of its strategy are written,
+            so many trajectories of one model can share a file in separate groups.
+
+            Parameters
+            ----------
+            h5_group : h5py.Group
+                An opened, writeable HDF5 group or file handle
+            """
+            h5_group.create_dataset('trajectory_type', data=TRAJECTORY_TYPE)
+            h5_group.create_dataset('model_fingerprint', data=self._strategy.fingerprint)
+            h5_group.create_dataset('weights', data=self._weights)
+            h5_group.create_dataset('step', data=self._step)
+
     @property
     def num_moments(self) -> int:
         return self._num_moments
@@ -223,6 +256,27 @@ class DMDPODStrategy(PODBasedStrategy):
     @property
     def spectral_radius(self) -> float:
         return float(np.max(np.abs(np.linalg.eigvals(self.step_operator))))
+
+    @property
+    def fingerprint(self) -> str:
+        """ A hash of the trained dynamics, used to match trajectory checkpoints to this model
+
+        Covers the strategy type, the input and predicted feature names and sizes, and the
+        POD moments and step operators.  It is unchanged by saving and loading the model, and
+        changes whenever retraining changes the moments or operators.  Feature processor
+        parameters and the initial theta model are not included.
+        """
+        assert self.isTrained
+        sha = hashlib.sha256(type(self).__name__.encode('utf-8'))
+        features = {'input_features': list(self.input_features),
+                    'predicted_features': [[name, int(self._predicted_feature_sizes[name])]
+                                           for name in self.predicted_feature_names]}
+        sha.update(json.dumps(features).encode('utf-8'))
+        for array in (self._pod_matrix, self._A, self._B, self._c):
+            array = np.ascontiguousarray(array, dtype=np.float64)
+            sha.update(str(array.shape).encode('utf-8'))
+            sha.update(array.tobytes())
+        return sha.hexdigest()
 
     def __init__(self,
                  input_features:               FeatureSpec,
@@ -407,6 +461,58 @@ class DMDPODStrategy(PODBasedStrategy):
         else:
             raise ValueError(f"Unsupported initialization: {initialization}. Supported: {INITIALIZATIONS}")
         return DMDPODStrategy.Trajectory(self, weights)
+
+    def load_trajectory(self, file_name: str) -> DMDPODStrategy.Trajectory:
+        """ Resume a trajectory checkpointed with :meth:`DMDPODStrategy.Trajectory.save`
+
+        Parameters
+        ----------
+        file_name : str
+            The name of the file to read the trajectory from
+
+        Returns
+        -------
+        DMDPODStrategy.Trajectory
+            The resumed trajectory, evolved by this model
+
+        Raises
+        ------
+        ValueError
+            If the trajectory was created by a different model
+        """
+        file_name = file_name if file_name.endswith(".h5") else file_name + ".h5"
+        assert os.path.exists(file_name), f"file name = {file_name}"
+        with h5py.File(file_name, 'r') as h5_file:
+            return self.read_trajectory_from_hdf5(h5_file)
+
+    def read_trajectory_from_hdf5(self, h5_group: h5py.Group) -> DMDPODStrategy.Trajectory:
+        """ Read a trajectory written by :meth:`DMDPODStrategy.Trajectory.write_to_hdf5`
+
+        Parameters
+        ----------
+        h5_group : h5py.Group
+            An opened HDF5 group or file handle
+
+        Returns
+        -------
+        DMDPODStrategy.Trajectory
+            The resumed trajectory, evolved by this model
+
+        Raises
+        ------
+        ValueError
+            If the group does not hold a trajectory, or the trajectory was created by a different model
+        """
+        assert self.isTrained
+        if 'trajectory_type' not in h5_group or \
+           bytes(h5_group['trajectory_type'][()]).decode('utf-8') != TRAJECTORY_TYPE:
+            raise ValueError(f"'{h5_group.name}' does not hold a {TRAJECTORY_TYPE}")
+        fingerprint = bytes(h5_group['model_fingerprint'][()]).decode('utf-8')
+        if fingerprint != self.fingerprint:
+            raise ValueError(f"Trajectory in '{h5_group.name}' was created by a different model "
+                             f"(fingerprint {fingerprint[:12]}... != {self.fingerprint[:12]}...). "
+                             "Load it with the model that created it.")
+        return DMDPODStrategy.Trajectory(self, h5_group['weights'][()], int(h5_group['step'][()]))
 
     def _predict_weights_one(self, state_series: np.ndarray) -> np.ndarray:
         assert self.isTrained
