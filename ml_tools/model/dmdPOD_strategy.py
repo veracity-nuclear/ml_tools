@@ -610,7 +610,10 @@ class DMDPODStrategy(PODBasedStrategy):
                        theta_scaling=params.get("theta_scaling", "sqrt_singular_values"),
                        regularization=params.get("regularization", 0.0),
                        fit_intercept=params.get("fit_intercept", True),
-                       initial_theta_model_type=initial_theta_model_type)
+                       initial_theta_model_type=initial_theta_model_type,
+                       initial_theta_model_settings=params.get("initial_theta_model_settings"))
+        # A serialized payload carries fully specified theta models; a sampled search-space
+        # configuration carries only initial_theta_model_settings
         if params.get("initial_theta_models") is not None:
             instance._initial_theta_model = ThetaModel.from_dict(params["initial_theta_models"],
                                                                  input_features,

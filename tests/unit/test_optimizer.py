@@ -34,6 +34,8 @@ from ml_tools.optimizer.nn_search_space.graph.sage import SAGE as SAGEDim
 from ml_tools.optimizer.nn_search_space.graph.gat import GAT as GATDim
 from ml_tools.optimizer.gbm_search_space import GBMSearchSpace
 from ml_tools.optimizer.pod_search_space import PODSearchSpace
+from ml_tools.optimizer.dmdPOD_search_space import DMDPODSearchSpace
+from ml_tools.model.dmdPOD_strategy import DMDPODStrategy
 from ml_tools.optimizer.residual_correction_search_space import ResidualCorrectionSearchSpace
 
 class MockOptunaTrial:
@@ -133,6 +135,93 @@ def test_pod_optimizer():
                            max_svd_size       = None,
                            ndims              = None)
     assert model == expected
+
+
+
+def dmd_series_collection(num_series: int = 6, length: int = 5) -> SeriesCollection:
+    """ Series of a 2-moment linear system driven by a scalar input """
+    rng = np.random.default_rng(0)
+    A, B = np.array([[0.9, 0.1], [0.0, 0.7]]), np.array([[0.5], [-0.2]])
+    series = []
+    for _ in range(num_series):
+        u, w, states = rng.uniform(size=(length, 1)), rng.normal(size=2), []
+        for t in range(length):
+            w = w if t == 0 else A @ w + B @ u[t]
+            states.append(State({"x": u[t], "y": np.array([w[0], w[1], w[0] + w[1]])}))
+        series.append(StateSeries(states))
+    return SeriesCollection(series)
+
+
+def test_dmd_pod_optimizer_defaults():
+    search_space = DMDPODSearchSpace(DMDPODSearchSpace.Dimension(),
+                                     input_features={"x": NoProcessing()},
+                                     predicted_features={"y": NoProcessing()})
+    assert search_space.dimensions.initial_theta_model_settings is None
+
+    params = OptunaStrategy()._get_sample(MockOptunaTrial(), search_space.dimensions)
+    model  = PredictionStrategy.from_dict(strategy_dict={"strategy_type": "DMDPODStrategy", "params": params},
+                                          input_features=search_space.input_features,
+                                          predicted_features=search_space.predicted_features)
+
+    assert model == DMDPODStrategy({"x": NoProcessing()}, {"y": NoProcessing()}, num_moments=6)
+    assert not model.isTrained
+
+
+def test_dmd_pod_optimizer_settings():
+    dims = DMDPODSearchSpace.Dimension(num_moments                  = IntDimension(2, 2),
+                                       theta_scaling                = CategoricalDimension(["ones"]),
+                                       regularization               = FloatDimension(0.1, 0.1),
+                                       fit_intercept                = CategoricalDimension([False]),
+                                       initial_theta_model_settings = GBMSearchSpace.Dimension(num_leaves=IntDimension(17, 17)))
+    search_space = DMDPODSearchSpace(dims,
+                                     input_features={"x": NoProcessing()},
+                                     predicted_features={"y": NoProcessing()})
+
+    params = OptunaStrategy()._get_sample(MockOptunaTrial(), search_space.dimensions)
+    model  = PredictionStrategy.from_dict(strategy_dict={"strategy_type": "DMDPODStrategy", "params": params},
+                                          input_features=search_space.input_features,
+                                          predicted_features=search_space.predicted_features)
+
+    assert model == DMDPODStrategy({"x": NoProcessing()}, {"y": NoProcessing()}, num_moments=2,
+                                   theta_scaling="ones", regularization=0.1, fit_intercept=False)
+    theta_models = model._initial_theta_model.models  # pylint: disable=protected-access
+    assert len(theta_models) == 2
+    assert all(isinstance(m, GBMStrategy) and m.num_leaves == 17 for m in theta_models)
+
+    # Serialized payloads keep the sampled settings
+    rebuilt = PredictionStrategy.from_dict(model.to_dict())
+    assert all(m.num_leaves == 17 for m in rebuilt._initial_theta_model.models)  # pylint: disable=protected-access
+
+    # A projection-only configuration has no initial theta model
+    params["initial_theta_model_type"] = None
+    params.pop("initial_theta_model_settings")
+    model = PredictionStrategy.from_dict(strategy_dict={"strategy_type": "DMDPODStrategy", "params": params},
+                                         input_features=search_space.input_features,
+                                         predicted_features=search_space.predicted_features)
+    assert model.initial_theta_model_type is None
+
+
+def test_dmd_pod_optuna_search(tmp_path):
+    from sklearn.linear_model import LinearRegression
+    dims = DMDPODSearchSpace.Dimension(num_moments                  = IntDimension(2, 2),
+                                       regularization               = FloatDimension(1e-6, 1e-2, log=10),
+                                       initial_theta_model_type     = CategoricalDimension(["sklearn"]),
+                                       initial_theta_model_settings = StructDimension({"estimator": CategoricalDimension([LinearRegression])}))
+    search_space = DMDPODSearchSpace(dims,
+                                     input_features={"x": NoProcessing()},
+                                     predicted_features={"y": NoProcessing()})
+
+    model = OptunaStrategy().search(search_space    = search_space,
+                                    train_data      = dmd_series_collection(),
+                                    num_trials      = 2,
+                                    number_of_folds = 2,
+                                    output_file     = str(tmp_path / "optuna_results.txt"),
+                                    num_procs       = 1)
+
+    assert isinstance(model, DMDPODStrategy)
+    assert model.num_moments == 2
+    assert model.initial_theta_model_type == "SKLEARN"
+    assert 1e-6 <= model.regularization <= 1e-2
 
 
 def test_nn_optimizer_Dense():
