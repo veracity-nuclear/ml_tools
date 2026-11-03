@@ -11,3 +11,4 @@ from .model.gbm_strategy import GBMStrategy
 from .model.nn_strategy import NNStrategy
 from .model.pod_strategy import PODStrategy
 from .model.enhancedPOD_strategy import EnhancedPODStrategy
+from .model.dmdPOD_strategy import DMDPODStrategy
