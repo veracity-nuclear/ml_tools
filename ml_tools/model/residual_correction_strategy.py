@@ -1,15 +1,56 @@
 from __future__ import annotations
-from typing import Dict, Optional, Type
+from typing import Any, Dict, Optional, Type
 import os
 
 import numpy as np
 import h5py
 
 
-from ml_tools.model.state import SeriesCollection
+from ml_tools.model.state import State, StateSeries, SeriesCollection
 from ml_tools.model.prediction_strategy import PredictionStrategy, FeatureSpec
 from ml_tools.model.feature_processor import FeatureProcessor
 from ml_tools.model import register_prediction_strategy, _PREDICTION_STRATEGY_REGISTRY
+
+
+def is_stepwise(model: PredictionStrategy) -> bool:
+    """ Whether a strategy predicts each state independently of the other states in its series
+
+    Such strategies can be evaluated one state at a time, e.g. as the residual model of an
+    incremental :class:`ResidualCorrectionStrategy.Trajectory`.  NN strategies qualify only if
+    every layer operates per time step; recurrent and attention layers mix time steps.
+
+    Parameters
+    ----------
+    model : PredictionStrategy
+        The strategy to check
+
+    Returns
+    -------
+    bool
+        True if the strategy's prediction for each state depends only on that state
+    """
+    # Imported here to avoid import cycles between strategy modules
+    # pylint: disable=import-outside-toplevel
+    from ml_tools.model.gbm_strategy import GBMStrategy
+    from ml_tools.model.sklearn_strategy import SklearnStrategy
+    from ml_tools.model.pod_strategy import PODStrategy
+    from ml_tools.model.enhancedPOD_strategy import EnhancedPODStrategy
+    from ml_tools.model.nn_strategy import NNStrategy, Dense, PassThrough, SpatialConv, SpatialMaxPool, \
+                                           GraphConv, LayerSequence, CompoundLayer
+
+    def stepwise_layer(layer) -> bool:
+        if isinstance(layer, (LayerSequence, CompoundLayer)):
+            return all(stepwise_layer(sublayer) for sublayer in layer.layers)
+        return isinstance(layer, (Dense, PassThrough, SpatialConv, SpatialMaxPool, GraphConv))
+
+    if isinstance(model, (GBMStrategy, SklearnStrategy, PODStrategy, EnhancedPODStrategy)):
+        return True
+    if isinstance(model, NNStrategy):
+        return all(stepwise_layer(layer) for layer in model.layers)
+    if isinstance(model, ResidualCorrectionStrategy):
+        return is_stepwise(model.reference_model) and is_stepwise(model.residual_model)
+    return False
+
 
 @register_prediction_strategy()
 class ResidualCorrectionStrategy(PredictionStrategy):
@@ -40,6 +81,77 @@ class ResidualCorrectionStrategy(PredictionStrategy):
     reference_model_frozen : bool
         If True, the reference model is not trained when training this ResidualCorrectionStrategy.
     """
+
+    class Trajectory:
+        """ The evolving state of a single incremental residual-corrected prediction
+
+        Created by :meth:`ResidualCorrectionStrategy.create_trajectory`.  Each step advances the
+        reference model's trajectory and adds the residual model's prediction for that step's
+        inputs, matching :meth:`ResidualCorrectionStrategy.predict`.
+
+        Parameters
+        ----------
+        strategy : ResidualCorrectionStrategy
+            The trained strategy that created this trajectory
+        reference_trajectory : Any
+            The trajectory of the reference model
+        residual : State
+            The residual model's prediction for the current step (post-processed)
+
+        Attributes
+        ----------
+        strategy : ResidualCorrectionStrategy
+            The strategy that created this trajectory
+        reference_trajectory : Any
+            The trajectory of the reference model
+        step : int
+            The current time step index
+        state : State
+            The current residual-corrected predicted features (post-processed)
+        """
+
+        @property
+        def strategy(self) -> ResidualCorrectionStrategy:
+            return self._strategy
+
+        @property
+        def reference_trajectory(self) -> Any:
+            return self._reference_trajectory
+
+        @property
+        def step(self) -> int:
+            return self._reference_trajectory.step
+
+        @property
+        def state(self) -> State:
+            return self._strategy._add_residual(self._reference_trajectory.state, self._residual)  # pylint: disable=protected-access
+
+        def __init__(self, strategy: ResidualCorrectionStrategy, reference_trajectory: Any, residual: State) -> None:
+            self._strategy             = strategy
+            self._reference_trajectory = reference_trajectory
+            self._residual             = residual
+
+        def predict_next(self, inputs: State) -> State:
+            """ Advance one step and predict the next state
+
+            Parameters
+            ----------
+            inputs : State
+                A state containing the input features of both the reference and residual models
+                for the next step
+
+            Returns
+            -------
+            State
+                The residual-corrected predicted features of the next step (post-processed)
+            """
+            self._reference_trajectory.predict_next(inputs)
+            self._residual = self._strategy._predict_residual(inputs)  # pylint: disable=protected-access
+            return self.state
+
+        def copy(self) -> ResidualCorrectionStrategy.Trajectory:
+            """ An independent copy of this trajectory, e.g. for branching what-if predictions """
+            return type(self)(self._strategy, self._reference_trajectory.copy(), self._residual)
 
     @property
     def residual_model(self) -> Optional[PredictionStrategy]:
@@ -183,6 +295,51 @@ class ResidualCorrectionStrategy(PredictionStrategy):
                                                 other     = residual_prediction,
                                                 features  = self.residual_model.predicted_feature_names,
                                                 num_procs = num_procs)
+
+    def create_trajectory(self, initial_state: State, initialization: str = 'project') -> ResidualCorrectionStrategy.Trajectory:
+        """ Create an incremental trajectory starting at an initial state
+
+        Requires a reference model that supports incremental prediction (e.g. DMDPODStrategy, or a
+        ResidualCorrectionStrategy built on one) and a residual model that predicts each state
+        independently (see :func:`is_stepwise`).
+
+        Note that the residual model is trained on the residuals of :meth:`predict`, whose reference
+        predictions use ``initialization='infer'``.  With ``initialization='project'`` the reference
+        starts from the known initial state, so its errors (and therefore the ideal residuals) can
+        differ from those seen in training.
+
+        Parameters
+        ----------
+        initial_state : State
+            The state at step 0, containing the input features of both models, and the predicted
+            features when ``initialization='project'``
+        initialization : str
+            Passed to the reference model's ``create_trajectory``
+
+        Returns
+        -------
+        ResidualCorrectionStrategy.Trajectory
+            A trajectory at step 0
+        """
+        if not hasattr(self.reference_model, 'create_trajectory'):
+            raise TypeError(f"Reference model {type(self.reference_model).__name__} does not support incremental "
+                            "prediction (create_trajectory)")
+        if not is_stepwise(self.residual_model):
+            raise TypeError(f"Residual model {type(self.residual_model).__name__} does not predict each state "
+                            "independently (e.g. it has recurrent or attention layers), so it cannot be stepped "
+                            "incrementally")
+        assert self.isTrained, "Both reference_model and residual_model must be trained before prediction."
+        reference_trajectory = self.reference_model.create_trajectory(initial_state, initialization)
+        return ResidualCorrectionStrategy.Trajectory(self, reference_trajectory, self._predict_residual(initial_state))
+
+    def _predict_residual(self, state: State) -> State:
+        return self.residual_model.predict(SeriesCollection([StateSeries([state])]))[0][0]
+
+    def _add_residual(self, reference: State, residual: State) -> State:
+        features = dict(reference.features)
+        for name in self.residual_model.predicted_feature_names:
+            features[name] = np.add(reference[name], residual[name])
+        return State(features)
 
     def _predict_one(self, state_series: np.ndarray) -> np.ndarray:
         """Note: This method expects already-preprocessed inputs and therefore
