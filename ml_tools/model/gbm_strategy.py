@@ -393,8 +393,6 @@ class GBMStrategy(PredictionStrategy):
         h5_group : h5py.Group
             The opened HDF5 group or file to which the model should be written
         """
-        lgbm_name = self._lgbm_name_for_group(h5_group)
-
         super().write_model_to_hdf5(h5_group)
         str_dtype = h5py.string_dtype(encoding="utf-8")
         h5_group.create_dataset('boosting_type',     data = self.boosting_type, dtype=str_dtype)
@@ -412,11 +410,8 @@ class GBMStrategy(PredictionStrategy):
         h5_group.create_dataset('verbose',           data = self.verbose)
         h5_group.create_dataset('num_boost_round',   data = self.num_boost_round)
         h5_group.create_dataset('stopping_rounds',   data = self.stopping_rounds)
-        self._gbm.save_model(lgbm_name)
-        with open(lgbm_name, 'rb') as file:
-            file_data = file.read()
-
-        h5_group.create_dataset('serialized_lgbm_file', data=file_data)
+        # Same bytes LightGBM would write to a .lgbm model file
+        h5_group.create_dataset('serialized_lgbm_file', data=self._gbm.model_to_string().encode('utf-8'))
 
     def load_model(self, h5_group: h5py.Group) -> None:
         """ A method for loading a trained model
@@ -426,8 +421,6 @@ class GBMStrategy(PredictionStrategy):
         h5_group : h5py.Group
             The opened HDF5 group or file from which the model should be loaded
         """
-        lgbm_name = self._lgbm_name_for_group(h5_group)
-
         super().load_model(h5_group)
         boosting_type = h5_group['boosting_type'][()]
         objective = h5_group['objective'][()]
@@ -454,18 +447,8 @@ class GBMStrategy(PredictionStrategy):
         self.num_boost_round   = int(h5_group['num_boost_round'][()])
         self.stopping_rounds   = int(h5_group['stopping_rounds'][()])
 
-        file_data = h5_group['serialized_lgbm_file'][()]
-        with open(lgbm_name, 'wb') as file:
-            file.write(file_data)
-        self._gbm = lgb.Booster(model_file=lgbm_name)
-
-    @staticmethod
-    def _lgbm_name_for_group(h5_group: h5py.Group) -> str:
-        file_name = h5_group.file.filename
-        base_name = file_name.removesuffix(".h5") if file_name.endswith(".h5") else file_name
-        group_name = h5_group.name.strip("/").replace("/", "_")
-        suffix = f"_{group_name}" if group_name else ""
-        return f"{base_name}{suffix}.lgbm"
+        model_str = h5_group['serialized_lgbm_file'][()]
+        self._gbm = lgb.Booster(model_str=model_str.decode('utf-8'))
 
     @classmethod
     def read_from_file(cls: GBMStrategy, file_name: str) -> Type[GBMStrategy]:
