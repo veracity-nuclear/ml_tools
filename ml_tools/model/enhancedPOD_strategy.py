@@ -257,10 +257,14 @@ class EnhancedPODStrategy(PODBasedStrategy):
         assert isinstance(constraints_payload, list), "'constraints' must be a list"
         constraints = []
         for item in constraints_payload:
-            assert isinstance(item, dict), "constraint entries must be dicts"
-            gamma = float(item["gamma"])
-            W = np.asarray(item["W"], dtype=float)
-            constraints.append((gamma, W))
+            # serialized payloads use dicts; search spaces may sample (gamma, W) pairs as in the constructor
+            if isinstance(item, dict):
+                gamma, W = item["gamma"], item["W"]
+            else:
+                assert isinstance(item, (tuple, list)) and len(item) == 2, \
+                    "constraint entries must be {'gamma', 'W'} dicts or (gamma, W) pairs"
+                gamma, W = item
+            constraints.append((float(gamma), np.asarray(W, dtype=float)))
 
         instance = cls(input_features=input_features,
                        predicted_features=predicted_features,
@@ -269,12 +273,15 @@ class EnhancedPODStrategy(PODBasedStrategy):
                        num_moments=params.get("num_moments", 1),
                        constraints=constraints,
                        theta_scaling=params.get("theta_scaling", "sqrt_singular_values"),
-                       theta_model_settings={})
+                       theta_model_settings=params.get("theta_model_settings"))
 
-        instance._theta_model = ThetaModel.from_dict(params.get("theta_models"),
-                                                     input_features,
-                                                     instance.num_moments,
-                                                     instance.theta_model_type)
+        # A serialized payload carries fully specified theta models; a sampled search-space
+        # configuration carries only theta_model_settings
+        if params.get("theta_models") is not None:
+            instance._theta_model = ThetaModel.from_dict(params["theta_models"],
+                                                         input_features,
+                                                         instance.num_moments,
+                                                         instance.theta_model_type)
         return instance
 
     def _params_to_dict(self):
