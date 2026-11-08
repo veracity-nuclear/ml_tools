@@ -1,6 +1,6 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import List, Dict, Optional, Type, Union, Sequence, Any
+from typing import List, Dict, Mapping, Optional, Type, Union, Sequence, Any
 from concurrent.futures import ProcessPoolExecutor
 import warnings
 import numpy as np
@@ -16,6 +16,37 @@ from ml_tools.model.feature_processor import (
 FeatureSpec = Union[Dict[str, FeatureProcessor], str, Sequence[str]]
 
 
+def merge_input_features(models: Mapping[str, PredictionStrategy]) -> Dict[str, FeatureProcessor]:
+    """Merge compatible input processor maps from named prediction strategies.
+
+    Parameters
+    ----------
+    models : Mapping[str, PredictionStrategy]
+        Named strategies whose input feature definitions should be combined.
+
+    Returns
+    -------
+    Dict[str, FeatureProcessor]
+        Ordered union of the strategies' input feature definitions.
+
+    Raises
+    ------
+    AssertionError
+        If multiple strategies define different processors for the same input
+        feature.
+    """
+    combined = {}
+    for model_name, model in models.items():
+        for name, processor in model.input_features.items():
+            if name in combined and combined[name] != processor:
+                raise AssertionError(
+                    f"Input processor mismatch for '{name}' in model '{model_name}'; "
+                    "access input_features on the individual models."
+                )
+            combined.setdefault(name, processor)
+    return combined
+
+
 class PredictionStrategy(ABC):
     """ An abstract class for prediction strategies. Not meant to be instantiated directly.
 
@@ -23,6 +54,8 @@ class PredictionStrategy(ABC):
     ----------
     input_features : Dict[str, FeatureProcessor]
         Input feature and processor pairs, keyed by feature name.
+    input_feature_names : List[str]
+        Ordered input feature names.
     predicted_features : Dict[str, FeatureProcessor]
         Output feature and processor pairs, keyed by feature name.
     isTrained : bool
@@ -42,6 +75,10 @@ class PredictionStrategy(ABC):
             self._input_features[feature] = processor
 
     @property
+    def input_feature_names(self) -> List[str]:
+        return list(self.input_features)
+
+    @property
     def predicted_features(self) -> Dict[str, FeatureProcessor]:
         return self._predicted_features
 
@@ -49,11 +86,12 @@ class PredictionStrategy(ABC):
     def predicted_features(self, predicted_features: FeatureSpec) -> None:
         predicted_features = self.create_feature_processor_map(predicted_features)
         assert len(predicted_features) > 0, "predicted_features must be non-empty"
+        input_feature_names = set(self.input_feature_names)
         self._predicted_features = {}
         for feature, processor in predicted_features.items():
             assert isinstance(feature, str) and feature, "predicted feature keys must be non-empty strings"
             assert isinstance(processor, FeatureProcessor), f"Invalid processor for '{feature}'"
-            assert feature not in self.input_features, f"'{feature}' is also an input feature"
+            assert feature not in input_feature_names, f"'{feature}' is also an input feature"
             self._predicted_features[feature] = processor
         self._predicted_feature_order = list(predicted_features.keys())
         self._predicted_feature_sizes = None
@@ -346,6 +384,39 @@ class PredictionStrategy(ABC):
         self.input_features = input_features
 
     @staticmethod
+    def from_hdf5_group(group: h5py.Group) -> PredictionStrategy:
+        """Build a registered prediction strategy from an HDF5 group.
+
+        Parameters
+        ----------
+        group : h5py.Group
+            HDF5 group containing a serialized prediction strategy and its
+            ``strategy_type`` identifier.
+
+        Returns
+        -------
+        PredictionStrategy
+            Reconstructed instance of the registered prediction-strategy
+            subclass identified by the group.
+        """
+        strategy_type = group.attrs.get('strategy_type')
+        if strategy_type is None and 'strategy_type' in group:
+            strategy_type = group['strategy_type'][()]
+        if isinstance(strategy_type, np.ndarray):
+            strategy_type = strategy_type[()]
+        if isinstance(strategy_type, (bytes, np.bytes_)):
+            strategy_type = strategy_type.decode('utf-8')
+
+        strategy_cls = _PREDICTION_STRATEGY_REGISTRY.get(strategy_type)
+        if strategy_cls is None:
+            raise KeyError(f"Unknown PredictionStrategy type in HDF5: {strategy_type}")
+
+        instance = strategy_cls.__new__(strategy_cls)
+        PredictionStrategy.__init__(instance)
+        instance.load_model(group)
+        return instance
+
+    @staticmethod
     def _read_feature_order(h5_group: h5py.Group, group_name: str, order_name: str) -> List[str]:
         if order_name not in h5_group:
             # Legacy files did not save order. Their original training order
@@ -404,7 +475,7 @@ class PredictionStrategy(ABC):
         series_lengths = [len(series) for series in series_collection]
         return PredictionStrategy.postprocess_features(raw_predictions,
                                                        series_lengths,
-                                                       self._predicted_feature_order,
+                                                       self.predicted_feature_names,
                                                        self._predicted_feature_sizes,
                                                        self.predicted_features,
                                                        num_procs=num_procs)
@@ -485,7 +556,7 @@ class PredictionStrategy(ABC):
         assert num_procs > 0, f"num_procs must be > 0, got {num_procs}"
         state = series_collection[0][0]
         self._predicted_feature_sizes = {name: int(len(state[name]))
-                                         for name in self._predicted_feature_order}
+                                         for name in self.predicted_feature_names}
 
         targets = PredictionStrategy.preprocess_features(series_collection,
                                                          self.predicted_features,
@@ -600,18 +671,23 @@ class PredictionStrategy(ABC):
                        **params)
         return instance
 
+    def _serialized_input_features(self) -> Optional[Dict[str, Dict[str, Any]]]:
+        """Serialize input features, or return ``None`` when they are derived."""
+        return self.features_to_dict(self.input_features)
+
     def to_dict(self) -> Dict[str, Any]:
         """Serialize this strategy to the canonical payload format.
 
         Returns
         -------
         Dict[str, Any]
-            Strategy payload with ``strategy_type``, serialized ``input_features``,
-            serialized ``predicted_features``, and strategy-specific ``params``.
+            Strategy payload with ``strategy_type``, serialized or derived
+            ``input_features``, serialized ``predicted_features``, and
+            strategy-specific ``params``.
         """
         return {
             "strategy_type": type(self).__name__,
-            "input_features": self.features_to_dict(self.input_features),
+            "input_features": self._serialized_input_features(),
             "predicted_features": self.features_to_dict(self.predicted_features),
             "params": self._params_to_dict(),
         }

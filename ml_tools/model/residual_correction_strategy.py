@@ -7,9 +7,9 @@ import h5py
 
 
 from ml_tools.model.state import SeriesCollection
-from ml_tools.model.prediction_strategy import PredictionStrategy, FeatureSpec
+from ml_tools.model.prediction_strategy import PredictionStrategy, FeatureSpec, merge_input_features
 from ml_tools.model.feature_processor import FeatureProcessor
-from ml_tools.model import register_prediction_strategy, _PREDICTION_STRATEGY_REGISTRY
+from ml_tools.model import register_prediction_strategy
 
 @register_prediction_strategy()
 class ResidualCorrectionStrategy(PredictionStrategy):
@@ -85,21 +85,24 @@ class ResidualCorrectionStrategy(PredictionStrategy):
 
     @property
     def input_features(self) -> Dict[str, FeatureProcessor]:
-        res_inputs = self.residual_model.input_features if self.residual_model else {}
-        ref_inputs = self.reference_model.input_features if self.reference_model else {}
-        combined = dict(res_inputs)
-        for name, processor in ref_inputs.items():
-            if name in combined and combined[name] != processor:
-                raise AssertionError(
-                    f"Input processor mismatch for '{name}' between residual and reference models; "
-                    "access via residual_model.input_features or reference_model.input_features."
-                )
-            combined.setdefault(name, processor)
-        return combined
+        models = {
+            name: model
+            for name, model in (("residual_model", self.residual_model),
+                                ("reference_model", self.reference_model))
+            if model is not None
+        }
+        return merge_input_features(models)
 
     @input_features.setter
     def input_features(self, features: FeatureSpec) -> None:
         raise AttributeError("input_features is a read-only property for ResidualCorrectionStrategy")
+
+    @property
+    def input_feature_names(self) -> list[str]:
+        models = (self.residual_model, self.reference_model)
+        return list(dict.fromkeys(name
+                                  for model in models if model is not None
+                                  for name in model.input_feature_names))
 
     @property
     def predicted_features(self) -> Dict[str, FeatureProcessor]:
@@ -239,32 +242,12 @@ class ResidualCorrectionStrategy(PredictionStrategy):
     def load_model(self, h5_group: h5py.Group) -> None:
         self.reference_model_frozen = bool(h5_group['reference_model_frozen'][()])
 
-        self.residual_model = self._load_strategy_from_group(h5_group['residual_model'])
+        self.residual_model = PredictionStrategy.from_hdf5_group(h5_group['residual_model'])
 
         if 'reference_model' in h5_group:
-            self.reference_model = self._load_strategy_from_group(h5_group['reference_model'])
+            self.reference_model = PredictionStrategy.from_hdf5_group(h5_group['reference_model'])
         else:
             self.reference_model = None
-
-    @staticmethod
-    def _load_strategy_from_group(group: h5py.Group) -> PredictionStrategy:
-        strategy_type = group.attrs.get('strategy_type')
-        if isinstance(strategy_type, bytes):
-            strategy_type = strategy_type.decode('utf-8')
-        if isinstance(strategy_type, np.ndarray):
-            strategy_type = strategy_type[()].decode('utf-8')
-        if strategy_type is None and 'strategy_type' in group:
-            strategy_type = group['strategy_type'][()].decode('utf-8')
-
-        cls = _PREDICTION_STRATEGY_REGISTRY.get(strategy_type, None)
-        if cls is None:
-            raise KeyError(f"Unknown PredictionStrategy type in HDF5: {strategy_type}")
-
-        instance = cls.__new__(cls)
-        PredictionStrategy.__init__(instance)
-
-        instance.load_model(group)
-        return instance
 
     @classmethod
     def read_from_file(cls: ResidualCorrectionStrategy, file_name: str) -> Type[ResidualCorrectionStrategy]:
@@ -333,6 +316,10 @@ class ResidualCorrectionStrategy(PredictionStrategy):
 
         return PredictionStrategy.from_dict(**from_dict_kwargs)
 
+
+    def _serialized_input_features(self) -> None:
+        """Input features are derived from the reference and residual models."""
+        return None
 
     def _params_to_dict(self) -> dict:
         assert self.residual_model is not None, "residual_model must be set before saving to dict"

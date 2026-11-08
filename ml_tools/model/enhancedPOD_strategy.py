@@ -13,7 +13,6 @@ from ml_tools.model import register_prediction_strategy
 from ml_tools.model.gbm_strategy import GBMStrategy
 from ml_tools.model.nn_strategy import NNStrategy
 from ml_tools.model.sklearn_strategy import SklearnStrategy
-from ml_tools.model.feature_processor import NoProcessing
 
 @register_prediction_strategy()  # registers under 'EnhancedPODStrategy' by default
 class EnhancedPODStrategy(PredictionStrategy):
@@ -301,6 +300,7 @@ class EnhancedPODStrategy(PredictionStrategy):
         super().load_model(h5_group)
 
         self._num_moments    = int(h5_group['num_moments'][()])
+        self._max_svd_size   = int(h5_group['max_svd_size'][()])
         self._pod_matrix     = h5_group['pod_mat'][()]
         self._singular_values = h5_group['singular_values'][()]
         theta_model_type_bytes = bytes(h5_group['theta_model_type'][()])
@@ -348,18 +348,11 @@ class EnhancedPODStrategy(PredictionStrategy):
         file_name = file_name if file_name.endswith(".h5") else file_name + ".h5"
         assert os.path.exists(file_name), f"file name = {file_name}"
 
+        instance = cls.__new__(cls)
+        PredictionStrategy.__init__(instance)
         with h5py.File(file_name, "r") as h5_file:
-            r = int(h5_file['num_moments'][()])
-            theta_model_type = bytes(h5_file['theta_model_type'][()]).decode('utf-8')
-        new_pod = cls(
-            input_features={'dummy_input': NoProcessing()},
-            predicted_features='dummy_output',
-            num_moments=r,
-            theta_model_type=theta_model_type
-        )
-        new_pod.load_model(h5py.File(file_name, "r"))
-
-        return new_pod
+            instance.load_model(h5_file)
+        return instance
 
     @classmethod
     def _from_params_dict(cls,

@@ -10,10 +10,10 @@ from sklearn.ensemble import RandomForestRegressor
 
 from ml_tools.model.nn_strategy import Dense, LSTM, Transformer, SpatialConv, SpatialMaxPool, PassThrough, LayerSequence, CompoundLayer, GraphConv
 from ml_tools.model.nn_strategy.graph import SAGE, GAT
-from ml_tools import State, NNStrategy, GBMStrategy, PODStrategy, EnhancedPODStrategy, MinMaxNormalize, NoProcessing, StateSeries, SeriesCollection
+from ml_tools import (State, NNStrategy, GBMStrategy, PODStrategy, EnhancedPODStrategy,
+                      SklearnStrategy, ResidualCorrectionStrategy, CompositeStrategy,
+                      MinMaxNormalize, NoProcessing, StateSeries, SeriesCollection)
 from ml_tools.model.prediction_strategy import PredictionStrategy
-from ml_tools.model.residual_correction_strategy import ResidualCorrectionStrategy
-from ml_tools.model.sklearn_strategy import SklearnStrategy
 
 input_features = {'average_exposure' : MinMaxNormalize(0., 45.),
                   'is_refl'          : NoProcessing(),
@@ -204,6 +204,129 @@ def test_residual_correction_strategy():
                  'test_residual_model_reference_model.lgbm'):
         if os.path.exists(name):
             os.remove(name)
+
+
+@pytest.mark.parametrize("different_processors", [False, True])
+def test_composite_strategy(tmp_path, monkeypatch, different_processors):
+    first = SklearnStrategy(
+        {'average_exposure': MinMaxNormalize(0., 45.)},
+        ['cips_index', 'measured_rh_detector', 'fine_detector'],
+        estimator=LinearRegression,
+    )
+    second = SklearnStrategy(
+        {'average_exposure': NoProcessing() if different_processors else MinMaxNormalize(0., 45.),
+         'num_gad_rods': NoProcessing()},
+        {'measured_rh_detector': MinMaxNormalize(0., 1000.), 'cips_index': NoProcessing()},
+        estimator=Ridge,
+        estimator_args={'fit_intercept': False},
+    )
+    sources = {'measured_rh_detector': 'second', 'cips_index': 'first'}
+    composite = CompositeStrategy({'first': first, 'second': second}, sources)
+    assert not composite.isTrained
+    assert composite.input_feature_names == ['average_exposure', 'num_gad_rods']
+    assert composite.predicted_feature_names == list(sources)
+    assert composite.predicted_features == {
+        'measured_rh_detector': second.predicted_features['measured_rh_detector'],
+        'cips_index': first.predicted_features['cips_index'],
+    }
+    if different_processors:
+        with pytest.raises(AssertionError, match="Input processor mismatch"):
+            _ = composite.input_features
+    else:
+        assert composite.input_features == {
+            'average_exposure': MinMaxNormalize(0., 45.), 'num_gad_rods': NoProcessing(),
+        }
+
+    data = make_series_collection(1, 5)
+    composite.train(data, data)
+    assert composite.isTrained
+    predictions = composite.predict(data)
+    expected = {'first': first.predict(data), 'second': second.predict(data)}
+    assert not np.allclose(expected['first'][0][0]['measured_rh_detector'],
+                           expected['second'][0][0]['measured_rh_detector'])
+    for actual, original in zip(predictions, data):
+        assert len(actual) == len(original)
+        assert list(actual[0].features) == list(sources)
+    for feature, source in sources.items():
+        assert_allclose(predictions.to_array([feature]), expected[source].to_array([feature]))
+
+    payload = composite.to_dict()
+    assert payload['strategy_type'] == 'CompositeStrategy'
+    assert payload['input_features'] is None
+    rebuilt = PredictionStrategy.from_dict(payload)
+    assert rebuilt == composite
+    assert not rebuilt.isTrained
+
+    reference = SklearnStrategy(
+        {'average_exposure': MinMaxNormalize(0., 45.), 'is_refl': NoProcessing()},
+        composite.predicted_features,
+        estimator=LinearRegression,
+    )
+    nested = ResidualCorrectionStrategy(residual_model=composite,
+                                        reference_model=reference)
+    nested_payload = nested.to_dict()
+    assert nested_payload['input_features'] is None
+    assert nested_payload['params']['residual_model']['input_features'] is None
+    rebuilt_nested = PredictionStrategy.from_dict(nested_payload)
+    assert rebuilt_nested.residual_model == composite
+    assert rebuilt_nested.reference_model == reference
+
+    file_name = str(tmp_path / 'composite_model')
+    composite.save_model(file_name)
+    loaded = CompositeStrategy.read_from_file(file_name)
+    assert loaded == composite
+    assert loaded.isTrained
+    assert loaded.predicted_feature_names == list(sources)
+    assert_allclose(loaded.predict(data).to_array(list(sources)), predictions.to_array(list(sources)))
+    with pytest.raises(NotImplementedError, match="SeriesCollection"):
+        composite.predict_processed_inputs(np.zeros((1, 1, 9)))
+
+    rebuilt.frozen_models = 'first'
+    assert rebuilt.frozen_models == {'first'}
+    with pytest.raises(AssertionError, match="Frozen model 'first' must already be trained"):
+        rebuilt.train(data)
+    frozen_model = rebuilt.models['first']
+    frozen_model.train(data)
+    monkeypatch.setattr(frozen_model, 'train', lambda *args, **kwargs: pytest.fail('Frozen model was retrained'))
+    rebuilt.train(data)
+    assert rebuilt.isTrained
+
+    file_name = str(tmp_path / 'frozen_composite.h5')
+    rebuilt.save_model(file_name)
+    loaded = CompositeStrategy.read_from_file(file_name)
+    assert loaded == rebuilt
+    assert loaded.frozen_models == {'first'}
+    assert PredictionStrategy.from_dict(rebuilt.to_dict()).frozen_models == {'first'}
+
+    if not different_processors:
+        enhanced = EnhancedPODStrategy(
+            {'average_exposure': MinMaxNormalize(0., 45.)},
+            'cips_index',
+            theta_model_type='sklearn',
+            max_svd_size=3,
+            num_moments=1,
+        )
+        enhanced_composite = CompositeStrategy(
+            {'enhanced': enhanced},
+            {'cips_index': 'enhanced'},
+        )
+        enhanced_composite.train(data, data)
+        enhanced_file_name = str(tmp_path / 'enhanced_composite.h5')
+        enhanced_composite.save_model(enhanced_file_name)
+        loaded_enhanced = CompositeStrategy.read_from_file(enhanced_file_name)
+        assert loaded_enhanced.models['enhanced'].max_svd_size == 3
+        assert loaded_enhanced.to_dict() == enhanced_composite.to_dict()
+        loaded_enhanced.train(data, data)
+
+
+def test_composite_strategy_invalid_sources():
+    model = SklearnStrategy('average_exposure', 'cips_index', estimator=LinearRegression)
+    with pytest.raises(AssertionError, match="Unknown model"):
+        CompositeStrategy({'model': model}, {'cips_index': 'missing'})
+    with pytest.raises(AssertionError, match="does not predict"):
+        CompositeStrategy({'model': model}, {'measured_rh_detector': 'model'})
+    with pytest.raises(AssertionError, match=r"unused models: \['unused'\]"):
+        CompositeStrategy({'model': model, 'unused': model}, {'cips_index': 'model'})
 
 
 def test_nn_strategy_Dense():

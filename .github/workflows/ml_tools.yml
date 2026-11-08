@@ -14,14 +14,11 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
-    - name: Set up Python 3.11
-      uses: actions/setup-python@v3
+    - name: Set up conda and Python 3.11
+      uses: conda-incubator/setup-miniconda@v3
       with:
         python-version: 3.11
-
-    - name: Add conda to system path
-      run: |
-        echo $CONDA/bin >> $GITHUB_PATH
+        auto-activate-base: false
 
     - name: Configure conda-forge priority
       run: |
