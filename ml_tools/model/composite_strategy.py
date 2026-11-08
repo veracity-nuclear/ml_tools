@@ -4,9 +4,9 @@ from typing import Dict, Optional, Sequence
 import h5py
 import numpy as np
 
-from ml_tools.model import register_prediction_strategy, _PREDICTION_STRATEGY_REGISTRY
+from ml_tools.model import register_prediction_strategy
 from ml_tools.model.feature_processor import FeatureProcessor
-from ml_tools.model.prediction_strategy import PredictionStrategy, FeatureSpec
+from ml_tools.model.prediction_strategy import PredictionStrategy, FeatureSpec, merge_input_features
 from ml_tools.model.state import State, StateSeries, SeriesCollection
 
 
@@ -49,26 +49,25 @@ class CompositeStrategy(PredictionStrategy):
 
     @frozen_models.setter
     def frozen_models(self, names: Sequence[str]) -> None:
+        if isinstance(names, str):
+            names = (names,)
         names = frozenset(names)
         assert names.issubset(self._models), "frozen_models contains unknown model names"
         self._frozen_models = names
 
     @property
     def input_features(self) -> Dict[str, FeatureProcessor]:
-        combined = {}
-        for model_name, model in self._models.items():
-            for name, processor in model.input_features.items():
-                if name in combined and combined[name] != processor:
-                    raise AssertionError(
-                        f"Input processor mismatch for '{name}' in model '{model_name}'; "
-                        "access input_features on the individual models."
-                    )
-                combined.setdefault(name, processor)
-        return combined
+        return merge_input_features(self._models)
 
     @input_features.setter
     def input_features(self, features: FeatureSpec) -> None:
         raise AttributeError("input_features is a read-only property for CompositeStrategy")
+
+    @property
+    def input_feature_names(self) -> list[str]:
+        return list(dict.fromkeys(name
+                                  for model in self._models.values()
+                                  for name in model.input_feature_names))
 
     @property
     def predicted_features(self) -> Dict[str, FeatureProcessor]:
@@ -78,6 +77,10 @@ class CompositeStrategy(PredictionStrategy):
     @predicted_features.setter
     def predicted_features(self, features: FeatureSpec) -> None:
         raise AttributeError("predicted_features is a read-only property for CompositeStrategy")
+
+    @property
+    def predicted_feature_names(self) -> list[str]:
+        return list(self._feature_sources)
 
     @property
     def isTrained(self) -> bool:
@@ -98,20 +101,31 @@ class CompositeStrategy(PredictionStrategy):
             assert isinstance(name, str) and name, "predicted feature names must be non-empty strings"
             assert isinstance(source, str) and source in models, f"Unknown model '{source}' for feature '{name}'"
             assert name in models[source].predicted_features, f"Model '{source}' does not predict feature '{name}'"
+        unused_models = set(models).difference(predicted_features.values())
+        assert not unused_models, \
+            f"Every model must supply at least one routed predicted feature; unused models: {sorted(unused_models)}"
 
         self._models = dict(models)
         self._feature_sources = dict(predicted_features)
-        self._predicted_feature_order = list(predicted_features)
         self.frozen_models = frozen_models if frozen_models is not None else ()
 
-    def train(self, train_data: SeriesCollection, test_data: Optional[SeriesCollection] = None,
-              num_procs: int = 1) -> None:
+    def train(self,
+              train_data: SeriesCollection,
+              validation_data: Optional[SeriesCollection] = None,
+              num_procs: int = 1,
+              *,
+              validation_split: float = 0.2,
+              validation_seed: Optional[int] = 42) -> None:
         assert num_procs > 0, f"num_procs must be > 0, got {num_procs}"
         for name in self.frozen_models:
             assert self._models[name].isTrained, f"Frozen model '{name}' must already be trained"
         for name, model in self._models.items():
             if name not in self.frozen_models:
-                model.train(train_data, test_data, num_procs)
+                model.train(train_data,
+                            validation_data,
+                            num_procs=num_procs,
+                            validation_split=validation_split,
+                            validation_seed=validation_seed)
 
     def predict(self, series_collection: SeriesCollection, num_procs: int = 1) -> SeriesCollection:
         assert self.isTrained, "All supporting models must be trained before prediction"
@@ -147,8 +161,7 @@ class CompositeStrategy(PredictionStrategy):
 
     def write_model_to_hdf5(self, h5_group: h5py.Group) -> None:
         string_type = h5py.string_dtype()
-        h5_group.create_dataset('predicted_feature_order', data=self.predicted_feature_names, dtype=string_type)
-        h5_group.create_dataset('feature_sources', data=list(self._feature_sources.values()), dtype=string_type)
+        h5_group.create_dataset('feature_sources', data=list(self._feature_sources.items()), dtype=string_type)
         h5_group.create_dataset('frozen_models', data=sorted(self.frozen_models), dtype=string_type)
         models_group = h5_group.create_group('models', track_order=True)
         for i, (name, model) in enumerate(self._models.items()):
@@ -161,25 +174,12 @@ class CompositeStrategy(PredictionStrategy):
     def load_model(self, h5_group: h5py.Group) -> None:
         models = {}
         for group in h5_group['models'].values():
-            strategy_type = group.attrs['strategy_type']
-            if isinstance(strategy_type, bytes):
-                strategy_type = strategy_type.decode('utf-8')
-            strategy_cls = _PREDICTION_STRATEGY_REGISTRY.get(strategy_type)
-            if strategy_cls is None:
-                raise KeyError(f"Unknown PredictionStrategy type in HDF5: {strategy_type}")
-            model = strategy_cls.__new__(strategy_cls)
-            PredictionStrategy.__init__(model)
-            model.load_model(group)
             name = group.attrs['model_name']
-            if isinstance(name, bytes):
-                name = name.decode('utf-8')
-            models[name] = model
+            models[name] = PredictionStrategy.from_hdf5_group(group)
 
-        order = h5_group['predicted_feature_order'].asstr()[()].tolist()
-        sources = h5_group['feature_sources'].asstr()[()].tolist()
-        assert len(order) == len(sources) and len(order) == len(set(order)), "Invalid predicted feature routing"
+        feature_sources = dict(h5_group['feature_sources'].asstr()[()].tolist())
         CompositeStrategy.__init__(self, models=models,
-                                   predicted_features=dict(zip(order, sources)),
+                                   predicted_features=feature_sources,
                                    frozen_models=h5_group['frozen_models'].asstr()[()].tolist())
 
     @classmethod
@@ -190,13 +190,9 @@ class CompositeStrategy(PredictionStrategy):
             instance.load_model(h5_file)
         return instance
 
-    def to_dict(self) -> dict:
-        """Serialize child configurations without requesting common input processors."""
-        return {
-            "strategy_type": type(self).__name__,
-            "predicted_features": self.features_to_dict(self.predicted_features),
-            "params": self._params_to_dict(),
-        }
+    def _serialized_input_features(self) -> None:
+        """Input features are derived from the supporting models."""
+        return None
 
     def _params_to_dict(self) -> dict:
         return {

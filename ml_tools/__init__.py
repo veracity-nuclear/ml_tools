@@ -9,5 +9,7 @@ from .model.prediction_strategy import PredictionStrategy
 from .model.gbm_strategy import GBMStrategy
 from .model.nn_strategy import NNStrategy
 from .model.pod_strategy import PODStrategy
+from .model.sklearn_strategy import SklearnStrategy
 from .model.enhancedPOD_strategy import EnhancedPODStrategy
+from .model.residual_correction_strategy import ResidualCorrectionStrategy
 from .model.composite_strategy import CompositeStrategy

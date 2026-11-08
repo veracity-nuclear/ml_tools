@@ -546,7 +546,7 @@ class PredictionResults:
             feature_perturbators = normalized[spec.label]
             assert all(isinstance(value, FeaturePerturbator) for value in feature_perturbators.values()), \
                 f"Perturbators for '{spec.label}' must all be FeaturePerturbator instances."
-            missing_features = sorted(set(feature_perturbators) - set(spec.model.input_features))
+            missing_features = sorted(set(feature_perturbators) - set(spec.model.input_feature_names))
             assert not missing_features, \
                 f"Perturbed features for '{spec.label}' are not model input features: {missing_features}."
 
