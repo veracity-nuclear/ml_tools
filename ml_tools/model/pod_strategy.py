@@ -13,10 +13,11 @@ from threadpoolctl import threadpool_limits
 from ml_tools.model.state import SeriesCollection
 from ml_tools.model.feature_processor import NoProcessing
 from ml_tools.model.prediction_strategy import PredictionStrategy, FeatureSpec
+from ml_tools.model.pod_based_strategy import PODBasedStrategy
 from ml_tools.model import register_prediction_strategy
 
 @register_prediction_strategy()  # registers under 'PODStrategy'
-class PODStrategy(PredictionStrategy):
+class PODStrategy(PODBasedStrategy):
     """ A concrete class for a categorized POD-based prediction strategy
 
     This prediction strategy is a POD-based strategy that may use K-means clustering to
@@ -61,6 +62,9 @@ class PODStrategy(PredictionStrategy):
         The maximum allowed number of training samples to use for the SVD of a cluster POD model
     ndim : int
         The number of dimensions to use for the input feature PCA projection
+    moments : np.ndarray
+        The POD moments (SVD basis) of shape (output_dim, num_input_values).  Only available
+        when nclusters == 1
     """
 
     @property
@@ -87,6 +91,14 @@ class PODStrategy(PredictionStrategy):
     def isTrained(self) -> bool:
         return all(mat is not None for mat in self._pod_mat)
 
+    @property
+    def moments(self) -> np.ndarray:
+        self._assert_single_cluster()
+        assert self.isTrained
+        assert self._pod_basis is not None and self._pod_basis[0] is not None, \
+            "POD moments are unavailable (model may have been saved prior to moments being stored)"
+        return self._pod_basis[0]
+
     def __init__(self,
                  input_feature:      str,
                  predicted_features: FeatureSpec,
@@ -106,6 +118,7 @@ class PODStrategy(PredictionStrategy):
         self._max_svd_size       = max_svd_size
 
         self._pod_mat = None
+        self._pod_basis = None
         self._pca_components = None
         self._pca_mean = None
         self._kmeans_centers = None
@@ -120,7 +133,8 @@ class PODStrategy(PredictionStrategy):
               validation_seed: Optional[int] = 42) -> None:
         """Train the POD model; validation arguments are accepted but unused."""
 
-        self._pod_mat  = [None]*self.nclusters
+        self._pod_mat   = [None]*self.nclusters
+        self._pod_basis = [None]*self.nclusters
         input_feature  = self.input_feature
         output_feature = self.predicted_feature_names[0]
         state          = train_data[0][0]
@@ -174,12 +188,40 @@ class PODStrategy(PredictionStrategy):
 
             u, S, v = np.linalg.svd(A)
 
-            theta = np.matmul(C, u[:,:nvec])
-            self._pod_mat[k] = np.matmul(u[:,:nvec],np.linalg.inv(theta))
+            self._pod_basis[k] = u[:,:nvec]
+            theta = np.matmul(C, self._pod_basis[k])
+            self._pod_mat[k] = np.matmul(self._pod_basis[k],np.linalg.inv(theta))
 
 
     def _predict_one(self, state_series: np.ndarray) -> np.ndarray:
         return self._predict_all([state_series])[0]
+
+    def _assert_single_cluster(self) -> None:
+        if self.nclusters > 1:
+            raise NotImplementedError("POD moments / weights are not supported for PODStrategy with nclusters > 1")
+
+    def predict_weights(self, series_collection: SeriesCollection, num_procs: int = 1) -> np.ndarray:
+        self._assert_single_cluster()
+        return super().predict_weights(series_collection, num_procs=num_procs)
+
+    def _predict_weights_one(self, state_series: np.ndarray) -> np.ndarray:
+        return self._predict_weights_all([state_series])[0]
+
+    def _predict_weights_all(self, series_collection: np.ndarray, num_procs: int = 1) -> np.ndarray:
+        series_collection = np.asarray(series_collection)
+
+        assert self.isTrained
+        assert series_collection.shape[1] == 1, \
+            "All State Series must be static statepoints (i.e. len(series) == 1)"
+        assert num_procs > 0, f"num_procs must be > 0, got {num_procs}"
+
+        # weights = (C U)^-1 x, such that U @ weights == pod_mat @ x
+        U = self.moments
+        X = series_collection[:, 0, :]
+        with threadpool_limits(limits=num_procs):
+            weights = np.linalg.solve(np.matmul(self.fine_to_coarse_map, U), X.T).T
+
+        return weights[:, np.newaxis]
 
     def _project_for_clustering(self, X: np.ndarray) -> np.ndarray:
         if self._pca_components is None:
@@ -241,6 +283,12 @@ class PODStrategy(PredictionStrategy):
                 if mat is not None:
                     pod_group.create_dataset(str(idx), data=mat)
 
+        if self._pod_basis is not None:
+            basis_group = h5_group.create_group('pod_basis')
+            for idx, mat in enumerate(self._pod_basis):
+                if mat is not None:
+                    basis_group.create_dataset(str(idx), data=mat)
+
         if self._pca_components is not None:
             pca_group = h5_group.create_group('pca')
             pca_group.create_dataset('components', data=self._pca_components)
@@ -271,6 +319,16 @@ class PODStrategy(PredictionStrategy):
             self._pod_mat = pod_mat
         else:
             self._pod_mat = None
+
+        # pod_basis is absent from models saved prior to moments being stored
+        if 'pod_basis' in h5_group:
+            basis_group = h5_group['pod_basis']
+            pod_basis = [None] * self._nclusters
+            for key in basis_group.keys():
+                pod_basis[int(key)] = np.asarray(basis_group[key][()])
+            self._pod_basis = pod_basis
+        else:
+            self._pod_basis = None
 
         self._pca_components = None
         self._pca_mean = None
