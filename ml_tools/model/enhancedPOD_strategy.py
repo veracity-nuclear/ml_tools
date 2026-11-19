@@ -104,8 +104,10 @@ class EnhancedPODStrategy(PODBasedStrategy):
         self._theta_model      = ThetaModel(input_features, num_moments, theta_model_type, theta_model_settings)
 
     def _add_theta_to_collection(self, collection: SeriesCollection, scaling_vector: np.ndarray, num_procs: int = 1) -> None:
-        targets = [np.concatenate([state[name] for name in self.predicted_feature_names])
-                   for series in collection for state in series]
+        # Project the same preprocessed targets the POD basis was built from, so that theta
+        # is consistent with the moments when the predicted features have a FeatureProcessor
+        targets = [target for series in self._get_targets(collection, num_procs=num_procs)
+                   for target in np.asarray(series)]
         thetas  = project_theta(targets, self._pod_matrix, self._constraints, scaling_vector, num_procs)
         ThetaModel.set_targets(collection, thetas)
 
