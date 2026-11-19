@@ -8,6 +8,10 @@ from sklearn.linear_model import LinearRegression
 
 from ml_tools import State, StateSeries, SeriesCollection, DMDPODStrategy, MinMaxNormalize, NoProcessing
 from ml_tools.model.prediction_strategy import PredictionStrategy
+from ml_tools.model.residual_correction_strategy import ResidualCorrectionStrategy, is_stepwise
+from ml_tools.model.sklearn_strategy import SklearnStrategy
+from ml_tools.model.gbm_strategy import GBMStrategy
+from ml_tools.model.nn_strategy import NNStrategy, Dense, LSTM, Transformer, PassThrough, LayerSequence
 
 OUTPUT_DIM, R, M = 12, 3, 2
 
@@ -301,3 +305,87 @@ def test_trajectories_share_file(tmp_path):
             assert_allclose(model.read_trajectory_from_hdf5(h5_file[name]).weights, trajectory.weights)
         with pytest.raises(ValueError, match="does not hold"):
             model.read_trajectory_from_hdf5(h5_file['not_a_trajectory'])
+
+
+def residual_corrected(reference=None) -> ResidualCorrectionStrategy:
+    """ A DMD reference (with a deliberately poor 2-moment fit) corrected by a linear residual model """
+    if reference is None:
+        reference = build(num_moments=R - 1, initial_theta_model_type='sklearn',
+                          initial_theta_model_settings={'estimator': LinearRegression})
+    model = ResidualCorrectionStrategy(reference_model=reference,
+                                       residual_model=SklearnStrategy({'u': NoProcessing()}, 'y', LinearRegression),
+                                       reference_model_frozen=False)
+    model.train(make_collection([10] * 20))
+    return model
+
+
+def test_residual_trajectory_matches_predict():
+    model = residual_corrected()
+    collection = make_collection([7, 3, 5], seed=2)
+    predicted = model.predict(collection)
+
+    for i, series in enumerate(collection):
+        trajectory = model.create_trajectory(series[0], 'infer')
+        assert trajectory.strategy is model
+        states = [trajectory.state] + [trajectory.predict_next(state) for state in series[1:]]
+        assert trajectory.step == len(series) - 1
+        assert_allclose([state['y'] for state in states], values(predicted[i]), rtol=1E-5, atol=1E-6)
+
+
+def test_residual_trajectory_project():
+    model = residual_corrected()
+    series = make_collection([6], seed=2)[0]
+
+    trajectory = model.create_trajectory(series[0], 'project')
+    reference  = model.reference_model.create_trajectory(series[0], 'project')
+    residuals  = model.residual_model.predict(SeriesCollection([series]))[0]
+    assert np.abs(values(residuals)).max() > 0.1  # the correction is non-trivial
+    assert_allclose(trajectory.state['y'], reference.state['y'] + residuals[0]['y'])
+    for t in range(1, len(series)):
+        expected = reference.predict_next(series[t])['y'] + residuals[t]['y']
+        assert_allclose(trajectory.predict_next(series[t])['y'], expected, rtol=1E-12)
+
+
+def test_residual_trajectory_chained_and_copy():
+    model = residual_corrected(reference=residual_corrected())
+    collection = make_collection([6, 4], seed=2)
+    predicted = model.predict(collection)
+    for i, series in enumerate(collection):
+        trajectory = model.create_trajectory(series[0], 'infer')
+        states = [trajectory.state] + [trajectory.predict_next(state) for state in series[1:]]
+        assert_allclose([state['y'] for state in states], values(predicted[i]), rtol=1E-5, atol=1E-6)
+
+    series = collection[0]
+    trajectory = model.create_trajectory(series[0], 'infer')
+    trajectory.predict_next(series[1])
+    branch = trajectory.copy()
+    trajectory.predict_next(series[2])
+    assert (trajectory.step, branch.step) == (2, 1)
+    assert_allclose(branch.predict_next(series[2])['y'], trajectory.state['y'])
+
+
+def test_is_stepwise():
+    features = ({'u': NoProcessing()}, 'y')
+    assert is_stepwise(GBMStrategy(*features))
+    assert is_stepwise(SklearnStrategy(*features, LinearRegression))
+    assert is_stepwise(NNStrategy(*features, layers=[Dense(units=4, activation='relu'),
+                                                     LayerSequence([PassThrough(), Dense(units=4, activation='relu')])]))
+    assert not is_stepwise(NNStrategy(*features, layers=[LSTM(units=4, activation='tanh')]))
+    assert not is_stepwise(NNStrategy(*features, layers=[Dense(units=4, activation='relu'),
+                                                         LayerSequence([Transformer(num_heads=1, model_dim=4, ff_dim=4)])]))
+    assert not is_stepwise(build())
+    assert is_stepwise(ResidualCorrectionStrategy(reference_model=GBMStrategy(*features),
+                                                  residual_model=SklearnStrategy(*features, LinearRegression)))
+
+
+def test_residual_trajectory_rejects_unsupported_models():
+    features = ({'u': NoProcessing()}, 'y')
+    temporal_residual = ResidualCorrectionStrategy(reference_model=build(),
+                                                   residual_model=NNStrategy(*features, layers=[LSTM(units=4, activation='tanh')]))
+    with pytest.raises(TypeError, match="Residual model NNStrategy"):
+        temporal_residual.create_trajectory(make_collection([1])[0][0])
+
+    static_reference = ResidualCorrectionStrategy(reference_model=SklearnStrategy(*features, LinearRegression),
+                                                  residual_model=SklearnStrategy(*features, LinearRegression))
+    with pytest.raises(TypeError, match="Reference model SklearnStrategy"):
+        static_reference.create_trajectory(make_collection([1])[0][0])
