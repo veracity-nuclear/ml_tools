@@ -133,11 +133,15 @@ class EnhancedPODStrategy(PredictionStrategy):
             for state in series:
                 all_states.append(state)
 
+        # Project the same preprocessed targets the POD basis was built from, so that theta
+        # is consistent with the moments when the predicted features have a FeatureProcessor
+        targets = self._get_targets(collection, num_procs=num_procs)
+        processed = [targets[i, t] for i, series in enumerate(collection) for t in range(len(series))]
+
         # Prepare arguments for parallel processing
         args_list = [
-            (np.concatenate([state[name] for name in self.predicted_feature_names]),
-             self._pod_matrix, self._constraints, scaling_vector)
-            for state in all_states
+            (target, self._pod_matrix, self._constraints, scaling_vector)
+            for target in processed
         ]
 
         # Compute theta in parallel

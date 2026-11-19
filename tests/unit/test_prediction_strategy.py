@@ -638,6 +638,31 @@ def test_sklearn_strategy():
     cips_calculator4 = SklearnStrategy(sklearn_input_features, output_feature, estimator=Ridge)
     assert cips_calculator2 != cips_calculator4
 
+@pytest.mark.parametrize("processed", [False, True])
+def test_enhanced_pod_strategy_predicted_feature_processing(processed):
+    # Theta targets must be projected from the same preprocessed targets as the POD basis.
+    # Outputs are affine in the input, so a 2-moment POD with a linear theta model is exact
+    # in both raw and processed space.
+    rng = np.random.default_rng(0)
+    a, b = rng.uniform(1., 2., 6), rng.uniform(-1., 1., 6)
+    c, d = rng.uniform(100., 200., 3), rng.uniform(-50., 50., 3)
+
+    def collection(xs):
+        return SeriesCollection([StateSeries([State({'x': np.array([x]), 'y': a + x * b, 'z': c + x * d})])
+                                 for x in xs])
+
+    outputs = {'y': MinMaxNormalize(0.5, 3.), 'z': MinMaxNormalize(40., 260.)} if processed else \
+              {'y': NoProcessing(), 'z': NoProcessing()}
+    model = EnhancedPODStrategy({'x': NoProcessing()}, outputs, theta_model_type='sklearn', num_moments=2,
+                                theta_model_settings={'estimator': LinearRegression})
+    model.train(collection(rng.uniform(0., 1., 20)), num_procs=1)
+
+    test = collection([0.15, 0.6, 0.95])
+    for truth, pred in zip(test, model.predict(test)):
+        assert_allclose(pred[0]['y'], truth[0]['y'], rtol=1E-5)  # predictions are float32
+        assert_allclose(pred[0]['z'], truth[0]['z'], rtol=1E-5)
+
+
 def test_enhanced_pod_strategy_multiple_features():
     # Test EnhancedPOD with multiple predicted features
     enhanced_input_features = {'average_exposure': MinMaxNormalize(0., 45.)}
