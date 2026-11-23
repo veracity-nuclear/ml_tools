@@ -57,6 +57,18 @@ def test_read_states_from_hdf5_false_with_duplicate_basenames(tmp_path):
     assert_allclose(states[0]["results_index"], [3.0, 4.0])
 
 
+def test_parallel_read_keeps_order(tmp_path):
+    file_name = tmp_path / "order.h5"
+    names = [f"set_{i:03d}" for i in range(12)]
+    with h5py.File(file_name, "w") as h5_file:
+        for i, name in enumerate(names):
+            h5_file.create_group(name).create_dataset("x", data=np.array([float(i)]))
+
+    assert get_groups_with_prefix(str(file_name), "set_", num_procs=2, silent=True) == names
+    states = State.read_states_from_hdf5(str(file_name), ["x"], names, silent=True, num_procs=3)
+    assert [s["x"][0] for s in states] == list(range(12))
+
+
 def test_state():
 
     data_file    = os.path.dirname(__file__)+"/test_data.h5"
