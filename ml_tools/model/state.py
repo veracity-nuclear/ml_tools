@@ -441,7 +441,7 @@ class State:
                 }
 
                 completed = 0
-                for job in as_completed(jobs):
+                for job in jobs:  # submission order, so states keep their file order
                     result = job.result()
                     state_data.extend(result)
                     if not silent:

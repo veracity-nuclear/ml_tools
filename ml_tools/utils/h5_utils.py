@@ -1,6 +1,6 @@
 from typing import List, Union
 import os
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor
 import h5py
 
 from ml_tools.utils.status_bar import StatusBar
@@ -41,7 +41,7 @@ def get_groups_with_prefix(file_name: str, prefix: str, num_procs: int = 1, sile
         jobs = {executor.submit(_check_group, group, prefix=prefix): group for group in group_names}
 
         completed = 0
-        for job in as_completed(jobs):
+        for job in jobs:  # submission order, so groups keep their file order
             result = job.result()
             if result is not None:
                 groups.append(result)
